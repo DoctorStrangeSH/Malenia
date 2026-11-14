@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 32359)
-Total output lines: 938
+Warning: truncated output (original token count: 32711)
+Total output lines: 946
 
 ## CI update — 2026-11-12 — Excel batch checks
 
@@ -583,16 +583,7 @@ Implemented in PR #2 branch `feat/desktop-shell`:
 - `browser-extension/background.js`: MV3 service worker task runs independent of popup using persistent Native Messaging `connectNative` port for task lifetime; one outstanding request at a time, request IDs matched, five-second response deadline. It stores only sanitized role/progress/character-count metadata in `chrome.storage.session`. Port is closed after run; no autonomous task runs on startup.
 - Popup version 1.3.0 exposes three resource HTTPS URL fields and one-button automatic read-only audit, after Chrome's exact-origin permission prompt. Sanitized resource URL paths are retained in extension local storage for the next run. No credentials or page text are saved.
 - Native host already supports `inspect_active_page`, validates bounded text, reports characters and `persisted: false`, but does **not** forward text to the local AI agent or correlate orders. Thus the current result is a 3-site read success/failure summary, not an actual business workflow output.
-- Desktop Browser/Sources privacy messages corrected for new opt-in rendered-text reading. `browser-extension/README.md` explains capability and setup. `tests/browser_automation.test.cjs` tests URL restrictions, sequential traversal, cleanup, redirect block, host failure. CI desktop-chec…2359 tokens truncated… syntax error was fixed in commit `47b4fe04`. Syntax compilation for `automation.js`, `popup.js`, `background.js`, and the test file passed via V8. Recheck current CI before asserting new tests pass.
-- `browser-extension/README.md` documents the precise opt-in contract and strict limitations. Query URLs contain cargo identifiers and can appear in site/server logs, but are not stored in extension progress or returned to the local host.
-- This is **not yet verified with actual corporate websites**: whether their forms are native GET with expected field names is unknown. JavaScript search, button interaction, SPA custom filters, virtualized pagination and Asgard extended box history still need approved, tested adapters. This does not perform any status writes. The desired final UX remains one user command, autonomous execution under explicitly approved resource permissions.
-
-
-## 2026-11-12 — Privacy-safe browser diagnostics and automatic search default
-
-User keeps requesting autonomous browser tasks, not repetitive manual operations. Continued draft PR #2 `feat/desktop-shell`; do **not** merge without user authorization.
-
-- `browser-extension/automation.js` now maps only a **fixed allowlist of internal browser failure codes** to task progress. Browser exception strings, sensitive URLs, cargo identifiers, form contents and source text are never persisted as diagnostic messages. Unknown errors become `site_or_browser_error`. Known codes include cross-origin redirects, malformed/incomplete grids, pagination errors, exact search-result mismatch and local host rejection.
+- Desktop Browser/Sources privacy messages corrected for new opt-in rendered-text reading. `browser-extension/README.md` explains capability and setup. `tests/browser_automation.test.cjs` tests URL restrictions, sequential traversal, cleanup, redirect block, host failure. CI desktop-chec…2711 tokens truncated…errors become `site_or_browser_error`. Known codes include cross-origin redirects, malformed/incomplete grids, pagination errors, exact search-result mismatch and local host rejection.
 - Native GET search introspection distinguishes `unsupported_search_form` from `dynamic_search_ui` (non-form search widget) and `unmapped_search_form` (no suitable match). It does NOT interact with unknown JavaScript controls or infer site-specific selectors; no corporate write actions.
 - `browser-extension/popup.js` displays actionable Russian descriptions for the safe codes, and the optional read-only per-cargo search mode is now **enabled by default** on first configuration (user can uncheck and saved explicit `false` persists). The browser's origin-permission prompt and direct start action still apply.
 - `tests/browser_automation.test.cjs` covers secret-bearing browser errors, login redirects, simulated native form mismatch and a dynamic search widget. `browser-extension/README.md` documents classification and limitations.
@@ -892,3 +883,11 @@ Latest fix commit at this note: `4f46fdd1d7c9dc77a4b26e3244f6ed8b14af87e4` (late
 - If year remains ambiguous, UI conditionally asks only for year and constructs ISO override from selected sheet day/month. Existing date override pipeline is reused; no unconditional date entry restored. Rust error preserves code and no longer references nonexistent date control.
 - Open-tab discovery preselects unique exact known Google Sheets/DataLens/Asgard origins, preserves existing open selections, leaves ambiguous sources unselected. Permissions/persistence still require explicit Save. Tests prove no implicit grants or storage.
 - Version bump 0.6.4 / 1.5.2. Frontend build and 91 Node tests passed. Real source setup still needs one save/permission action; do not claim sheet investigation ran merely because task was picked up.
+
+## 2026-11-14 — Browser Bridge 1.6.0 current-tab setup
+
+- User has 100–1000 tabs and wants to configure the currently open tab directly and persist the selection. Added primary current-tab panel: detect exact known hostname, choose role if unknown, click Использовать эту вкладку. Query only active:true,lastFocusedWindow:true; never enumerate tabs in this flow.
+- Request permission for only selected origin within click handler, then save one role in extension local storage through serialized background writes. Partial mappings persist across popup/browser sessions and merge without dropping earlier roles; malformed/unauthorized writes rejected. Shared tab metadata is sent through existing native host after save, with a separate clear message if sharing fails.
+- Show three-role saved/missing summary. Collapse legacy tab enumeration, URL fields, share-all and structural diagnostics under additional settings. Partial saved configuration is no longer labelled invalid by advanced form.
+- This simplifies setup only. It does not prove live source searches or add automatic Sheets writes. User needs extension 1.6.0; desktop does not require a version bump for this feature.
+- All 94 Node tests passed, including current-tab-only discovery, persistence across popup instances, denied/unsafe/missing-role cases and real background serialized merging. CI includes new tests.
