@@ -46,6 +46,7 @@ function workerHarness() {
   let claims = 0;
   let closes = 0;
   const context = vm.createContext({
+    URL,
     importScripts() {},
     chrome: {
       runtime: {
@@ -82,6 +83,7 @@ function workerHarness() {
   vm.runInContext('nativeSession = () => testSession', context);
   return {context, messages, claims:()=>claims, closes:()=>closes,
     poll:()=>vm.runInContext('pollDesktopAudit()',context),
+    configure:message=>new Promise(resolve=>onMessage({type:'configure_active_source',...message},{},resolve)),
     popup() {
       let response;
       onMessage({type:'start_readonly_audit',targets:{}},{},value=>{response=value;});
@@ -131,4 +133,23 @@ test('automation failure finishes claimed job and releases worker',async()=>{
   assert.equal(worker.messages.find(item=>item.type==='finish_browser_audit').succeeded,false);
   assert.equal(worker.closes(),1);
   assert.equal(vm.runInContext('running',worker.context),false);
+});
+
+test('background serializes partial source saves so concurrent bindings preserve every role',async()=>{
+ const worker=workerHarness();let saved={};
+ worker.context.chrome.storage.local.get=async()=>({maleniaTargets:saved});
+ worker.context.chrome.storage.local.set=async value=>{saved=value.maleniaTargets;};
+ worker.context.testSession.send=async()=>({ok:false});
+ const responses=await Promise.all([
+  worker.configure({role:'inventory',url:'https://docs.google.com/spreadsheets/d/example/edit'}),
+  worker.configure({role:'datalens',url:'https://datalens.yandex-team.ru/orders'}),
+  worker.configure({role:'asgard',url:'https://asgard.market.yandex-team.ru/'})
+ ]);
+ assert.ok(responses.every(r=>r.ok));assert.equal(Object.keys(saved).length,3);
+ assert.equal(saved.datalens,'https://datalens.yandex-team.ru/orders');
+ const rejected=await worker.configure({role:'other',url:'https://example.com/'});
+ assert.equal(rejected.ok,false);assert.equal(Object.keys(saved).length,3);
+ worker.context.chrome.permissions.contains=async()=>false;
+ const denied=await worker.configure({role:'asgard',url:'https://other.example/'});
+ assert.equal(denied.ok,false);assert.equal(saved.asgard,'https://asgard.market.yandex-team.ru/');
 });
