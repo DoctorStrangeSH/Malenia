@@ -8,6 +8,24 @@ from uuid import uuid4
 
 
 class TaskStoreTests(unittest.TestCase):
+    def test_cancelled_browser_job_cannot_complete_after_new_job_starts(self):
+        old=self.store.request_browser_audit()
+        self.store.claim_browser_audit()
+        self.assertTrue(self.store.cancel_browser_audit())
+        self.assertEqual(self.store.latest_browser_audit_job()["failure_reason"],"cancelled")
+        new=self.store.request_browser_audit()
+        self.assertIsNone(self.store.latest_browser_audit_job()["failure_reason"])
+        self.assertFalse(self.store.finish_browser_audit(old["job_id"],True))
+        self.assertEqual(self.store.latest_browser_audit_job()["job_id"],new["job_id"])
+        self.assertEqual(self.store.latest_browser_audit_job()["status"],"pending")
+
+    def test_browser_failure_reason_is_bounded_and_cursor_not_advanced(self):
+        job=self.store.request_browser_audit()
+        self.store.claim_browser_audit()
+        self.assertFalse(self.store.finish_browser_audit(job["job_id"],False,"raw private URL"))
+        self.assertTrue(self.store.finish_browser_audit(job["job_id"],False,"sources_not_configured"))
+        self.assertEqual(self.store.latest_browser_audit_job()["failure_reason"],"sources_not_configured")
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.store = TaskStore(Path(self.temp_dir.name) / "test.sqlite3")
