@@ -1,3 +1,12 @@
+## 2026-11-14 — Browser Bridge 1.6.6 — native DataLens control adapter
+
+- Real user still reports search_field_missing after selecting the Orders deep link. Actual corporate DOM is unavailable; do not call the task fixed based on mocks or packaging checks.
+- Reviewed primary upstream DataLens source rather than guessing new labels: datalens-tech/datalens-ui, src/ui/libs/DatalensChartkit/components/Control/Items/withWrapForControls.js and Items.js, plus src/shared/constants/qa/control.ts.
+- Upstream wrapper exposes data-qa=chartkit-control, its caption via chartkit-control-title / chartkit-control-item__title-text, and full label in title attributes. Adapter now resolves that exact widget boundary and requires a single editable input; includes full caption title rather than only truncated text or a fixed ancestor depth.
+- Upstream BaseControlInput commits through keypress charCode=13 or blur, after React onUpdate changes local state. Added deferred Enter keypress and blur, retaining exact cargo/result identity and freshness checks. Previous keydown/keyup alone did not match the published handler.
+- Capability inspection now reads the same widget caption, still never reading field values. If live discovery still fails, request that structured diagnostic on the actual Orders tab; stop treating repeated missing-field screenshots as enough DOM evidence.
+- Validation: 119 Node tests including native wrapper/full-title matching, deferred React state + keypress, and rejection of multiple editable fields in a widget. No desktop version bump. Bridge 1.6.6 is a source-based adapter improvement, not proof of successful corporate-site audit.
+
 ## 2026-11-14 — 0.6.7 installer — WebView2 cleanup race
 
 - Failed Windows installer run 43602902240 / job 132471279286 compiled and bundled the installer successfully. Single-instance/agent lifecycle smoke test failed while leaving TemporaryDirectory: WinError 32 on webview-test/EBWebView/lockfile. Subsequent installer upgrade and artifact upload steps were skipped.

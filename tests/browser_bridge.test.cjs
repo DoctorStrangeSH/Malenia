@@ -186,3 +186,16 @@ test('page inspection requires explicit user click and never reads on handshake'
   await p.reply(1, {ok:true, type:'capabilities_inspected', persisted:false});
   assert.match(p.nodes.status.textContent, /Структурная диагностика завершена/);
 });
+
+test('structural diagnostics resolve the full native DataLens caption without reading a field value',async()=>{
+ const full={getAttribute:name=>name==='title'?'ID заказа / ЛОТа / ТОТа / Тележки':null};
+ const caption={textContent:'ID заказа…',getAttribute:()=>null,querySelector:()=>full};
+ const input={getAttribute:()=>null,getClientRects:()=>[{}],getBoundingClientRect:()=>({width:100}),
+   closest:()=>({querySelector:()=>caption}),get value(){throw Error('must not read values');}};
+ const doc={title:'DataLens Orders',querySelector:()=>null,
+   querySelectorAll:selector=>selector==='input, textarea, [role=searchbox], [role=combobox]'?[input]:[]};
+ const p=popup('https://datalens.yandex-team.ru/dashboard',doc);
+ await p.reply(0,hello);await p.click('inspect');
+ assert.equal(p.calls[1].message.page.search_labels[0],'ID заказа / ЛОТа / ТОТа / Тележки');
+ assert.equal(p.calls[1].message.page.structure.unlabelled_inputs,0);
+});

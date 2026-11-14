@@ -210,10 +210,14 @@ inspectButton.addEventListener("click", async () => {
           const type = String(el.getAttribute("type") || "text").toLowerCase();
           if (["hidden","password","checkbox","radio","file","submit","button"].includes(type) || !visible(el)) continue;
           structure.inputs++;
+          const widget=el.closest?.('[data-qa="chartkit-control"], .chartkit-control-item__control');
+          const widgetCaption=widget?.querySelector('[data-qa="chartkit-control-title"], .chartkit-control-item__title-text');
+          const fullCaption=widgetCaption?.querySelector('[title]');
           const label = clean(el.getAttribute("aria-label") || el.getAttribute("placeholder") ||
             (el.labels && Array.from(el.labels).map(x=>x.innerText || x.textContent).join(" ")) ||
             String(el.getAttribute("aria-labelledby") || "").split(/\s+/)
-              .map(id=>root.getElementById?.(id)?.textContent || "").join(" "));
+              .map(id=>root.getElementById?.(id)?.textContent || "").join(" ") ||
+            fullCaption?.getAttribute('title') || widgetCaption?.getAttribute('title') || widgetCaption?.textContent);
           if (!label) structure.unlabelled_inputs++;
           labels.push(label || "[поле без подписи: " + type + "]");
         }

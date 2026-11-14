@@ -296,6 +296,17 @@ var MaleniaAutomation = (() => {
           const matches=inputs.filter(el=>{
             const labels=[el.getAttribute('aria-label'),el.getAttribute('placeholder'),
               ...Array.from(el.labels || []).map(x=>x.textContent)];
+            if(role==='datalens') {
+              // DataLens's published withWrapForControls component owns the
+              // caption and input through these stable QA/class boundaries.
+              const widget=el.closest?.('[data-qa="chartkit-control"], .chartkit-control-item__control');
+              if(widget && [...widget.querySelectorAll('input')].filter(eligible).length===1) {
+                for(const caption of widget.querySelectorAll('[data-qa="chartkit-control-title"], .chartkit-control-item__title-text')) {
+                  labels.push(caption.getAttribute('title'),caption.textContent);
+                  for(const full of caption.querySelectorAll('[title]')) labels.push(full.getAttribute('title'));
+                }
+              }
+            }
             // React forms often render the caption as a sibling, without label/for.
             for(const id of (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)) {
               labels.push(document.getElementById(id)?.textContent);
@@ -422,8 +433,8 @@ var MaleniaAutomation = (() => {
         const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
         if(!setter) return null;
         return await new Promise(resolve=>{
-          let timer, deadline, observer, last='', stableAt=0, done=false;
-          const finish=value=>{if(done)return;done=true;clearInterval(timer);clearTimeout(deadline);observer.disconnect();resolve(value);};
+          let timer, deadline, trigger, observer, last='', stableAt=0, done=false;
+          const finish=value=>{if(done)return;done=true;clearInterval(timer);clearTimeout(deadline);clearTimeout(trigger);observer.disconnect();resolve(value);};
           const check=()=>{
             if(location.origin!==expectedOrigin || input.value!==code) return finish(null);
             const table=read(), serialized=JSON.stringify(table);
@@ -434,13 +445,22 @@ var MaleniaAutomation = (() => {
           observer=new MutationObserver(check);
           observer.observe(document.body,{subtree:true,childList:true,characterData:true});
           deadline=setTimeout(()=>finish({error:'search_results_unconfirmed'}),15000);
+          input.focus?.();
           setter.call(input,code);
           input.dispatchEvent(new Event('input',{bubbles:true}));
           input.dispatchEvent(new Event('change',{bubbles:true}));
           if(role==='asgard') buttons[0].click();
           else {
-            input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true}));
-            input.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true}));
+            // The published DataLens BaseControlInput commits on keypress
+            // charCode=13 or blur. Let React apply onUpdate before committing.
+            trigger=setTimeout(()=>{
+              if(done || location.origin!==expectedOrigin || input.value!==code) return;
+              const enter={key:'Enter',code:'Enter',keyCode:13,charCode:13,which:13,bubbles:true};
+              input.dispatchEvent(new KeyboardEvent('keydown',enter));
+              input.dispatchEvent(new KeyboardEvent('keypress',enter));
+              input.dispatchEvent(new KeyboardEvent('keyup',enter));
+              input.blur?.();
+            },0);
           }
           timer=setInterval(check,250);
         });
