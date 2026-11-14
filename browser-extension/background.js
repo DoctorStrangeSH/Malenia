@@ -65,7 +65,31 @@ async function progress(snapshot) {
   // Never store page text, cargo codes, login data, or raw browser errors.
   await chrome.storage.session.set({maleniaAudit:snapshot});
 }
+let targetWrites = Promise.resolve();
+async function configureActiveSource(message) {
+  if (!["inventory","datalens","asgard"].includes(message.role)) throw new Error("invalid_role");
+  const validated=MaleniaAutomation.normalizeTargets(Object.fromEntries(
+    ["inventory","datalens","asgard"].map(role=>[role,message.url])));
+  const url=validated[message.role];
+  if(!await chrome.permissions.contains({origins:[new URL(url).origin+"/*"]}))throw new Error("permissions_missing");
+  const stored=await chrome.storage.local.get("maleniaTargets");
+  const targets={};
+  for(const role of ["inventory","datalens","asgard"]){
+    const saved=stored?.maleniaTargets?.[role];
+    if(saved){try{targets[role]=MaleniaAutomation.normalizeTargets(Object.fromEntries(
+      ["inventory","datalens","asgard"].map(key=>[key,saved])))[role];}catch{/* omit invalid old settings */}}
+  }
+  targets[message.role]=url;
+  await chrome.storage.local.set({maleniaTargets:targets,maleniaExactGetSearch:true});
+  return targets;
+}
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if(message?.type === "configure_active_source") {
+    const operation=targetWrites.then(()=>configureActiveSource(message));
+    targetWrites=operation.catch(()=>{});
+    operation.then(targets=>{respond({ok:true,targets});void pollDesktopAudit();},()=>respond({ok:false,error:"source_not_saved"}));
+    return true;
+  }
   if (message?.type === "poll_desktop_audit") { void pollDesktopAudit(); respond({ok:true}); return false; }
   if (!message || message.type !== "start_readonly_audit") return false;
   if (running) { respond({ok:false,error:"already_running"});return false; }
