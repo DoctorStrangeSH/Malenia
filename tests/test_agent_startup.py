@@ -14,6 +14,20 @@ from malenia.store import TaskStore
 
 
 class AgentStartupTests(unittest.TestCase):
+    def test_new_runtime_interrupts_old_browser_job_without_claiming_success(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store=TaskStore(Path(temp)/"restart.sqlite3")
+            job=store.request_browser_audit()
+            store.claim_browser_audit()
+            server=create_server("127.0.0.1",0,store,"test-token")
+            try:
+                self.assertEqual(store.latest_browser_audit_job()["status"],"failed")
+                self.assertEqual(store.latest_browser_audit_job()["failure_reason"],"agent_restarted")
+                self.assertFalse(store.finish_browser_audit(job["job_id"],True))
+                self.assertEqual(store.request_browser_audit()["status"],"pending")
+            finally:
+                server.server_close()
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
@@ -52,4 +66,4 @@ class AgentStartupTests(unittest.TestCase):
         with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root), 'XDG_DATA_HOME': str(self.root)}):
             self.assertEqual(data_directory(), self.root / 'Malenia')
             self.assertEqual(database_path(), self.root / 'Malenia' / 'malenia.sqlite3')
-        self.assertEqual(__version__, '0.6.2')
+        self.assertEqual(__version__, '0.6.3')
