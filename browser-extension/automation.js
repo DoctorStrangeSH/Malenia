@@ -301,9 +301,49 @@ var MaleniaAutomation = (() => {
         };
         // tabs.status=complete does not mean an SPA has rendered its search form.
         const readyUntil=Date.now()+12000;
-        let controls, reverseSelected=false;
+        let controls, reverseSelected=false, ordersSelected=false;
+        const ordersTabs = () => {
+          // Prefer semantic controls. Some dashboard tab captions are plain spans
+          // whose click bubbles to a React handler on the surrounding strip.
+          const semantic=[...document.querySelectorAll('a,button,[role="tab"],[tabindex]')]
+            .filter(el=>visible(el) && !el.disabled && clean(el.textContent)==='Заказы');
+          if(semantic.length) return semantic.filter(el=>
+            !semantic.some(other=>other!==el && other.contains?.(el)));
+          return [...document.querySelectorAll('span,div')].filter(el=>{
+            if(!visible(el) || clean(el.textContent)!=='Заказы' ||
+                [...(el.children || [])].some(child=>clean(child.textContent)==='Заказы')) return false;
+            let parent=el.parentElement;
+            for(let i=0;parent && i<4;i++,parent=parent.parentElement) {
+              const text=clean(parent.textContent);
+              if(text.length>1500) break;
+              // Observed neighbours distinguish the tab strip from dashboard links.
+              if(['Статистика','Массовые сканы','Многоместка'].filter(label=>text.includes(label)).length>=2) return true;
+            }
+            return false;
+          });
+        };
         do {
           if(location.origin!==expectedOrigin) return {error:'search_origin_mismatch'};
+          if(role==='datalens' && !ordersSelected) {
+            controls=findControls();
+            if(!controls.error) {
+              // A saved deep link can already have the correct search form.
+              ordersSelected=true;
+            } else {
+              const tabs=ordersTabs();
+              if(tabs.length>1) return {error:'search_navigation_ambiguous'};
+              if(tabs.length===1) {
+                const tab=tabs[0], link=tab.closest?.('a[href]');
+                if(link && new URL(link.href,location.href).origin!==expectedOrigin) return {error:'search_origin_mismatch'};
+                ordersSelected=true;
+                if(tab.getAttribute('aria-selected')!=='true') {
+                  tab.click();
+                  await new Promise(resolve=>setTimeout(resolve,200));
+                  continue;
+                }
+              }
+            }
+          }
           if(role==='asgard' && !reverseSelected) {
             const reverseTabs=[...document.querySelectorAll('a,button,[role="tab"]')]
               .filter(el=>visible(el) && clean(el.textContent)==='Обратный поток');

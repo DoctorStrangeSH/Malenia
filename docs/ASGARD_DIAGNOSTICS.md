@@ -1,3 +1,11 @@
+## 2026-11-14 — Browser Bridge 1.6.4 — navigate DataLens to Orders
+
+- User screenshot identifies the real missing-field case: a new DataLens dashboard tab opens on the default SC overview, and order search lives on the Orders tab. Source URL sanitization retains dashboard path but drops query/fragment state.
+- DataLens adapter now selects visible exact «Заказы» before searching when the order form is absent, waits for SPA controls, and never clicks again when a deep link already exposes the form.
+- Supports semantic tabs/links/buttons and plain caption spans within a strip recognized by the observed adjacent labels «Статистика», «Массовые сканы», «Многоместка». Ambiguous captions and links to another origin are rejected before clicking.
+- Only Browser Bridge changes: version 1.6.4, existing source settings preserved. No desktop reinstall required for this fix.
+- Validation: 109 Node tests passed (default dashboard, lazy tabs, plain caption, existing Orders form, ambiguous/unrelated captions, foreign link); live corporate dashboard remains unavailable here, so actual search success still needs user confirmation.
+
 ## 2026-11-14 — 0.6.6 / Bridge 1.6.3 — preserve found-order routing in batches
 
 - User supplied a 03.10 sheet and a first-order DataLens history containing OK scans at SC 101366 on 05.10. The expected outcome is Found without Asgard. Screenshots do not identify which order caused the Asgard stage of the 20-order batch.

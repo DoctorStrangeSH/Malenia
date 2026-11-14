@@ -616,7 +616,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, deadline, now=0;
@@ -645,12 +645,16 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
       .map(textContent=>({textContent}))}
   ]};
   const button={textContent:'Найти',disabled:false,getClientRects:()=>[{}],click(){clicks++;updated=!unchanged;}};
+  const ordersTab={textContent:'Заказы',closest:()=>foreignOrders?{href:'https://other.example/orders'}:null,children:[],parentElement:{textContent:unrelatedOrders?'Ссылки на Заказы':'СЦ Статистика Заказы Массовые сканы Многоместка',parentElement:null},getClientRects:()=>[{}],getAttribute:()=>null,click(){navigationClicks++;}};
   const reverseTab={textContent:'Обратный поток',getClientRects:()=>[{}],getAttribute:()=>null,click(){navigationClicks++;}};
-  const document={body:{},getElementById:id=>id==='barcode-caption'?{textContent:label}:null,querySelectorAll:selector=>selector==='input'?((missing || (reverse && !navigationClicks) || (delayed && now<800))?[]:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
-    selector==='button'?(noButton?[]:[button]):selector==='table'?[table]:selector==='a,button,[role="tab"]' && reverse?[reverseTab]:[]};
+  const document={body:{},getElementById:id=>id==='barcode-caption'?{textContent:label}:null,querySelectorAll:selector=>selector==='input'?((missing || (reverse && !navigationClicks) || (orders && !ordersAlreadyOpen && !navigationClicks) || (delayed && now<800))?[]:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
+    selector==='button'?(noButton?[]:[button]):selector==='table'?[table]:
+    selector==='a,button,[role="tab"]' && reverse?[reverseTab]:
+    selector==='a,button,[role="tab"],[tabindex]' && orders && !plainOrders && !(delayedOrders && now<800)?(duplicateOrders?[ordersTab,{...ordersTab}]:[ordersTab]):
+    selector==='span,div' && orders && plainOrders?[ordersTab]:[]};
   const chrome={scripting:{async executeScript({func,args}){
     return [{result:await vm.runInNewContext('('+func.toString()+')(...args)',{
-      document,location:{origin:host},HTMLInputElement:Input,args,
+      document,URL,location:{origin:host,href:host+'/dashboard'},HTMLInputElement:Input,args,
       Event:class {constructor(type){this.type=type;}},KeyboardEvent:class {constructor(type){this.type=type;}},
       MutationObserver:class {observe(){}disconnect(){}},
       Date:{now:()=>now},setTimeout:(fn,ms)=>{if(ms<=200){now+=ms;queueMicrotask(fn);}else deadline=fn;return 1;},clearTimeout(){},clearInterval(){},
@@ -820,4 +824,35 @@ test('unmapped DataLens columns never fall back to searching all orders in Asgar
     {exactGetSearch:true,seedInventory:inventorySeed(['VOZ_MK_TEST_001'])});
   assert.equal(result.phase,'needs_attention');assert.equal(result.results.at(-1).role,'datalens');
   assert.equal(result.results.at(-1).reason,'unmapped_search_results');assert.equal(calls.length,1);
+});
+
+
+test('DataLens selects Orders on the dashboard home before searching, including lazy/plain tab captions',async()=>{
+  const api=runner();
+  for(const config of [{orders:true},{orders:true,delayedOrders:true},{orders:true,plainOrders:true}]) {
+    const f=workplaceFixture('datalens',config);
+    const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+    assert.equal(result.rows[0][0],'TEST-1');assert.equal(f.navigationClicks(),1);
+  }
+});
+
+test('an Orders deep link with a ready form is searched without resetting its tab',async()=>{
+  const api=runner(),f=workplaceFixture('datalens',{orders:true,ordersAlreadyOpen:true});
+  const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+  assert.equal(result.rows[0][0],'TEST-1');assert.equal(f.navigationClicks(),0);
+});
+
+test('ambiguous Orders tabs and unrelated Orders text never trigger a guessed click',async()=>{
+  const api=runner();
+  for(const config of [{orders:true,duplicateOrders:true},{orders:true,plainOrders:true,unrelatedOrders:true}]) {
+    const f=workplaceFixture('datalens',config);
+    await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),/search_navigation_ambiguous|search_field_missing/);
+    assert.equal(f.navigationClicks(),0);
+  }
+});
+
+ test('Orders navigation rejects a link outside the authorized DataLens origin',async()=>{
+  const api=runner(),f=workplaceFixture('datalens',{orders:true,foreignOrders:true});
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),/search_origin_mismatch/);
+  assert.equal(f.navigationClicks(),0);
 });

@@ -17,7 +17,7 @@
     search_filters_not_empty:"В Asgard заполнены другие фильтры: очисти их и продолжи разбор",
     search_button_missing:"Не найдена доступная кнопка «Найти»",
     search_button_ambiguous:"Найдено несколько кнопок «Найти»",
-    search_navigation_ambiguous:"Не удалось выбрать «Обратный поток»",
+    search_navigation_ambiguous:"Не удалось однозначно выбрать нужную вкладку сервиса",
     search_results_unconfirmed:"За 15 секунд не получен однозначный обновлённый результат поиска",
     search_origin_mismatch:"Проверь вход: сервис перенаправил на другой адрес",
     page_timeout:"Страница не загрузилась вовремя",
