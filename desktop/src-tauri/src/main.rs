@@ -290,6 +290,13 @@ fn get_dashboard(state: State<'_, AgentState>) -> Result<Dashboard, String> {
 }
 
 #[tauri::command]
+fn cancel_browser_audit(state: State<'_, AgentState>) -> Result<Value, String> {
+    let token = state.token.lock().map_err(|_| "Состояние агента недоступно".to_string())?
+        .clone().ok_or_else(|| "Сначала запустите агента".to_string())?;
+    api_post_json(&token, "/v1/browser/audit-cancel", serde_json::json!({}), Duration::from_secs(10))
+}
+
+#[tauri::command]
 fn request_browser_audit(state: State<'_, AgentState>) -> Result<Value, String> {
     let token = state.token.lock().map_err(|_| "Состояние агента недоступно".to_string())?
         .clone().ok_or_else(|| "Сначала запустите локального агента".to_string())?;
@@ -757,7 +764,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![start_agent, stop_agent, get_dashboard,
-            request_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
+            request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
         .run(tauri::generate_context!())
         .expect("error while running Malenia");
 }
