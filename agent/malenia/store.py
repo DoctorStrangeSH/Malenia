@@ -159,6 +159,22 @@ class TaskStore:
                     ON events(created_at DESC);
                 """
             )
+            try:
+                db.execute("ALTER TABLE browser_audit_job ADD COLUMN failure_reason TEXT")
+            except sqlite3.OperationalError as error:
+                if "duplicate column name" not in str(error):
+                    raise
+
+    def cancel_browser_audit(self, reason: str = "cancelled") -> bool:
+        with self._session() as db:
+            db.execute("BEGIN IMMEDIATE")
+            changed = db.execute("UPDATE browser_audit_job SET status='failed',failure_reason=?,updated_at=? "
+                "WHERE id=1 AND status IN ('pending','running')", (reason, _now())).rowcount
+            if changed:
+                db.execute("UPDATE inventa_batch_cursor SET pending_job_id=NULL,pending_end=NULL")
+                db.execute("DELETE FROM browser_audit_seed")
+                db.execute("DELETE FROM browser_audit_seed_items")
+            return bool(changed)
 
     def create_task(self, title: str, description: str = "", request_id: str | None = None) -> dict[str, Any]:
         task_id = str(uuid.uuid4())
@@ -321,7 +337,7 @@ class TaskStore:
             """UPDATE browser_audit_job SET status='expired', updated_at=?
                WHERE id=1 AND ((status='pending' AND created_unix < ?)
                   OR (status='running' AND created_unix < ?))""",
-            (_now(), now - 900, now - 1800),
+            (_now(), now - 120, now - 1800),
         )
         db.execute("DELETE FROM browser_audit_seed WHERE job_id NOT IN "
                    "(SELECT job_id FROM browser_audit_job WHERE status='pending')")
@@ -333,7 +349,7 @@ class TaskStore:
             self._expire_browser_audit(db)
             row = db.execute(
                 """SELECT j.job_id,j.status,j.created_at,j.updated_at,
-                          p.current_role,p.completed_sources,p.attention_sources,p.failed_role
+                          p.current_role,p.completed_sources,p.attention_sources,p.failed_role,j.failure_reason
                    FROM browser_audit_job j LEFT JOIN browser_audit_progress p
                    ON p.id=1 AND p.job_id=j.job_id WHERE j.id=1"""
             ).fetchone()
@@ -430,7 +446,7 @@ class TaskStore:
                    ON CONFLICT(id) DO UPDATE SET
                    job_id=excluded.job_id,status=excluded.status,
                    created_at=excluded.created_at,created_unix=excluded.created_unix,
-                   updated_at=excluded.updated_at""",
+                   updated_at=excluded.updated_at,failure_reason=NULL""",
                 (job_id, now, time.time(), now),
             )
             db.execute(
@@ -498,17 +514,18 @@ class TaskStore:
                                    "rows": [[seed["cargo_place"], seed["inventory_date"]]]}
         return result
 
-    def finish_browser_audit(self, job_id: str, succeeded: bool) -> bool:
+    def finish_browser_audit(self, job_id: str, succeeded: bool, failure_reason: str | None = None) -> bool:
         if (not isinstance(job_id, str) or len(job_id) != 36
-                or not isinstance(succeeded, bool)):
+                or not isinstance(succeeded, bool)
+                or failure_reason not in {None,"sources_not_configured","browser_permission_missing","execution_failed"}):
             return False
         with self._session() as db:
             db.execute("BEGIN IMMEDIATE")
             self._expire_browser_audit(db)
             cursor = db.execute(
-                """UPDATE browser_audit_job SET status=?,updated_at=?
+                """UPDATE browser_audit_job SET status=?,updated_at=?,failure_reason=?
                    WHERE id=1 AND job_id=? AND status='running'""",
-                ("completed" if succeeded else "failed", _now(), job_id),
+                ("completed" if succeeded else "failed", _now(), None if succeeded else failure_reason, job_id),
             )
             if cursor.rowcount:
                 db.execute(
