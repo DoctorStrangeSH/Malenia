@@ -46,7 +46,10 @@
       const source = labels[item.role];
       if (!source) return null;
       return item.status === "needs_attention" ?
-        source+": "+(reasons[item.reason] || "Требуется проверка совместимости") :
+        source+": "+(reasons[item.reason] || "Требуется проверка совместимости")+
+          (item.surface && ['visible_inputs','editable_inputs','bound_inputs','matched_inputs'].every(key=>
+            Number.isInteger(item.surface[key]) && item.surface[key]>=0 && item.surface[key]<=10000)?
+            ` [Вкладка разбора: видимых полей ${item.surface.visible_inputs}, доступных ${item.surface.editable_inputs}, в блоке №13 ${item.surface.bound_inputs}, совпадений ${item.surface.matched_inputs}]`:"") :
         source+": чтение завершено";
     }).filter(Boolean);
     const end = audit.phase === "reconciled" ? "Сверка выполнена без изменений сайтов." :

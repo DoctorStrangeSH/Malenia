@@ -96,3 +96,10 @@ test('ambiguous corporate tabs remain unselected',async()=>{
  ui.nodes.targetDatalens.value='';await ui.nodes.discoverTargets.click();
  assert.equal(ui.nodes.targetDatalens.value,'');assert.equal(ui.stored,null);
 });
+
+
+test('automatic search failure displays the failed tab counts separately from active-tab diagnostics',async()=>{
+ const ui=screen(true,{phase:'needs_attention',results:[{role:'datalens',status:'needs_attention',
+   reason:'search_field_missing',surface:{visible_inputs:10,editable_inputs:10,bound_inputs:0,matched_inputs:0}}]});
+ await flush();assert.match(ui.nodes.orderAuditStatus.textContent,/Вкладка разбора: видимых полей 10, доступных 10/);
+});

@@ -292,7 +292,22 @@ var MaleniaAutomation = (() => {
         const wanted = role === 'asgard' ? /^Штрихкод коробки$/i : /^ID заказа\s*\/\s*ЛОТа\s*\/\s*ТОТа\s*\/\s*Тележки$/i;
         const labelMatches = text => wanted.test(clean(text).replace(/[\s:*＊]+$/g,''));
         const findControls = () => {
-          const inputs=[...document.querySelectorAll('input')].filter(eligible);
+          const visibleInputs=[...document.querySelectorAll('input')].filter(visible);
+          const inputs=visibleInputs.filter(eligible);
+          let boundInputs=0;
+          const failure=(error,matched=0)=>({error,surface:{visible_inputs:visibleInputs.length,
+            editable_inputs:inputs.length,bound_inputs:boundInputs,matched_inputs:matched}});
+          // Owner-supplied DOM identifies this exact Orders widget on this dashboard.
+          // Bind its native input directly; do not infer a field by page-wide order.
+          if(role==='datalens' && location.pathname==='/94srinatuhls4-sc' &&
+              new URL(location.href).searchParams.get('tab')==='qmM') {
+            const bound=[...document.querySelectorAll(
+              '[data-qa="dashkit-grid-item"][data-dashkit-grid-id="13"] [data-qa="chartkit-control-input"] input.g-text-input__control'
+            )].filter(visible);
+            boundInputs=bound.length;
+            if(bound.length>1) return failure('search_field_ambiguous',bound.length);
+            if(bound.length===1) return eligible(bound[0])?{input:bound[0],buttons:[]}:failure('search_field_missing');
+          }
           const matches=inputs.filter(el=>{
             const labels=[el.getAttribute('aria-label'),el.getAttribute('placeholder'),
               ...Array.from(el.labels || []).map(x=>x.textContent)];
@@ -323,7 +338,7 @@ var MaleniaAutomation = (() => {
             }
             return labels.some(labelMatches);
           });
-          if(matches.length!==1) return {error:matches.length?'search_field_ambiguous':'search_field_missing'};
+          if(matches.length!==1) return failure(matches.length?'search_field_ambiguous':'search_field_missing',matches.length);
           const input=matches[0];
           if(role==='asgard' && inputs.some(el=>el!==input && el.value.trim())) return {error:'search_filters_not_empty'};
           const buttons=role==='asgard' ? [...document.querySelectorAll('button')]
@@ -466,7 +481,15 @@ var MaleniaAutomation = (() => {
         });
       },args:[role,code,origin]});
     const table=response?.[0]?.result;
-    if(table?.error) throw new Error(table.error);
+    if(table?.error) {
+      const error=new Error(table.error);
+      const surface=table.surface, fields=['visible_inputs','editable_inputs','bound_inputs','matched_inputs'];
+      if(surface && Object.keys(surface).length===fields.length &&
+          fields.every(key=>Number.isInteger(surface[key]) && surface[key]>=0 && surface[key]<=10000)) {
+        error.surface=Object.fromEntries(fields.map(key=>[key,surface[key]]));
+      }
+      throw error;
+    }
     if(!table) throw new Error("unmapped_search_results");
     return table;
   }
@@ -734,7 +757,12 @@ var MaleniaAutomation = (() => {
       } catch (error) {
         // Only constant known codes are allowed in persisted progress. Browser errors
         // often contain a URL, which may include cargo identifiers or session data.
-        results.push({role, status: "needs_attention", reason: reasonCode(error)});
+        const fields=['visible_inputs','editable_inputs','bound_inputs','matched_inputs'];
+        const surface=error?.surface;
+        const safe=surface && Object.keys(surface).length===fields.length &&
+          fields.every(key=>Number.isInteger(surface[key]) && surface[key]>=0 && surface[key]<=10000);
+        results.push({role, status: "needs_attention", reason: reasonCode(error),
+          ...(safe?{surface:Object.fromEntries(fields.map(key=>[key,surface[key]]))}:{})});
       }
       await onProgress({phase: "reading", role, results: [...results]});
       // A failed DataLens batch is not evidence that its orders were not found.

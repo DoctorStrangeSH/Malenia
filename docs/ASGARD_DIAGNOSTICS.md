@@ -1,3 +1,12 @@
+## 2026-11-14 — Browser Bridge 1.6.7 — owner-confirmed widget binding
+
+- User supplied actual Elements screenshots: selected input is inside data-qa=dashkit-grid-item / data-dashkit-grid-id=13, then chartkit-control, chartkit-control-title, chartkit-control-input, and input.g-text-input__control. Input has no unique ID, readonly or disabled attributes.
+- Added an exact binding for this field only on the confirmed DataLens dashboard /94srinatuhls4-sc?tab=qmM. Reject multiple visible bound inputs or a non-editable bound input. Generic semantic detection remains for other pages; never select an arbitrary first text input.
+- Earlier active-page diagnostic found the correct caption while automatic-page lookup still failed. Added four bounded, value-free counters to failure reports: visible_inputs, editable_inputs, bound_inputs, matched_inputs. Popup labels these «Вкладка разбора» so active-page observations are no longer confused with the new background job page. Native job persistence remains coarse (no field values or raw DOM).
+- Validation: 123 Node tests passed, covering exact binding, dashboard scope, duplicate/disabled controls, and bounded automatic-page diagnostics with private text rejected. A local Chromium DOM smoke attempt could not launch due to restricted socket permissions; do not count that as browser verification.
+- Bridge 1.6.7 ZIP delivered separately; desktop reinstall is unnecessary. Live DataLens/Asgard audit and automatic writeback remain unconfirmed/unimplemented respectively.
+- If the real lookup still fails, inspect the popup «Вкладка разбора» counters first; do not claim another fix from active-tab screenshots alone.
+
 ## 2026-11-14 — Browser Bridge 1.6.6 — native DataLens control adapter
 
 - Real user still reports search_field_missing after selecting the Orders deep link. Actual corporate DOM is unavailable; do not call the task fixed based on mocks or packaging checks.

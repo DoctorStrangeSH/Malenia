@@ -616,7 +616,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, committedEvents=0, stateValue, deadline, now=0;
@@ -649,6 +649,7 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
     const widget={querySelectorAll:selector=>selector==='input'?nativeInputs:[title]};
     for(const el of nativeInputs){el.parentElement=null;el.closest=()=>widget;}
   }
+  if(pinnedControl){input.parentElement=null;input.closest=()=>null;input.disabled=pinnedDisabled;}
   const headers=role==='asgard'?['Статус грузоместа','ID возврата','ID партнера','ID коробки']:
     ['scanned_at','sc_id','result','place_external_id'];
   const table={querySelectorAll:()=>[
@@ -663,6 +664,7 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
   const heading={...ordersTab,parentElement:{textContent:'Заказы. Описание дашборда',parentElement:null}};
   const reverseTab={textContent:'Обратный поток',getClientRects:()=>[{}],getAttribute:()=>null,click(){navigationClicks++;}};
   const document={body:{},getElementById:id=>id==='barcode-caption'?{textContent:label}:null,querySelectorAll:selector=>selector==='input'?((missing || (reverse && !navigationClicks) || (orders && !ordersAlreadyOpen && !navigationClicks && !(deepOrders && now>=800)) || (delayed && now<800))?[]:nativeControl?nativeInputs:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
+    selector==='[data-qa="dashkit-grid-item"][data-dashkit-grid-id="13"] [data-qa="chartkit-control-input"] input.g-text-input__control' && pinnedControl?(pinnedCollision?[input,new Input()]:[input]):
     selector==='button'?(noButton?[]:[button]):selector==='table'?[table]:
     selector==='a,button,[role="tab"]' && reverse?[reverseTab]:
     selector==='a,button,[role="tab"],[tabindex]' && orders && !plainOrders && !(delayedOrders && now<800)?(duplicateOrders?[ordersTab,{...ordersTab}]:ordersHeading?[ordersTab,heading]:[ordersTab]):
@@ -931,4 +933,36 @@ test('a native DataLens wrapper containing two editable inputs is never used to 
   const api=runner(),f=workplaceFixture('datalens',{nativeControl:true,duplicateNative:true,keypressOnly:true});
   await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),/search_field_missing/);
   assert.equal(f.committedEvents(),0);
+});
+
+
+test('owner-supplied Orders widget 13 binds its exact native input even without a usable label',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{pinnedControl:true,deepOrders:true,keypressOnly:true});
+ const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(result.rows[0][0],'TEST-1');assert.equal(f.committedEvents(),1);
+});
+
+test('widget 13 binding is scoped to the supplied dashboard route and refuses duplicates or disabled fields',async()=>{
+ const api=runner();
+ for(const config of [{pinnedControl:true},{pinnedControl:true,deepOrders:true,pinnedCollision:true},
+   {pinnedControl:true,deepOrders:true,pinnedDisabled:true}]) {
+   const f=workplaceFixture('datalens',{...config,keypressOnly:true});
+   await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),/search_field_missing|search_field_ambiguous/);
+   assert.equal(f.committedEvents(),0);
+ }
+});
+
+
+test('failed automatic-page diagnostics carry only bounded input counts, not page text or identifiers',async()=>{
+ const api=runner(),chrome=fakeBrowser(),reports=[];
+ chrome.scripting.executeScript=async()=>[{result:{error:'search_field_missing',surface:
+   {visible_inputs:10,editable_inputs:10,bound_inputs:0,matched_inputs:0}}}];
+ const result=await api.run(chrome,workTargets,async()=>{},async report=>reports.push(report),
+   {exactGetSearch:true,seedInventory:inventorySeed(['TEST-PRIVATE'])});
+ assert.equal(result.phase,'needs_attention');assert.equal(result.results.at(-1).surface.visible_inputs,10);
+ assert.ok(!JSON.stringify(reports).includes('TEST-PRIVATE'));
+ chrome.scripting.executeScript=async()=>[{result:{error:'search_field_missing',surface:{private_text:'SECRET'}}}];
+ const rejected=await api.run(chrome,workTargets,async()=>{},async()=>{},
+   {exactGetSearch:true,seedInventory:inventorySeed(['TEST-PRIVATE'])});
+ assert.equal(rejected.results.at(-1).surface,undefined);assert.ok(!JSON.stringify(rejected).includes('SECRET'));
 });
