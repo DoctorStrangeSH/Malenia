@@ -213,12 +213,18 @@ type GoogleSheetsStatus = {connected:boolean;status:string;error:string|null;cli
 
 function SourcesPage({tabs,connected,onOpenBrowser,runState,runner}:{tabs:BrowserTab[];connected:boolean;onOpenBrowser:()=>void;runState:RunState;runner:InventaRun}){
   const [selectedSheet,setSelectedSheet]=useState("");
+  const [clarifiedYear,setClarifiedYear]=useState("");
   const [sheetOptions,setSheetOptions]=useState<{url:string;title:string}[]>([]);
   const [loadingSheets,setLoadingSheets]=useState(false);
   const [lesson,setLesson]=useState<KnowledgeDraft|null>(null);
   const sheetTabs=tabs.filter(tab=>/^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(tab.url));
   const sheetUrl=selectedSheet||sheetTabs[0]?.url||"";
   const runBusy=["waiting","running","pausing"].includes(runState.phase);
+  const selectedTitle=sheetOptions.find(sheet=>sheet.url===sheetUrl)?.title||"";
+  const sheetDayMonth=selectedTitle.match(/(?:^|\s)(\d{1,2})[./-](\d{1,2})(?!\d)/);
+  const needsYear=runState.source===sheetUrl&&runState.message.includes("sheet_date_not_verified");
+  const clarifiedDate=needsYear&&/^\d{4}$/.test(clarifiedYear)&&sheetDayMonth?
+    `${clarifiedYear}-${sheetDayMonth[2].padStart(2,"0")}-${sheetDayMonth[1].padStart(2,"0")}`:undefined;
   const [clientId,setClientId]=useState("");
   const [clientSecret,setClientSecret]=useState("");
   const [sheetsStatus,setSheetsStatus]=useState<GoogleSheetsStatus>({connected:false,status:"not_connected",error:null});
@@ -336,17 +342,18 @@ function SourcesPage({tabs,connected,onOpenBrowser,runState,runner}:{tabs:Browse
     {sheetNotice?<p className="alert success" role="status">{sheetNotice}</p>:null}
     <article className="panel inventa-workbench" aria-label="Разбор ИНВенты">
       <h2>Разобрать ИНВенту</h2><p>Выбери лист. Маления последовательно проверит заказы в DataLens и Asgard до конца списка.</p>
-      <label>Таблица и лист<select value={sheetUrl} disabled={runBusy} onChange={e=>setSelectedSheet(e.target.value)}>
+      <label>Таблица и лист<select value={sheetUrl} disabled={runBusy} onChange={e=>{setSelectedSheet(e.target.value);setClarifiedYear("");}}>
         {!sheetTabs.length?<option value="">Передай вкладку ИНВенты через расширение</option>:null}
         {sheetTabs.filter(tab=>!sheetOptions.some(sheet=>sheet.url===tab.url)).map(tab=><option value={tab.url} key={tab.id}>{tab.title} · открытый лист</option>)}
         {sheetOptions.map(sheet=><option value={sheet.url} key={sheet.url}>{sheet.title}</option>)}
       </select></label>
       {inventaReport?.analysis.sheet_inventory_date?<p>Дата листа: <b>{inventaReport.analysis.sheet_inventory_date}</b></p>:null}
       {!sheetsAuthorized?<p role="status">Сначала подключи Google в разделе ниже — без доступа к таблице разбор недоступен.</p>:null}
+      {needsYear?<label>Уточни только год для листа «{selectedTitle}»<input type="number" min="1900" max="9999" value={clarifiedYear} onChange={e=>setClarifiedYear(e.target.value)}/><small>День и месяц уже взяты из названия. В данных листа не нашлось однозначного года.</small></label>:null}
       {loadingSheets?<p role="status">Загружаю названия листов и дату…</p>:null}
       <div className="google-actions">
-        <button className="primary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||runBusy} onClick={()=>void runner.start(sheetUrl)}><Play size={16}/>{runState.phase==="paused"||runState.phase==="error"?"Продолжить разбор":"Разобрать весь лист"}</button>
-        <button className="secondary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets} onClick={()=>void runner.restart(sheetUrl)}>Начать заново</button>
+        <button className="primary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||runBusy||(needsYear&&!clarifiedDate)} onClick={()=>void runner.start(sheetUrl,clarifiedDate)}><Play size={16}/>{runState.phase==="paused"||runState.phase==="error"?"Продолжить разбор":"Разобрать весь лист"}</button>
+        <button className="secondary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||(needsYear&&!clarifiedDate)} onClick={()=>void runner.restart(sheetUrl,clarifiedDate)}>Начать заново</button>
         <button className="secondary" disabled={!runBusy||runState.phase==="pausing"} onClick={()=>runner.pause()}>Пауза</button>
         <button className="secondary" disabled={!connected||!!lesson} onClick={()=>{runner.pause();setLesson({id:crypto.randomUUID(),title:"Правило разбора ИНВенты",content:"",kind:"memory"});}}>Объяснить Малении</button>
       </div>
