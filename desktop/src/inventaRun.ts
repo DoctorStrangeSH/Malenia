@@ -2,11 +2,12 @@ export type RunState = {
   phase:"idle"|"waiting"|"running"|"pausing"|"paused"|"completed"|"error";
   processed:number; total:number; source:string; message:string;
 };
-type Job = {job_id:string;status:string};
+type Job = {job_id:string;status:string;failure_reason?:string;current_role?:string;failed_role?:string};
 type Batch = {job:Job;queued_orders:number;eligible_orders:number;batch_start:number;remaining_orders:number};
 type Invoke = <T>(command:string,args?:Record<string,unknown>)=>Promise<T>;
 export class InventaRun {
   state:RunState={phase:"idle",processed:0,total:0,source:"",message:"Выбери лист и начни разбор."};
+  private epoch=0;
   private inventoryDate:string|undefined;
   private active=false;
   private requesting=false;
@@ -25,9 +26,12 @@ export class InventaRun {
     await this.next();
   }
   async restart(source:string, inventoryDate?:string){
-    if(this.active||this.requesting||this.job)return;
+    if(this.requesting)return;
+    this.active=false;this.job=null;this.epoch++;clearTimeout(this.timer);
     this.requesting=true;
+    this.update({phase:"waiting",message:"Отменяю прежнюю проверку и начинаю заново…"});
     try{
+      await this.invoke("cancel_browser_audit");
       await this.invoke("reset_inventa_order_batch",{spreadsheetUrl:source});
       this.update({processed:0,total:0});
     }catch(error){this.fail(String(error));return;}
@@ -39,7 +43,7 @@ export class InventaRun {
     this.update({phase:this.job||this.requesting?"pausing":"paused",
       message:this.job||this.requesting?"Текущая партия завершится; новые заказы не запускаются.":"Разбор на паузе. Можно продолжить с сохранённого места."});
   }
-  dispose(){this.active=false;clearTimeout(this.timer);}
+  dispose(){this.active=false;this.epoch++;clearTimeout(this.timer);}
   private fail(message:string){this.active=false;this.job=null;this.update({phase:"error",message});}
   private async next(){
     if(!this.active||this.requesting)return;
@@ -66,8 +70,10 @@ export class InventaRun {
   private schedule(){clearTimeout(this.timer);this.timer=setTimeout(()=>void this.poll(),this.delay);}
   private async poll(){
     if(!this.job)return;
+    const epoch=this.epoch;
     try{
       const data=await this.invoke<{browser_audit_job:Job|null}>("get_dashboard");
+      if(epoch!==this.epoch)return;
       const current=data.browser_audit_job;
       if(!current||current.job_id!==this.job.id){this.fail("Очередь изменилась. Нажми «Продолжить», чтобы сверить сохранённую позицию.");return;}
       if(current.status==="completed"){
@@ -77,12 +83,12 @@ export class InventaRun {
         if(this.active)await this.next();
         else this.update({phase:"paused",message:"Пауза. Проверенная позиция сохранена; продолжение не пропустит строки."});
       }else if(["failed","expired"].includes(current.status)){
-        this.fail(current.status==="expired"?"Browser Bridge не ответил. Проверь расширение и разрешения, затем продолжи.":"Не удалось проверить текущую партию. Проверь результат в «Моей рабочей среде» и продолжи — позиция не сдвинута.");
+        this.fail(current.failure_reason==="sources_not_configured"?"Расширение получило задачу, но источники не настроены. В Browser Bridge выбери рабочие вкладки и сохрани их.":current.failure_reason==="browser_permission_missing"?"Браузер не разрешил чтение источников. В Browser Bridge нажми «Сохранить и разрешить чтение».":current.failure_reason==="agent_restarted"?"Предыдущая проверка прервана перезапуском. Можно начать разбор снова.":current.status==="expired"?"Browser Bridge не ответил. Проверь расширение и разрешения, затем продолжи.":`Не удалось проверить партию. Источник: ${{inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"}[current.failed_role||""]||"подключение расширения"}. Позиция не сдвинута.`);
       }else{
         this.update({phase:this.active?(current.status==="running"?"running":"waiting"):"pausing",
-          message:!this.active?"Завершаю текущую партию перед паузой.":current.status==="running"?"Проверяю DataLens и Asgard…":"Ожидаю Browser Bridge…"});
+          message:!this.active?"Завершаю текущую партию перед паузой.":current.status==="running"?`Расширение выполняет этап: ${{inventory:"чтение ИНВенты",datalens:"поиск в DataLens",asgard:"поиск в Asgard"}[current.current_role||""]||"подготовка"}.`:"Расширение ещё не забрало задачу. Поиск на сайтах не начался."});
         this.schedule();
       }
-    }catch(error){this.fail("Связь с агентом прервалась: "+String(error));}
+    }catch(error){if(epoch===this.epoch)this.fail("Связь с агентом прервалась: "+String(error));}
   }
 }
