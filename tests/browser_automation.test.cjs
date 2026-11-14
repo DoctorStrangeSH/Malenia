@@ -616,18 +616,25 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
-  let updated=false, clicks=0, deadline, now=0;
+  let updated=false, clicks=0, navigationClicks=0, deadline, now=0;
   class Input {
     constructor(){this.type='text';this._value='';this.disabled=false;this.readOnly=false;
-      this.parentElement={textContent:label,querySelectorAll:()=>[this],parentElement:null};}
+      this.parentElement={textContent:label,querySelectorAll:selector=>selector==='input'?[this]:[],parentElement:null};}
     get value(){return this._value;} set value(v){this._value=v;}
     getAttribute(){return null;} getClientRects(){return [{}];}
     dispatchEvent(event){if(event.type==='keyup')updated=!unchanged;}
   }
   const input=new Input();
+  if(caption || hidden || multiField) {
+    const captionNode={textContent:label+' : *',getClientRects:()=>[{}]};
+    const hiddenInput={type:'hidden',getClientRects:()=>[]};
+    input.parentElement={textContent:label+' : * Очистить',parentElement:null,
+      querySelectorAll:selector=>selector==='input'?(multiField?[input,new Input()]:hidden?[input,hiddenInput]:[input]):[captionNode]};
+  }
+  if(aria){input.parentElement=null;input.getAttribute=name=>name==='aria-labelledby'?'barcode-caption':null;}
   const headers=role==='asgard'?['Статус грузоместа','ID возврата','ID партнера','ID коробки']:
     ['scanned_at','sc_id','result','place_external_id'];
   const table={querySelectorAll:()=>[
@@ -638,18 +645,19 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
       .map(textContent=>({textContent}))}
   ]};
   const button={textContent:'Найти',disabled:false,getClientRects:()=>[{}],click(){clicks++;updated=!unchanged;}};
-  const document={body:{},querySelectorAll:selector=>selector==='input'?(missing?[]:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
-    selector==='button'?(noButton?[]:[button]):selector==='table'?[table]:[]};
+  const reverseTab={textContent:'Обратный поток',getClientRects:()=>[{}],getAttribute:()=>null,click(){navigationClicks++;}};
+  const document={body:{},getElementById:id=>id==='barcode-caption'?{textContent:label}:null,querySelectorAll:selector=>selector==='input'?((missing || (reverse && !navigationClicks) || (delayed && now<800))?[]:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
+    selector==='button'?(noButton?[]:[button]):selector==='table'?[table]:selector==='a,button,[role="tab"]' && reverse?[reverseTab]:[]};
   const chrome={scripting:{async executeScript({func,args}){
     return [{result:await vm.runInNewContext('('+func.toString()+')(...args)',{
       document,location:{origin:host},HTMLInputElement:Input,args,
       Event:class {constructor(type){this.type=type;}},KeyboardEvent:class {constructor(type){this.type=type;}},
       MutationObserver:class {observe(){}disconnect(){}},
-      Date:{now:()=>now},setTimeout:fn=>{deadline=fn;return 1;},clearTimeout(){},clearInterval(){},
+      Date:{now:()=>now},setTimeout:(fn,ms)=>{if(ms<=200){now+=ms;queueMicrotask(fn);}else deadline=fn;return 1;},clearTimeout(){},clearInterval(){},
       setInterval:fn=>{for(let i=0;i<6;i++){now+=250;fn();}deadline();return 2;}
     })}];
   }}};
-  return {chrome,host,clicks:()=>clicks};
+  return {chrome,host,clicks:()=>clicks,navigationClicks:()=>navigationClicks};
 }
 
 test('workplace adapters bind search results using observed labels and normalize source schemas',async()=>{
@@ -713,4 +721,19 @@ test('queued seeded orders route through workplace searches and skip Asgard for 
     await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'asgard','TEST-1',f.host),new RegExp(reason));
     assert.equal(f.clicks(),0);
   }
+});
+
+ test('workplace search waits for SPA form hydration and accepts visible sibling or ARIA captions',async()=>{
+  const api=runner();
+  for(const config of [{delayed:true},{caption:true},{aria:true},{hidden:true},{caption:true,delayed:true},{reverse:true,caption:true}]) {
+    const f=workplaceFixture('asgard',config);
+    const table=await api.workplaceSearch(f.chrome,7,'asgard','TEST-1',f.host);
+    assert.equal(table.rows[0][0],'TEST-1');assert.equal(f.clicks(),1);
+    assert.equal(f.navigationClicks(),config.reverse?1:0);
+  }
+});
+ test('caption near multiple editable fields never licenses guessing the barcode field',async()=>{
+  const api=runner(),f=workplaceFixture('asgard',{multiField:true});
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'asgard','TEST-1',f.host),/search_field_missing/);
+  assert.equal(f.clicks(),0);
 });

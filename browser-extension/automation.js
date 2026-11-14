@@ -265,36 +265,64 @@ var MaleniaAutomation = (() => {
         if (location.origin !== expectedOrigin) return null;
         const clean = s => String(s || "").replace(/\s+/g," ").trim();
         const visible = el => el.getClientRects().length > 0;
-        if(role==='asgard') {
-          // Shared Asgard URLs can be the SPA root; select reverse-flow explicitly.
-          const reverseTabs=[...document.querySelectorAll('a,button,[role="tab"]')]
-            .filter(el=>visible(el) && clean(el.textContent)==='Обратный поток');
-          if(reverseTabs.length>1)return {error:'search_navigation_ambiguous'};
-          if(reverseTabs.length===1){
-            reverseTabs[0].click();
-            await new Promise(resolve=>setTimeout(resolve,750));
-            if(location.origin!==expectedOrigin)return null;
-          }
-        }
-        const inputs = [...document.querySelectorAll('input')].filter(el =>
-          ['text','search'].includes(el.type.toLowerCase()) && visible(el) && !el.disabled && !el.readOnly);
+        const eligible = el => ['text','search'].includes(String(el.type).toLowerCase()) &&
+          visible(el) && !el.disabled && !el.readOnly;
         const wanted = role === 'asgard' ? /^Штрихкод коробки$/i : /^ID заказа\s*\/\s*ЛОТа\s*\/\s*ТОТа\s*\/\s*Тележки$/i;
-        const matches = inputs.filter(el => {
-          const labels = [el.getAttribute('aria-label'), el.getAttribute('placeholder'),
-            ...Array.from(el.labels || []).map(x=>x.textContent)];
-          let parent=el.parentElement;
-          for(let i=0;parent && i<4;i++,parent=parent.parentElement) {
-            if(parent.querySelectorAll('input').length !== 1) break;
-            labels.push(parent.textContent);
+        const labelMatches = text => wanted.test(clean(text).replace(/[\s:*＊]+$/g,''));
+        const findControls = () => {
+          const inputs=[...document.querySelectorAll('input')].filter(eligible);
+          const matches=inputs.filter(el=>{
+            const labels=[el.getAttribute('aria-label'),el.getAttribute('placeholder'),
+              ...Array.from(el.labels || []).map(x=>x.textContent)];
+            // React forms often render the caption as a sibling, without label/for.
+            for(const id of (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)) {
+              labels.push(document.getElementById(id)?.textContent);
+            }
+            let parent=el.parentElement;
+            for(let i=0;parent && i<6;i++,parent=parent.parentElement) {
+              // Hidden widgets must not prevent reading a visible field's caption.
+              // Stop before a container owning more than one editable field.
+              if([...parent.querySelectorAll('input')].filter(eligible).length!==1) break;
+              labels.push(parent.textContent);
+              for(const caption of parent.querySelectorAll('label,span,div,p')) {
+                if(visible(caption) && labelMatches(caption.textContent)) labels.push(caption.textContent);
+              }
+            }
+            return labels.some(labelMatches);
+          });
+          if(matches.length!==1) return {error:matches.length?'search_field_ambiguous':'search_field_missing'};
+          const input=matches[0];
+          if(role==='asgard' && inputs.some(el=>el!==input && el.value.trim())) return {error:'search_filters_not_empty'};
+          const buttons=role==='asgard' ? [...document.querySelectorAll('button')]
+            .filter(el=>visible(el) && !el.disabled && clean(el.textContent)==='Найти') : [];
+          if(role==='asgard' && buttons.length!==1) return {error:buttons.length?'search_button_ambiguous':'search_button_missing'};
+          return {input,buttons};
+        };
+        // tabs.status=complete does not mean an SPA has rendered its search form.
+        const readyUntil=Date.now()+12000;
+        let controls, reverseSelected=false;
+        do {
+          if(location.origin!==expectedOrigin) return {error:'search_origin_mismatch'};
+          if(role==='asgard' && !reverseSelected) {
+            const reverseTabs=[...document.querySelectorAll('a,button,[role="tab"]')]
+              .filter(el=>visible(el) && clean(el.textContent)==='Обратный поток');
+            if(reverseTabs.length>1) return {error:'search_navigation_ambiguous'};
+            if(reverseTabs.length===1) {
+              reverseSelected=true;
+              if(reverseTabs[0].getAttribute('aria-selected')!=='true') {
+                reverseTabs[0].click();
+                await new Promise(resolve=>setTimeout(resolve,200));
+                continue;
+              }
+            }
           }
-          return labels.some(label=>wanted.test(clean(label)));
-        });
-        if(matches.length!==1) return {error:matches.length?'search_field_ambiguous':'search_field_missing'};
-        const input=matches[0];
-        if(role==='asgard' && inputs.some(el=>el!==input && el.value.trim())) return {error:'search_filters_not_empty'};
-        const buttons=role==='asgard' ? [...document.querySelectorAll('button')]
-          .filter(el=>visible(el) && !el.disabled && clean(el.textContent)==='Найти') : [];
-        if(role==='asgard' && buttons.length!==1) return {error:buttons.length?'search_button_ambiguous':'search_button_missing'};
+          controls=findControls();
+          if(!controls.error) break;
+          if(!['search_field_missing','search_button_missing'].includes(controls.error)) return controls;
+          if(Date.now()>=readyUntil) return controls;
+          await new Promise(resolve=>setTimeout(resolve,200));
+        } while(true);
+        const {input,buttons}=controls;
         const read = () => {
           const candidates=[];
           for(const table of document.querySelectorAll('table')) {
