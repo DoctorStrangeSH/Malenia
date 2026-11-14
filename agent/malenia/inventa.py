@@ -118,11 +118,16 @@ def _inventory_day_from_title(title: str, rows: list[list[Any]], date_col: int |
         # A matching cell date may *only* establish the year, not override
         # the day/month supplied by the sheet name.
         matches = set()
+        years = set()
         if date_col is not None:
             for row in rows:
                 parsed = _iso_inventory_date(row[date_col]) if date_col < len(row) else None
+                if parsed:
+                    years.add(int(parsed[:4]))
                 if parsed and parsed[5:10] == f"{month:02d}-{day:02d}":
                     matches.add(int(parsed[:4]))
+        if not matches and len(years) == 1:
+            matches = years
         if len(matches) != 1:
             return None
         year = matches.pop()
