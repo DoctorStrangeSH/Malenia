@@ -52,6 +52,18 @@ class FakeGoogleSheets:
 
 
 class LocalApiTests(unittest.TestCase):
+    def test_cancel_browser_audit_requires_auth_and_unblocks_new_request(self):
+        job=self.store.request_browser_audit()
+        self.store.claim_browser_audit()
+        path="/v1/browser/audit-cancel"
+        self.assertEqual(self.api(path,{},authenticated=False)[0],401)
+        code,result=self.api(path,{})
+        self.assertEqual(code,200)
+        self.assertTrue(result["cancelled"])
+        self.assertFalse(result["source_records_modified"])
+        self.assertFalse(self.store.finish_browser_audit(job["job_id"],True))
+        self.assertEqual(self.api("/v1/browser/audit-request",{})[0],202)
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.store = TaskStore(Path(self.temp_dir.name) / "api.sqlite3")
@@ -499,7 +511,7 @@ class LocalApiTests(unittest.TestCase):
         self.assertEqual(self.api("/v1/runtime", authenticated=False)[0], 401)
         code, runtime = self.api("/v1/runtime")
         self.assertEqual(code, 200)
-        self.assertEqual(runtime["release"], "0.6.2")
+        self.assertEqual(runtime["release"], "0.6.3")
         self.assertEqual(runtime["protocol"], 1)
         self.assertIn("task_idempotency", runtime["capabilities"])
         self.assertIn("google_sheets_editor_approval", runtime["capabilities"])
@@ -558,7 +570,7 @@ class LocalApiTests(unittest.TestCase):
             payload = json.loads(response.read())
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["service"], "malenia-agent")
-        self.assertEqual(payload["version"], "0.6.2")
+        self.assertEqual(payload["version"], "0.6.3")
 
     def test_private_endpoint_rejects_missing_token(self):
         with self.assertRaises(HTTPError) as error:
