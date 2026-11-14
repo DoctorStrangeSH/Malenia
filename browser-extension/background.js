@@ -66,6 +66,7 @@ async function progress(snapshot) {
   await chrome.storage.session.set({maleniaAudit:snapshot});
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message?.type === "poll_desktop_audit") { void pollDesktopAudit(); respond({ok:true}); return false; }
   if (!message || message.type !== "start_readonly_audit") return false;
   if (running) { respond({ok:false,error:"already_running"});return false; }
   let targets;
@@ -110,9 +111,6 @@ async function pollDesktopAudit() {
   let session;
   try {
     const stored = await chrome.storage.local.get(["maleniaTargets", "maleniaExactGetSearch"]);
-    if (!stored?.maleniaTargets) return;
-    const targets = MaleniaAutomation.normalizeTargets(stored.maleniaTargets);
-    if (!await chrome.permissions.contains({origins:MaleniaAutomation.origins(targets)})) return;
     session = nativeSession();
     const hello = await session.send({type:"hello"});
     if (!hello?.ok || hello.host !== HOST ||
@@ -124,7 +122,14 @@ async function pollDesktopAudit() {
     const jobId = claimed?.job?.job_id;
     if (!claimed?.ok || !claimed.job || typeof jobId !== "string") return;
     let succeeded = false;
+    let failureReason = "execution_failed";
     try {
+      let targets;
+      try { targets = MaleniaAutomation.normalizeTargets(stored?.maleniaTargets); }
+      catch { failureReason="sources_not_configured"; throw new Error(failureReason); }
+      if (!await chrome.permissions.contains({origins:MaleniaAutomation.origins(targets)})) {
+        failureReason="browser_permission_missing"; throw new Error(failureReason);
+      }
       await progress({phase:"starting",results:[]});
       const report = async snapshot => {
         await progress(snapshot);
@@ -151,7 +156,7 @@ async function pollDesktopAudit() {
       await progress({phase:"needs_attention",results:[],error:"setup_or_connection"});
     } finally {
       // Never retry an unacknowledged claim automatically. The store expires it.
-      try { await session.send({type:"finish_browser_audit",job_id:jobId,succeeded}); }
+      try { await session.send({type:"finish_browser_audit",job_id:jobId,succeeded, ...(hello.capabilities.includes("audit_failure_reasons")?{failure_reason:succeeded?null:failureReason}:{})}); }
       catch { /* Extension may have disconnected. */ }
     }
   } catch { /* Host unavailable, no permissions, or extension restarting. */ }
