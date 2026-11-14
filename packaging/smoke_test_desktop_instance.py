@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ctypes
+from contextlib import contextmanager
 from ctypes import wintypes
 import os
 import json
@@ -52,13 +53,46 @@ def stop_owned(process: subprocess.Popen) -> None:
         process.wait(timeout=5)
 
 
+def cleanup_workspace(directory: tempfile.TemporaryDirectory, attempts: int = 60) -> None:
+    """Wait at most 15s for WebView2 to release its profile after window close.
+
+    Use TemporaryDirectory's normal cleanup (including read-only handling). Never
+    suppress a persistent lock or delete any other browser profile/process.
+    """
+    for attempt in range(attempts):
+        try:
+            directory.cleanup()
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.25)
+
+
+@contextmanager
+def smoke_workspace():
+    directory = tempfile.TemporaryDirectory(prefix='malenia-desktop-smoke-')
+    try:
+        yield directory.name
+    except BaseException as primary:
+        try:
+            cleanup_workspace(directory)
+        except OSError as cleanup_error:
+            # Keep a real lifecycle failure visible instead of masking it with
+            # a secondary profile-cleanup exception during stack unwinding.
+            primary.add_note(f'Temporary profile cleanup also failed: {cleanup_error}')
+        raise
+    else:
+        cleanup_workspace(directory)
+
+
 def main() -> int:
     if sys.platform != 'win32' or os.environ.get('GITHUB_ACTIONS') != 'true':
         raise RuntimeError('Desktop instance smoke test runs only on an isolated Windows CI runner')
     executable = Path(sys.argv[1]).resolve()
     if not executable.is_file():
         raise RuntimeError('Malenia desktop executable is missing')
-    with tempfile.TemporaryDirectory(prefix='malenia-desktop-smoke-') as temporary:
+    with smoke_workspace() as temporary:
         environment = os.environ.copy()
         environment['LOCALAPPDATA'] = temporary
         environment['APPDATA'] = temporary

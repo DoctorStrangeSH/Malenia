@@ -1,3 +1,12 @@
+## 2026-11-14 — 0.6.7 installer — WebView2 cleanup race
+
+- Failed Windows installer run 43602902240 / job 132471279286 compiled and bundled the installer successfully. Single-instance/agent lifecycle smoke test failed while leaving TemporaryDirectory: WinError 32 on webview-test/EBWebView/lockfile. Subsequent installer upgrade and artifact upload steps were skipped.
+- packaging/smoke_test_desktop_instance.py now retries its isolated TemporaryDirectory cleanup for at most 15 seconds after owned processes have been closed. It retains standard read-only cleanup handling and still raises on persistent locks; no browser process killing or ignore-cleanup-errors workaround.
+- A real smoke assertion is preserved if a second cleanup error occurs (added as exception note). Agent-start, single-instance and agent-stop assertions are unchanged.
+- Five targeted regression tests passed, covering transient lock, permanent lock, other I/O errors, retained primary failure and mandatory cleanup after success. Python compilation and whitespace checks passed.
+- No application or Bridge version bump: rebuild 0.6.7 / 1.6.5. Node 20 deprecation warning was not the failing cause; dependency upgrades are outside this repair.
+- New Windows run must pass before announcing an available installer.
+
 ## 2026-11-14 — 0.6.7 / Bridge 1.6.5 — preserve DataLens Orders route
 
 - User screenshot shows DataLens navigation ambiguity mislabeled as Asgard reverse flow. Corrected desktop wording by source: Orders for DataLens; reverse flow for Asgard.
