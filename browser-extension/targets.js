@@ -114,6 +114,7 @@
         return;
       }
       await chrome.storage.local.set({maleniaTargets: targets, maleniaExactGetSearch:true});
+      try { await chrome.runtime?.sendMessage?.({type:"poll_desktop_audit"}); } catch { /* periodic poll remains available */ }
       show("Готово! Запусти «Проверить первый заказ» в Малении.", "ok");
     } catch {
       // Never expose rejected URLs, credentials, or browser exception text.
