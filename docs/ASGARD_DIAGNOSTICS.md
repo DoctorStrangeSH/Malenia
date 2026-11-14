@@ -5,7 +5,7 @@
 - A real smoke assertion is preserved if a second cleanup error occurs (added as exception note). Agent-start, single-instance and agent-stop assertions are unchanged.
 - Five targeted regression tests passed, covering transient lock, permanent lock, other I/O errors, retained primary failure and mandatory cleanup after success. Python compilation and whitespace checks passed.
 - No application or Bridge version bump: rebuild 0.6.7 / 1.6.5. Node 20 deprecation warning was not the failing cause; dependency upgrades are outside this repair.
-- New Windows run must pass before announcing an available installer.
+- Confirmed: replacement Windows run 43603887345 succeeded on commit b84be43ba43f10718fd23e4c2dd726e196a49bb2. Desktop single-instance/auto-start/agent-stop, profile cleanup, installer upgrade, and both artifact uploads passed. Artifacts: malenia-windows-installer (14118285294), malenia-browser-extension (14118135746). Installer 0.6.7 and Bridge 1.6.5 are available from that run. Real DataLens/Asgard audit success remains a separate user-session check.
 
 ## 2026-11-14 — 0.6.7 / Bridge 1.6.5 — preserve DataLens Orders route
 
