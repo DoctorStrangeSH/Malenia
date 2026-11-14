@@ -43,3 +43,8 @@ button.secondary { margin-top: 8px; background: #243349; color: #d0dcf0; border:
 .automation #auditStatus {margin-top:10px;margin-bottom:0;}
 
 .search-option {display:flex;align-items:center;gap:8px;color:#bfcbe0;font-size:11px;line-height:1.5;margin:10px 0;}.search-option input {width:auto;margin:0;accent-color:#8daeff;}
+
+summary {padding:12px 0;color:#9eafd0;cursor:pointer;font-size:12px;}
+.active-source {border-top:0;margin-top:4px;padding-top:4px;}
+.active-source #activeSourceTitle {overflow-wrap:anywhere;color:#e0e8f5;}
+.active-source .status {margin-top:12px;}
