@@ -14,6 +14,7 @@ function harness(){
   const states=[],calls=[];
   const invoke=async (command,args)=>{
     calls.push({command,args});
+    if(command==='cancel_browser_audit'){status='failed';return {cancelled:true};}
     if(command==='reset_inventa_order_batch'){offset=0;latest=null;return {reset:true};}
     if(command==='get_dashboard')return {browser_audit_job:latest?{...latest,status}:null};
     requests++;const start=offset;latest={job_id:'job-'+requests,status:'pending'};status='pending';
@@ -68,4 +69,13 @@ test('duplicate clicks and switching sheets cannot enqueue concurrent jobs',asyn
   assert.ok(h.calls.some(c=>c.command==='reset_inventa_order_batch'));
   assert.equal(h.calls.at(-1).args.inventoryDate,'2026-08-29');
   h.runner.dispose();
+});
+
+test('restart cancels an active job before resetting and queues a fresh batch',async()=>{
+ const h=harness();await h.runner.start('SHEET');
+ await h.runner.restart('SHEET');
+ assert.equal(h.requests,2);
+ const commands=h.calls.map(c=>c.command);
+ assert.deepEqual(commands.slice(-3),['cancel_browser_audit','reset_inventa_order_batch','check_inventa_order_batch']);
+ assert.equal(h.runner.state.processed,0);h.runner.dispose();
 });
