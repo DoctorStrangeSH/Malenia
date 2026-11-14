@@ -25,7 +25,7 @@ test('browser bridge polls local desktop queue without any remote permission',()
 });
 
 test('extension runs desktop job only through bounded read-only walker',()=>{
-  assert.match(source,/MaleniaAutomation\.normalizeTargets\(stored\.maleniaTargets\)/);
+  assert.match(source,/MaleniaAutomation\.normalizeTargets\(stored\?\.maleniaTargets\)/);
   assert.match(source,/MaleniaAutomation\.run\(chrome,targets/);
   assert.doesNotMatch(source,/chrome\.cookies|chrome\.webRequest|executeScript\(\{code:/);
   assert.doesNotMatch(source,/eval\(/);
@@ -60,7 +60,7 @@ function workerHarness() {
       permissions: {async contains() { return true; }}
     },
     MaleniaAutomation: {
-      normalizeTargets(value) { return value; }, origins() { return []; },
+      normalizeTargets(value) { if(!value)throw Error("invalid_targets"); return value; }, origins() { return []; },
       async run() { return {phase:'reconciled'}; }
     },
     testSession: {
@@ -68,7 +68,7 @@ function workerHarness() {
         messages.push(message);
         if (message.type === 'hello') return {ok:true,host:'com.malenia.browser',
           capabilities:['claim_browser_audit','finish_browser_audit',
-            'update_browser_audit_progress','reconcile_site_tables']};
+            'update_browser_audit_progress','reconcile_site_tables','audit_failure_reasons']};
         if (message.type === 'claim_browser_audit') {
           claims++;
           return {ok:true,job:{job_id:'job-1'}};
@@ -116,7 +116,11 @@ test('early exits and connection failures release desktop polling reservation',a
     if (failure==='no_job') worker.context.testSession.send = async()=>({ok:true});
     await worker.poll();
     assert.equal(vm.runInContext('running',worker.context),false,failure);
-    assert.equal(worker.messages.some(item=>item.type==='finish_browser_audit'),false,failure);
+    assert.equal(worker.messages.some(item=>item.type==='finish_browser_audit'),
+      ['no_targets','no_permission'].includes(failure),failure);
+    if(['no_targets','no_permission'].includes(failure))assert.equal(
+      worker.messages.find(item=>item.type==='finish_browser_audit').failure_reason,
+      failure==='no_targets'?'sources_not_configured':'browser_permission_missing');
   }
 });
 
