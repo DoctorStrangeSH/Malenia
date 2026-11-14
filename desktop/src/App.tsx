@@ -413,7 +413,7 @@ function SourcesPage({tabs,connected,onOpenBrowser,runState,runner}:{tabs:Browse
       {[
         {name:"Yandex DataLens",host:"datalens.yandex-team.ru",style:"datalens",icon:<Activity size={19}/>,
           description:"Адаптер поиска читает историю сканов по грузоместу и проверяет успешные сканы СЦ 101366 после даты ИНВенты.",
-          help:"Выбери вкладку «Заказы» в настройках расширения Browser Bridge 1.5.0 или новее."},
+          help:"Открой вкладку DataLens «Заказы» → расширение Малении → «Использовать эту вкладку»."},
         {name:"Asgard",host:"asgard.market.yandex-team.ru",style:"asgard",icon:<Globe2 size={19}/>,
           description:"Адаптер ищет штрихкод коробки в «Обратном потоке» и читает статус грузоместа. Расширенная история коробки ещё не подключена.",
           help:"Выбери страницу «Обратный поток», оставив остальные поля поиска пустыми."}
@@ -426,7 +426,7 @@ function SourcesPage({tabs,connected,onOpenBrowser,runState,runner}:{tabs:Browse
           <button className="secondary source-action" onClick={onOpenBrowser}>Как настроить проверку <ArrowUpRight size={14}/></button>
         </article>;
       })}
-      <article className="panel source-card"><div className="source-card-top"><span className="source-icon browser"><Plug size={19}/></span><span className={"source-state "+(tabs.length?"ready":"pending")}>{tabs.length ? `Передано вкладок: ${tabs.length}` : "Ожидает передачи"}</span></div><h2>Browser Bridge</h2><p>Ручная передача отправляет только заголовок и очищенный URL. Текущий прототип автоматического обхода ограничен тремя заранее заданными HTTPS-источниками. Это временное ограничение реализации, а не лимит Browser Bridge; универсальный реестр источников ещё предстоит внедрить. Cookies, пароли и история не читаются.</p><small>Для проверки заказа: в расширении нажми «Найти открытые вкладки», выбери три источника и «Сохранить и разрешить чтение». Затем в Google Sheets нажми «Проверить первый заказ».</small><button className="secondary source-action" onClick={onOpenBrowser}>Открыть Browser Bridge <ArrowUpRight size={14}/></button></article>
+      <article className="panel source-card"><div className="source-card-top"><span className="source-icon browser"><Plug size={19}/></span><span className={"source-state "+(tabs.length?"ready":"pending")}>{tabs.length ? `Передано вкладок: ${tabs.length}` : "Ожидает передачи"}</span></div><h2>Browser Bridge</h2><p>Ручная передача отправляет только заголовок и очищенный URL. Текущий прототип автоматического обхода ограничен тремя заранее заданными HTTPS-источниками. Это временное ограничение реализации, а не лимит Browser Bridge; универсальный реестр источников ещё предстоит внедрить. Cookies, пароли и история не читаются.</p><small>Для подключения открой нужный сервис → расширение Малении → «Использовать эту вкладку». Повтори для ИНВенты, DataLens и Asgard один раз. Затем нажми «Разобрать весь лист».</small><button className="secondary source-action" onClick={onOpenBrowser}>Открыть Browser Bridge <ArrowUpRight size={14}/></button></article>
     </div>
     </details>
   </section>;

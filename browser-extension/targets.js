@@ -12,6 +12,15 @@
   const selectors = Object.fromEntries(Object.keys(fields).map(role =>
     [role, document.getElementById("select" + role)]));
   const reasons = {
+    search_field_missing:"Не найдено поле поиска: проверь вход и рабочую страницу",
+    search_field_ambiguous:"Найдено несколько подходящих полей поиска",
+    search_filters_not_empty:"В Asgard заполнены другие фильтры: очисти их и продолжи разбор",
+    search_button_missing:"Не найдена доступная кнопка «Найти»",
+    search_button_ambiguous:"Найдено несколько кнопок «Найти»",
+    search_navigation_ambiguous:"Не удалось выбрать «Обратный поток»",
+    search_results_unconfirmed:"За 15 секунд не получен однозначный обновлённый результат поиска",
+    search_origin_mismatch:"Проверь вход: сервис перенаправил на другой адрес",
+    page_timeout:"Страница не загрузилась вовремя",
     invalid_inventory_search_keys:"Не удалось определить грузоместо для поиска",
     unmapped_search_form:"На странице не найдено подходящее поле поиска",
     unsupported_search_form:"Поиск устроен иначе, чем поддерживает адаптер",

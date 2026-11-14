@@ -79,3 +79,11 @@ test('restart cancels an active job before resetting and queues a fresh batch',a
  assert.deepEqual(commands.slice(-3),['cancel_browser_audit','reset_inventa_order_batch','check_inventa_order_batch']);
  assert.equal(h.runner.state.processed,0);h.runner.dispose();
 });
+
+ test('localized Asgard failure explains the next action without exposing raw errors',()=>{
+   const exports={};vm.runInNewContext(source,{exports});
+   const message=exports.auditFailureMessage({failed_role:'asgard',failure_reason:'search_filters_not_empty'});
+   assert.match(message,/Asgard/);assert.match(message,/Очисти/);assert.match(message,/Позиция не сдвинута/);
+   const unknown=exports.auditFailureMessage({failed_role:'asgard',failure_reason:'https://private.example/SECRET'});
+   assert.doesNotMatch(unknown,/SECRET|private/);assert.match(unknown,/Подробная причина не получена/);
+ });

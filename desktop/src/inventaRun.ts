@@ -5,6 +5,24 @@ export type RunState = {
 type Job = {job_id:string;status:string;failure_reason?:string;current_role?:string;failed_role?:string};
 type Batch = {job:Job;queued_orders:number;eligible_orders:number;batch_start:number;remaining_orders:number};
 type Invoke = <T>(command:string,args?:Record<string,unknown>)=>Promise<T>;
+export function auditFailureMessage(job:Job):string {
+  const role=({inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"} as Record<string,string>)[job.failed_role||""]||"Источник";
+  const reasons:Record<string,string>={
+    search_field_missing:"Не найдено поле поиска. Открой рабочую страницу сервиса и проверь, что вход выполнен.",
+    search_field_ambiguous:"Найдено несколько полей поиска. Маления не смогла выбрать нужное.",
+    search_filters_not_empty:"В Asgard заполнены другие фильтры. Очисти их, оставив поиск по штрихкоду коробки, и продолжи разбор.",
+    search_button_missing:"Не найдена доступная кнопка «Найти». Проверь, что страница поиска загрузилась.",
+    search_button_ambiguous:"Найдено несколько кнопок «Найти». Маления не смогла выбрать нужную.",
+    search_navigation_ambiguous:"Не удалось однозначно открыть «Обратный поток».",
+    search_results_unconfirmed:"Поиск отправлен, но за 15 секунд не получен однозначный обновлённый результат. Возможны пустой ответ, прежние данные или другая структура таблицы.",
+    search_origin_mismatch:"Сервис перенаправил на другой адрес. Проверь вход в рабочей вкладке.",
+    unmapped_search_results:"Не удалось распознать результаты поиска на странице сервиса.",
+    unverified_search_result_identity:"Результаты не удалось связать с проверяемым заказом.",
+    page_timeout:"Страница сервиса не загрузилась вовремя.",
+  };
+  return reasons[job.failure_reason||""]?`${role}: ${reasons[job.failure_reason!]} Позиция не сдвинута.`:
+    `Не удалось проверить партию. Источник: ${role}. Подробная причина не получена — обнови приложение и расширение. Позиция не сдвинута.`;
+}
 export class InventaRun {
   state:RunState={phase:"idle",processed:0,total:0,source:"",message:"Выбери лист и начни разбор."};
   private epoch=0;
@@ -83,7 +101,7 @@ export class InventaRun {
         if(this.active)await this.next();
         else this.update({phase:"paused",message:"Пауза. Проверенная позиция сохранена; продолжение не пропустит строки."});
       }else if(["failed","expired"].includes(current.status)){
-        this.fail(current.failure_reason==="sources_not_configured"?"Расширение получило задачу, но источники не настроены. В Browser Bridge выбери рабочие вкладки и сохрани их.":current.failure_reason==="browser_permission_missing"?"Браузер не разрешил чтение источников. В Browser Bridge нажми «Сохранить и разрешить чтение».":current.failure_reason==="agent_restarted"?"Предыдущая проверка прервана перезапуском. Можно начать разбор снова.":current.status==="expired"?"Browser Bridge не ответил. Проверь расширение и разрешения, затем продолжи.":`Не удалось проверить партию. Источник: ${{inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"}[current.failed_role||""]||"подключение расширения"}. Позиция не сдвинута.`);
+        this.fail(current.failure_reason==="sources_not_configured"?"Расширение получило задачу, но источники не настроены. В Browser Bridge выбери рабочие вкладки и сохрани их.":current.failure_reason==="browser_permission_missing"?"Браузер не разрешил чтение источников. В Browser Bridge нажми «Сохранить и разрешить чтение».":current.failure_reason==="agent_restarted"?"Предыдущая проверка прервана перезапуском. Можно начать разбор снова.":current.status==="expired"?"Browser Bridge не ответил. Проверь расширение и разрешения, затем продолжи.":auditFailureMessage(current));
       }else{
         this.update({phase:this.active?(current.status==="running"?"running":"waiting"):"pausing",
           message:!this.active?"Завершаю текущую партию перед паузой.":current.status==="running"?`Расширение выполняет этап: ${{inventory:"чтение ИНВенты",datalens:"поиск в DataLens",asgard:"поиск в Asgard"}[current.current_role||""]||"подготовка"}.`:"Расширение ещё не забрало задачу. Поиск на сайтах не начался."});

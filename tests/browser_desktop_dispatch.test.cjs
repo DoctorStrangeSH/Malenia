@@ -153,3 +153,24 @@ test('background serializes partial source saves so concurrent bindings preserve
  const denied=await worker.configure({role:'asgard',url:'https://other.example/'});
  assert.equal(denied.ok,false);assert.equal(saved.asgard,'https://asgard.market.yandex-team.ru/');
 });
+
+ test('source failure reason reaches desktop only after capability negotiation',async()=>{
+  for(const detailed of [false,true]) {
+    const worker=workerHarness();
+    const send=worker.context.testSession.send;
+    worker.context.testSession.send=async message=>{
+      const response=await send(message);
+      if(message.type==='hello' && detailed)response.capabilities.push('detailed_audit_failures');
+      if(message.type==='update_browser_audit_progress')return {ok:true,type:'browser_audit_progress_updated'};
+      return response;
+    };
+    worker.context.MaleniaAutomation.reasonCode=error=>error.message;
+    worker.context.MaleniaAutomation.run=async (chrome,targets,native,report)=>{
+      await report({role:'asgard',results:[{role:'asgard',status:'needs_attention',reason:'search_filters_not_empty'}]});
+      return {phase:'needs_attention'};
+    };
+    await worker.poll();
+    assert.equal(worker.messages.find(m=>m.type==='finish_browser_audit').failure_reason,
+      detailed?'search_filters_not_empty':'execution_failed');
+  }
+});

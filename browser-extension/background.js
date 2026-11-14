@@ -159,6 +159,9 @@ async function pollDesktopAudit() {
         await progress(snapshot);
         const results = snapshot.results || [];
         const failures = results.filter(item => item.status === "needs_attention");
+        if (failures.length && hello.capabilities.includes("detailed_audit_failures")) {
+          failureReason = MaleniaAutomation.reasonCode(new Error(failures[failures.length-1].reason));
+        }
         const failedRole = failures.length ? failures[failures.length-1].role : null;
         const currentRole = ["inventory","datalens","asgard"].includes(snapshot.role) ?
           snapshot.role : null;

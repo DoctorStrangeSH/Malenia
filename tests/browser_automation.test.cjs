@@ -616,7 +616,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, deadline, now=0;
@@ -638,8 +638,8 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
       .map(textContent=>({textContent}))}
   ]};
   const button={textContent:'Найти',disabled:false,getClientRects:()=>[{}],click(){clicks++;updated=!unchanged;}};
-  const document={body:{},querySelectorAll:selector=>selector==='input'?(ambiguous?[input,new Input()]:[input]):
-    selector==='button'?[button]:selector==='table'?[table]:[]};
+  const document={body:{},querySelectorAll:selector=>selector==='input'?(missing?[]:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
+    selector==='button'?(noButton?[]:[button]):selector==='table'?[table]:[]};
   const chrome={scripting:{async executeScript({func,args}){
     return [{result:await vm.runInNewContext('('+func.toString()+')(...args)',{
       document,location:{origin:host},HTMLInputElement:Input,args,
@@ -675,11 +675,11 @@ test('workplace adapters reject ambiguous fields, stale results, foreign hosts a
   for(const role of ['datalens','asgard']) {
     for(const config of [{ambiguous:true},{unchanged:true}]) {
       const f=workplaceFixture(role,config);
-      await assert.rejects(()=>api.workplaceSearch(f.chrome,7,role,'TEST-1',f.host),/unmapped_search_results/);
+      await assert.rejects(()=>api.workplaceSearch(f.chrome,7,role,'TEST-1',f.host),/search_field_ambiguous|search_results_unconfirmed/);
     }
   }
   const f=workplaceFixture('datalens',{wrongCode:true});
-  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),/unmapped_search_results/);
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),/search_results_unconfirmed/);
   await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'asgard','TEST-1','https://evil.example'),/unsupported_dynamic_search/);
 });
 
@@ -704,4 +704,13 @@ test('queued seeded orders route through workplace searches and skip Asgard for 
   assert.equal(result.phase,'reconciled');
   assert.equal(reconciled.asgard.rows[0][0],'CHECK');
   assert.equal(chrome.stats.created,chrome.stats.removed);
+});
+
+ test('Asgard reports actionable setup failures before submitting a search',async()=>{
+  const api=runner();
+  for(const [config,reason] of [[{missing:true},'search_field_missing'],[{filters:true},'search_filters_not_empty'],[{noButton:true},'search_button_missing']]) {
+    const f=workplaceFixture('asgard',config);
+    await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'asgard','TEST-1',f.host),new RegExp(reason));
+    assert.equal(f.clicks(),0);
+  }
 });

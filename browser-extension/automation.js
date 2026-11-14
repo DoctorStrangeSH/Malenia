@@ -56,15 +56,17 @@ var MaleniaAutomation = (() => {
   // Public, fixed diagnostic codes: never persist raw site exceptions or URLs.
   const SAFE_FAILURE_CODES = new Set([
     "invalid_inventory_search_keys", "unmapped_search_form", "invalid_search",
-    "unsafe_search_target", "unverified_search_result_identity",
-    "unmapped_search_results", "changed_search_schema", "too_many_search_rows",
-    "virtualized_or_incomplete_grid", "navigation_outside_allowed_origin",
-    "search_origin_mismatch", "unexpected_document", "empty_page",
-    "unmapped_paginated_table", "pagination_cycle", "pagination_limit",
-    "changed_table_schema", "too_many_rows", "native_host_rejected",
-    "page_timeout", "tab_closed", "unsupported_search_form",
-    "dynamic_search_ui", "unsupported_dynamic_search",
-    "dynamic_search_no_result_update", "dynamic_search_unchanged_table"
+    "unsafe_search_target", "unverified_search_result_identity", "unmapped_search_results",
+    "changed_search_schema", "too_many_search_rows", "virtualized_or_incomplete_grid",
+    "navigation_outside_allowed_origin", "search_origin_mismatch", "unexpected_document",
+    "empty_page", "unmapped_paginated_table", "pagination_cycle",
+    "pagination_limit", "changed_table_schema", "too_many_rows",
+    "native_host_rejected", "page_timeout", "tab_closed",
+    "unsupported_search_form", "dynamic_search_ui", "unsupported_dynamic_search",
+    "dynamic_search_no_result_update", "dynamic_search_unchanged_table", "search_field_missing",
+    "search_field_ambiguous", "search_filters_not_empty", "search_button_missing",
+    "search_button_ambiguous", "search_navigation_ambiguous", "search_results_unconfirmed",
+    "site_or_browser_error",
   ]);
   function reasonCode(error) {
     return error instanceof Error && SAFE_FAILURE_CODES.has(error.message) ?
@@ -267,7 +269,7 @@ var MaleniaAutomation = (() => {
           // Shared Asgard URLs can be the SPA root; select reverse-flow explicitly.
           const reverseTabs=[...document.querySelectorAll('a,button,[role="tab"]')]
             .filter(el=>visible(el) && clean(el.textContent)==='Обратный поток');
-          if(reverseTabs.length>1)return null;
+          if(reverseTabs.length>1)return {error:'search_navigation_ambiguous'};
           if(reverseTabs.length===1){
             reverseTabs[0].click();
             await new Promise(resolve=>setTimeout(resolve,750));
@@ -287,12 +289,12 @@ var MaleniaAutomation = (() => {
           }
           return labels.some(label=>wanted.test(clean(label)));
         });
-        if(matches.length!==1) return null;
+        if(matches.length!==1) return {error:matches.length?'search_field_ambiguous':'search_field_missing'};
         const input=matches[0];
-        if(role==='asgard' && inputs.some(el=>el!==input && el.value.trim())) return null;
+        if(role==='asgard' && inputs.some(el=>el!==input && el.value.trim())) return {error:'search_filters_not_empty'};
         const buttons=role==='asgard' ? [...document.querySelectorAll('button')]
           .filter(el=>visible(el) && !el.disabled && clean(el.textContent)==='Найти') : [];
-        if(role==='asgard' && buttons.length!==1) return null;
+        if(role==='asgard' && buttons.length!==1) return {error:buttons.length?'search_button_ambiguous':'search_button_missing'};
         const read = () => {
           const candidates=[];
           for(const table of document.querySelectorAll('table')) {
@@ -333,7 +335,7 @@ var MaleniaAutomation = (() => {
           };
           observer=new MutationObserver(check);
           observer.observe(document.body,{subtree:true,childList:true,characterData:true});
-          deadline=setTimeout(()=>finish(null),15000);
+          deadline=setTimeout(()=>finish({error:'search_results_unconfirmed'}),15000);
           setter.call(input,code);
           input.dispatchEvent(new Event('input',{bubbles:true}));
           input.dispatchEvent(new Event('change',{bubbles:true}));
@@ -346,6 +348,7 @@ var MaleniaAutomation = (() => {
         });
       },args:[role,code,origin]});
     const table=response?.[0]?.result;
+    if(table?.error) throw new Error(table.error);
     if(!table) throw new Error("unmapped_search_results");
     return table;
   }

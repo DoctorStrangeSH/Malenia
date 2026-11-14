@@ -26,6 +26,13 @@ class TaskStoreTests(unittest.TestCase):
         self.assertTrue(self.store.finish_browser_audit(job["job_id"],False,"sources_not_configured"))
         self.assertEqual(self.store.latest_browser_audit_job()["failure_reason"],"sources_not_configured")
 
+    def test_detailed_search_failure_survives_dashboard_read(self):
+        for reason in ["search_field_missing", "search_filters_not_empty", "search_results_unconfirmed"]:
+            job = self.store.request_browser_audit()
+            self.store.claim_browser_audit()
+            self.assertTrue(self.store.finish_browser_audit(job["job_id"], False, reason))
+            self.assertEqual(self.store.latest_browser_audit_job()["failure_reason"], reason)
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.store = TaskStore(Path(self.temp_dir.name) / "test.sqlite3")

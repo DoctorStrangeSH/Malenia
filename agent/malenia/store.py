@@ -517,7 +517,21 @@ class TaskStore:
     def finish_browser_audit(self, job_id: str, succeeded: bool, failure_reason: str | None = None) -> bool:
         if (not isinstance(job_id, str) or len(job_id) != 36
                 or not isinstance(succeeded, bool)
-                or failure_reason not in {None,"sources_not_configured","browser_permission_missing","execution_failed"}):
+                or failure_reason not in {None,
+                    "sources_not_configured", "browser_permission_missing", "execution_failed",
+                    "invalid_inventory_search_keys", "unmapped_search_form", "invalid_search",
+                    "unsafe_search_target", "unverified_search_result_identity", "unmapped_search_results",
+                    "changed_search_schema", "too_many_search_rows", "virtualized_or_incomplete_grid",
+                    "navigation_outside_allowed_origin", "search_origin_mismatch", "unexpected_document",
+                    "empty_page", "unmapped_paginated_table", "pagination_cycle",
+                    "pagination_limit", "changed_table_schema", "too_many_rows",
+                    "native_host_rejected", "page_timeout", "tab_closed",
+                    "unsupported_search_form", "dynamic_search_ui", "unsupported_dynamic_search",
+                    "dynamic_search_no_result_update", "dynamic_search_unchanged_table", "search_field_missing",
+                    "search_field_ambiguous", "search_filters_not_empty", "search_button_missing",
+                    "search_button_ambiguous", "search_navigation_ambiguous", "search_results_unconfirmed",
+                    "site_or_browser_error",
+                }):
             return False
         with self._session() as db:
             db.execute("BEGIN IMMEDIATE")
