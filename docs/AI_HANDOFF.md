@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 32021)
-Total output lines: 930
+Warning: truncated output (original token count: 32359)
+Total output lines: 938
 
 ## CI update — 2026-11-12 — Excel batch checks
 
@@ -583,12 +583,7 @@ Implemented in PR #2 branch `feat/desktop-shell`:
 - `browser-extension/background.js`: MV3 service worker task runs independent of popup using persistent Native Messaging `connectNative` port for task lifetime; one outstanding request at a time, request IDs matched, five-second response deadline. It stores only sanitized role/progress/character-count metadata in `chrome.storage.session`. Port is closed after run; no autonomous task runs on startup.
 - Popup version 1.3.0 exposes three resource HTTPS URL fields and one-button automatic read-only audit, after Chrome's exact-origin permission prompt. Sanitized resource URL paths are retained in extension local storage for the next run. No credentials or page text are saved.
 - Native host already supports `inspect_active_page`, validates bounded text, reports characters and `persisted: false`, but does **not** forward text to the local AI agent or correlate orders. Thus the current result is a 3-site read success/failure summary, not an actual business workflow output.
-- Desktop Browser/Sources privacy messages corrected for new opt-in rendered-text reading. `browser-extension/README.md` explains capability and setup. `tests/browser_automation.test.cjs` tests URL restrictions, sequential traversal, cleanup, redirect block, host failure. CI desktop-chec…2021 tokens truncated…esktop-shell` (do NOT merge without approval).
-
-Implementation:
-- `browser-extension/automation.js` adds `exactGetSearch()` and an optional `run(...,{exactGetSearch:true})` mode. It first reads the inventory cargo codes, validates at most 20 unique conservative ASCII cargo identifiers, then for each code independently opens DataLens and Asgard tabs. On these sites it recognizes **exactly one** native HTML GET form with one plain named text/search input: DataLens `main_partner_code_original`, Asgard `cargo_place`. Forms with hidden/password inputs, additional named inputs, existing query strings, ambiguous matches, arbitrary POST or unapproved origins are rejected. It constructs a single-parameter same-origin URL (without executing form submission/clicks), visits its own inactive tab, reads the result, and requires every returned row to contain the exact searched cargo code. On any source failure, no aggregate reconciliation is emitted.
-- `browser-extension/popup.html` has an opt-in search checkbox; `popup.js` forwards its value, and remembers this choice locally after a successful start. `background.js` enables the mode only on an explicit `true` flag.
-- New tests in `tests/browser_automation.test.cjs` cover two-cargo multi-site queries, mismatched result identities, GET-only guards, and simulated DOM form selection. A test fixture syntax error was fixed in commit `47b4fe04`. Syntax compilation for `automation.js`, `popup.js`, `background.js`, and the test file passed via V8. Recheck current CI before asserting new tests pass.
+- Desktop Browser/Sources privacy messages corrected for new opt-in rendered-text reading. `browser-extension/README.md` explains capability and setup. `tests/browser_automation.test.cjs` tests URL restrictions, sequential traversal, cleanup, redirect block, host failure. CI desktop-chec…2359 tokens truncated… syntax error was fixed in commit `47b4fe04`. Syntax compilation for `automation.js`, `popup.js`, `background.js`, and the test file passed via V8. Recheck current CI before asserting new tests pass.
 - `browser-extension/README.md` documents the precise opt-in contract and strict limitations. Query URLs contain cargo identifiers and can appear in site/server logs, but are not stored in extension progress or returned to the local host.
 - This is **not yet verified with actual corporate websites**: whether their forms are native GET with expected field names is unknown. JavaScript search, button interaction, SPA custom filters, virtualized pagination and Asgard extended box history still need approved, tested adapters. This does not perform any status writes. The desired final UX remains one user command, autonomous execution under explicitly approved resource permissions.
 
@@ -889,3 +884,11 @@ Latest fix commit at this note: `4f46fdd1d7c9dc77a4b26e3244f6ed8b14af87e4` (late
 - UI distinguishes waiting for pickup (no site search started) and actual claimed source stage; failed source included in message. Saving extension sources wakes polling immediately; regular desktop job pickup still uses minute alarm.
 - Version 0.6.2 Windows installer run 43580506745 completed successfully, including real WM_CLOSE/agent-stop test and installed-resource upgrade test. This is evidence for 0.6.2 lifecycle only, not the new 0.6.3 queue changes or live corporate source adapters.
 - Current local validation: Python 232 tests (one skipped), all 89 Node tests, frontend production build. 0.6.3 Windows CI pending. Automatic Sheets writeback and live DataLens/Asgard validation still not complete.
+
+## 2026-11-14 — 0.6.4 / bridge 1.5.2 tested stop reasons
+
+- User's actual tests now reached extension, which returned sources_not_configured for 26.09. This proves job pickup, not DataLens/Asgard execution. Another sheet 03.10 failed year inference and showed a removed date-field instruction.
+- Year resolution now falls back to the unique year across parsed export-date cells when no row matches sheet day/month. Sheet title remains authoritative for day/month. Mixed-year data without an exact matching-date year still fails closed. Added 03.10 with 29.09 export date regression and mixed-year rejection.
+- If year remains ambiguous, UI conditionally asks only for year and constructs ISO override from selected sheet day/month. Existing date override pipeline is reused; no unconditional date entry restored. Rust error preserves code and no longer references nonexistent date control.
+- Open-tab discovery preselects unique exact known Google Sheets/DataLens/Asgard origins, preserves existing open selections, leaves ambiguous sources unselected. Permissions/persistence still require explicit Save. Tests prove no implicit grants or storage.
+- Version bump 0.6.4 / 1.5.2. Frontend build and 91 Node tests passed. Real source setup still needs one save/permission action; do not claim sheet investigation ran merely because task was picked up.
