@@ -106,9 +106,14 @@
   chrome.storage.local.get("maleniaTargets").then(saved => {
     if (!saved?.maleniaTargets) return;
     try {
-      const targets = MaleniaAutomation.normalizeTargets(saved.maleniaTargets);
-      for (const role of Object.keys(fields)) fields[role].value = targets[role];
-      show("Адреса сохранены. Можно запускать проверку из Малении.", "ok");
+      let count=0;
+      for (const role of Object.keys(fields)) {
+        if(!saved.maleniaTargets[role])continue;
+        fields[role].value=MaleniaAutomation.normalizeTargets(Object.fromEntries(
+          Object.keys(fields).map(key=>[key,saved.maleniaTargets[role]])))[role];
+        count++;
+      }
+      show(count===3?"Источники сохранены. Можно запускать разбор в Малении.":`Сохранено источников: ${count} из 3. Подключи остальные прямо с их вкладок.`,count===3?"ok":"");
     } catch { show("Сохранённые адреса требуют повторной настройки.", "error"); }
   }).catch(() => show("Не удалось прочитать настройки браузера.", "error"));
   button.addEventListener("click", async () => {
