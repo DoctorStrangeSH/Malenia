@@ -4,6 +4,14 @@ from malenia.inventa import analyze_inventa, detect_header
 
 
 class InventaAnalysisTests(unittest.TestCase):
+    def test_sheet_day_month_stays_authoritative_when_export_date_differs(self):
+        rows=[["Дата выгрузки","Id заказа","main_partner_code_original","Стоимость","Статус"],
+              ["2026-09-29","TEST-1","CARGO-1",100,"Найден"]]
+        result=analyze_inventa(rows,"03.10",audit_batch_limit=20)
+        self.assertEqual(result["sheet_inventory_date"],"2026-10-03")
+        rows.append(["2025-09-29","TEST-2","CARGO-2",100,"Найден"])
+        self.assertIsNone(analyze_inventa(rows,"03.10")["sheet_inventory_date"])
+
     def test_actual_export_date_header_supplies_year_for_archive_sheet(self):
         rows=[["Дата выгрузки", "Id заказа", "main_partner_code_original", "Стоимость", "Статус"],
               ["2026-08-29", "TEST-1", "CARGO-1", 100, "Найден"]]
