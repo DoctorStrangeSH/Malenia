@@ -26,6 +26,8 @@ jobs:
         run: npm run build
       - name: Test Browser Bridge connection diagnostics
         run: node --test tests/browser_bridge.test.cjs
+      - name: Test current-tab source binding
+        run: node --test tests/browser_active_source.test.cjs
       - name: Test Browser Bridge source configuration
         run: node --test tests/browser_targets.test.cjs
       - name: Test autonomous browser traversal
