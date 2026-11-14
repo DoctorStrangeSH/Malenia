@@ -1,5 +1,5 @@
-Warning: truncated output (original token count: 31560)
-Total output lines: 921
+Warning: truncated output (original token count: 32021)
+Total output lines: 930
 
 ## CI update — 2026-11-12 — Excel batch checks
 
@@ -583,17 +583,7 @@ Implemented in PR #2 branch `feat/desktop-shell`:
 - `browser-extension/background.js`: MV3 service worker task runs independent of popup using persistent Native Messaging `connectNative` port for task lifetime; one outstanding request at a time, request IDs matched, five-second response deadline. It stores only sanitized role/progress/character-count metadata in `chrome.storage.session`. Port is closed after run; no autonomous task runs on startup.
 - Popup version 1.3.0 exposes three resource HTTPS URL fields and one-button automatic read-only audit, after Chrome's exact-origin permission prompt. Sanitized resource URL paths are retained in extension local storage for the next run. No credentials or page text are saved.
 - Native host already supports `inspect_active_page`, validates bounded text, reports characters and `persisted: false`, but does **not** forward text to the local AI agent or correlate orders. Thus the current result is a 3-site read success/failure summary, not an actual business workflow output.
-- Desktop Browser/Sources privacy messages corrected for new opt-in rendered-text reading. `browser-extension/README.md` explains capability and setup. `tests/browser_automation.test.cjs` tests URL restrictions, sequential traversal, cleanup, redirect block, host failure. CI desktop-chec…1560 tokens truncated… not merge the draft without explicit approval. `main` unchanged.
-- `browser-extension/automation.js` can now read a fully-rendered **ARIA grid/table** (roles grid/table, row, columnheader, gridcell/cell), using the same exact source field names as the existing HTML table adapter. Extraction is read-only, bounded, same-origin and excludes form values/cookies.
-- An ARIA grid is eligible only when `aria-rowcount` exists and equals its rendered row count, including the header; otherwise `incomplete=true` aborts that source and suppresses all aggregate reconciliation. Missing columns, malformed data and more than 100 rows also fail closed. This prevents false positives on virtualized lists where only a viewport's rows are in the DOM.
-- `tests/browser_automation.test.cjs` includes synthetic incomplete-grid suppression and source checks for extractor guards. Browser Bridge/desktop CI results for the current head still need verification; latest green Python on commit `19e2caf0` (CI run `43276661779`). Do not claim that the actual three company websites have been tested.
-- `browser-extension/README.md` documents the generic ARIA compatibility and restrictions.
-- **Next critical gap:** source-specific search flows, SPA navigation/button pagination and completeness/provenance validation for actual ИНВента, DataLens and Asgard. Their layouts are unknown to this repository; do not invent CSS selectors or imply that autonomous real-order processing already works. Work toward opt-in per-site adapters inspected in the user's authorized session. No site mutations implemented, no MFA/CAPTCHA bypass.
-
-
-## 2026-11-12 — Opt-in autonomous exact-GET cargo searching
-
-The user reiterates that Malenia must perform the operator's job, not require manual copy/paste or tab-by-tab clicks. Continued code in draft PR #2 branch `feat/desktop-shell` (do NOT merge without approval).
+- Desktop Browser/Sources privacy messages corrected for new opt-in rendered-text reading. `browser-extension/README.md` explains capability and setup. `tests/browser_automation.test.cjs` tests URL restrictions, sequential traversal, cleanup, redirect block, host failure. CI desktop-chec…2021 tokens truncated…esktop-shell` (do NOT merge without approval).
 
 Implementation:
 - `browser-extension/automation.js` adds `exactGetSearch()` and an optional `run(...,{exactGetSearch:true})` mode. It first reads the inventory cargo codes, validates at most 20 unique conservative ASCII cargo identifiers, then for each code independently opens DataLens and Asgard tabs. On these sites it recognizes **exactly one** native HTML GET form with one plain named text/search input: DataLens `main_partner_code_original`, Asgard `cargo_place`. Forms with hidden/password inputs, additional named inputs, existing query strings, ambiguous matches, arbitrary POST or unapproved origins are rejected. It constructs a single-parameter same-origin URL (without executing form submission/clicks), visits its own inactive tab, reads the result, and requires every returned row to contain the exact searched cargo code. On any source failure, no aggregate reconciliation is emitted.
@@ -890,3 +880,12 @@ Latest fix commit at this note: `4f46fdd1d7c9dc77a4b26e3244f6ed8b14af87e4` (late
 - Bump desktop/package/Cargo/Tauri/runtime/CLI/pyproject and version expectations to 0.6.2 so installed old/new code can be distinguished. CLI no longer prints stale 0.2.0.
 - Windows desktop smoke test now sends WM_CLOSE, checks automatic bundled-agent readiness, and verifies port health disappears after closing. Added typed PostMessageW signature. This verification requires the Windows CI runner; Rust/GUI cannot be executed locally (cargo unavailable).
 - Frontend build and 88 JS checks passed. Python suite reached 228 tests with one stale version expectation; that expectation was updated and targeted startup checks passed; rerun current suite/Windows CI before claiming final release verified.
+
+## 2026-11-14 — 0.6.3 / bridge 1.5.1 queue recovery
+
+- User reports queued work not doing anything, restart blocked after reopening app and rejects separate inventory-date input. Main UI now derives date from sheet title/data and no longer asks for manual date. Optional date override remains in API for compatibility.
+- Root causes: active SQLite job survived runtime restart; extension returned before claiming jobs if source configuration/permissions missing; restart refused active jobs. Added authenticated cancel endpoint and Tauri command; controller restart cancels before cursor reset, guards late poll responses with epoch and immediately reports restart status. Runtime owning API socket interrupts stale jobs on startup without advancing cursor. Late workers cannot finish cancelled/replaced jobs.
+- Added nullable failure_reason migration, bounded enum validation, and explicit missing configuration/permission failure from extension. Negotiated audit_failure_reasons capability keeps finish messages compatible with older hosts. Pending job expiry reduced from 15 to 2 minutes; running batches retain 30-minute cap.
+- UI distinguishes waiting for pickup (no site search started) and actual claimed source stage; failed source included in message. Saving extension sources wakes polling immediately; regular desktop job pickup still uses minute alarm.
+- Version 0.6.2 Windows installer run 43580506745 completed successfully, including real WM_CLOSE/agent-stop test and installed-resource upgrade test. This is evidence for 0.6.2 lifecycle only, not the new 0.6.3 queue changes or live corporate source adapters.
+- Current local validation: Python 232 tests (one skipped), all 89 Node tests, frontend production build. 0.6.3 Windows CI pending. Automatic Sheets writeback and live DataLens/Asgard validation still not complete.
