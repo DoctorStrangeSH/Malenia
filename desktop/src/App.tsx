@@ -213,7 +213,6 @@ type GoogleSheetsStatus = {connected:boolean;status:string;error:string|null;cli
 
 function SourcesPage({tabs,connected,onOpenBrowser,runState,runner}:{tabs:BrowserTab[];connected:boolean;onOpenBrowser:()=>void;runState:RunState;runner:InventaRun}){
   const [selectedSheet,setSelectedSheet]=useState("");
-  const [inventoryDate,setInventoryDate]=useState("");
   const [sheetOptions,setSheetOptions]=useState<{url:string;title:string}[]>([]);
   const [loadingSheets,setLoadingSheets]=useState(false);
   const [lesson,setLesson]=useState<KnowledgeDraft|null>(null);
@@ -316,7 +315,6 @@ function SourcesPage({tabs,connected,onOpenBrowser,runState,runner}:{tabs:Browse
     invoke<any>("analyze_active_inventa",{spreadsheetUrl:sheetUrl}).then(report=>{
       if(cancelled)return;
       setInventaReport(report);setSheetError("");
-      setInventoryDate(report.analysis.sheet_inventory_date||"");
       const base=sheetUrl.split("?")[0];
       setSheetOptions((report.source.available_sheets||[]).map((sheet:{id:number;title:string})=>({url:base+"?gid="+sheet.id,title:sheet.title})));
     }).catch(error=>{if(!cancelled)setSheetError(String(error));}).finally(()=>{if(!cancelled)setLoadingSheets(false);});
@@ -343,16 +341,16 @@ function SourcesPage({tabs,connected,onOpenBrowser,runState,runner}:{tabs:Browse
         {sheetTabs.filter(tab=>!sheetOptions.some(sheet=>sheet.url===tab.url)).map(tab=><option value={tab.url} key={tab.id}>{tab.title} · открытый лист</option>)}
         {sheetOptions.map(sheet=><option value={sheet.url} key={sheet.url}>{sheet.title}</option>)}
       </select></label>
-      <label>Дата инвентаризации<input type="date" value={inventoryDate} disabled={runBusy} onChange={e=>setInventoryDate(e.target.value)}/><small>Успешные сканы сравниваются с этой датой. Можно изменить перед запуском.</small></label>
+      {inventaReport?.analysis.sheet_inventory_date?<p>Дата листа: <b>{inventaReport.analysis.sheet_inventory_date}</b></p>:null}
       {!sheetsAuthorized?<p role="status">Сначала подключи Google в разделе ниже — без доступа к таблице разбор недоступен.</p>:null}
       {loadingSheets?<p role="status">Загружаю названия листов и дату…</p>:null}
       <div className="google-actions">
-        <button className="primary" disabled={!connected||!sheetsAuthorized||!sheetUrl||!inventoryDate||loadingSheets||runBusy} onClick={()=>void runner.start(sheetUrl,inventoryDate)}><Play size={16}/>{runState.phase==="paused"||runState.phase==="error"?"Продолжить разбор":"Разобрать весь лист"}</button>
-        <button className="secondary" disabled={!connected||!sheetsAuthorized||!sheetUrl||!inventoryDate||loadingSheets||runBusy} onClick={()=>void runner.restart(sheetUrl,inventoryDate)}>Начать заново</button>
+        <button className="primary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||runBusy} onClick={()=>void runner.start(sheetUrl)}><Play size={16}/>{runState.phase==="paused"||runState.phase==="error"?"Продолжить разбор":"Разобрать весь лист"}</button>
+        <button className="secondary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets} onClick={()=>void runner.restart(sheetUrl)}>Начать заново</button>
         <button className="secondary" disabled={!runBusy||runState.phase==="pausing"} onClick={()=>runner.pause()}>Пауза</button>
         <button className="secondary" disabled={!connected||!!lesson} onClick={()=>{runner.pause();setLesson({id:crypto.randomUUID(),title:"Правило разбора ИНВенты",content:"",kind:"memory"});}}>Объяснить Малении</button>
       </div>
-      <div className="inventa-progress" role="status" aria-live="polite"><b>{runState.phase==="error"?"Разбор остановлен":runState.phase==="completed"?"Проверка завершена":runState.total?`${runState.processed} из ${runState.total} заказов проверено`:runBusy?"Подготавливаю проверку":!sheetsAuthorized?"Нужно подключить Google":!inventoryDate?"Выбери дату инвентаризации":"Готова начать"}</b><p>{runState.message}</p>
+      <div className="inventa-progress" role="status" aria-live="polite"><b>{runState.phase==="error"?"Разбор остановлен":runState.phase==="completed"?"Проверка завершена":runState.total?`${runState.processed} из ${runState.total} заказов проверено`:runBusy?"Подготавливаю проверку":!sheetsAuthorized?"Нужно подключить Google":"Готова начать"}</b><p>{runState.message}</p>
         {runState.total>0?<progress aria-label="Прогресс разбора" max={runState.total} value={runState.processed}/>:null}
       </div>
       <small>Партии до 20 заказов переходят одна в другую автоматически. При ошибке разбор остановится; проверенная позиция сохранится. Можно переходить между разделами, пока окно Малении открыто. Запись результатов в таблицу ещё не подключена.</small>
