@@ -12,13 +12,34 @@ var MaleniaAutomation = (() => {
       let url;
       try { url = new URL(raw); } catch { throw new Error("invalid_url"); }
       if (url.protocol !== "https:" || !url.hostname || url.username || url.password ||
-          url.search || url.hash || url.port || url.hostname === "localhost" ||
+          url.hash || url.port || url.hostname === "localhost" ||
           url.hostname.endsWith(".localhost") || url.hostname.endsWith(".local")) {
         throw new Error("unsafe_target");
       }
-      result[role] = url.origin + url.pathname;
+      const datalens=url.origin==='https://datalens.yandex-team.ru';
+      const tabs=url.searchParams.getAll('tab');
+      if(url.search && (!datalens || tabs.length!==1 || !/^[A-Za-z0-9_-]{1,64}$/.test(tabs[0]) ||
+          [...url.searchParams.keys()].some(key=>!['tab','state'].includes(key)) ||
+          url.searchParams.getAll('state').length>1 ||
+          (url.searchParams.has('state') && !/^[A-Za-z0-9_-]{1,128}$/.test(url.searchParams.get('state'))))) {
+        throw new Error('unsafe_target');
+      }
+      // This dashboard's Orders route was supplied by the account owner.
+      // Repair existing path-only bindings without asking them to set up again.
+      const tab=datalens && url.pathname==='/94srinatuhls4-sc'?'qmM':tabs[0];
+      result[role] = url.origin + url.pathname + (datalens && tab?'?tab='+tab:'');
     }
     return result;
+  }
+  function sourceUrl(raw) {
+    const url=new URL(raw);
+    if(url.username || url.password) throw new Error('unsafe_target');
+    const tabs=url.searchParams.getAll('tab');
+    if(url.origin==='https://datalens.yandex-team.ru' &&
+        (tabs.length>1 || (tabs.length && !/^[A-Za-z0-9_-]{1,64}$/.test(tabs[0])))) throw new Error('unsafe_target');
+    const candidate=url.origin+url.pathname+
+      (url.origin==='https://datalens.yandex-team.ru' && tabs.length?'?tab='+tabs[0]:'');
+    return normalizeTargets(Object.fromEntries(ROLES.map(role=>[role,candidate]))).datalens;
   }
   const origins = targets => [...new Set(ROLES.map(role => new URL(targets[role]).origin + "/*"))];
 
@@ -301,26 +322,30 @@ var MaleniaAutomation = (() => {
         };
         // tabs.status=complete does not mean an SPA has rendered its search form.
         const readyUntil=Date.now()+12000;
-        let controls, reverseSelected=false, ordersSelected=false;
+        let controls, reverseSelected=false,
+          ordersSelected=role==='datalens' && location.pathname==='/94srinatuhls4-sc' &&
+            new URL(location.href).searchParams.get('tab')==='qmM';
         const ordersTabs = () => {
           // Prefer semantic controls. Some dashboard tab captions are plain spans
           // whose click bubbles to a React handler on the surrounding strip.
-          const semantic=[...document.querySelectorAll('a,button,[role="tab"],[tabindex]')]
-            .filter(el=>visible(el) && !el.disabled && clean(el.textContent)==='Заказы');
-          if(semantic.length) return semantic.filter(el=>
-            !semantic.some(other=>other!==el && other.contains?.(el)));
-          return [...document.querySelectorAll('span,div')].filter(el=>{
-            if(!visible(el) || clean(el.textContent)!=='Заказы' ||
-                [...(el.children || [])].some(child=>clean(child.textContent)==='Заказы')) return false;
+          const caption=el=>visible(el) && !el.disabled && clean(el.textContent)==='Заказы';
+          const outer=nodes=>nodes.filter(el=>!nodes.some(other=>other!==el && other.contains?.(el)));
+          const roles=[...document.querySelectorAll('[role="tab"]')].filter(caption);
+          if(roles.length) return outer(roles);
+          const inStrip=el=>{
             let parent=el.parentElement;
             for(let i=0;parent && i<4;i++,parent=parent.parentElement) {
               const text=clean(parent.textContent);
               if(text.length>1500) break;
-              // Observed neighbours distinguish the tab strip from dashboard links.
               if(['Статистика','Массовые сканы','Многоместка'].filter(label=>text.includes(label)).length>=2) return true;
             }
             return false;
-          });
+          };
+          const semantic=[...document.querySelectorAll('a,button,[role="tab"],[tabindex]')]
+            .filter(el=>caption(el) && inStrip(el));
+          if(semantic.length) return outer(semantic);
+          return [...document.querySelectorAll('span,div')].filter(el=>caption(el) && inStrip(el) &&
+            ![...(el.children || [])].some(child=>clean(child.textContent)==='Заказы'));
         };
         do {
           if(location.origin!==expectedOrigin) return {error:'search_origin_mismatch'};
@@ -331,7 +356,11 @@ var MaleniaAutomation = (() => {
               ordersSelected=true;
             } else {
               const tabs=ordersTabs();
-              if(tabs.length>1) return {error:'search_navigation_ambiguous'};
+              if(tabs.length>1) {
+                if(Date.now()>=readyUntil) return {error:'search_navigation_ambiguous'};
+                await new Promise(resolve=>setTimeout(resolve,200));
+                continue;
+              }
               if(tabs.length===1) {
                 const tab=tabs[0], link=tab.closest?.('a[href]');
                 if(link && new URL(link.href,location.href).origin!==expectedOrigin) return {error:'search_origin_mismatch'};
@@ -711,5 +740,5 @@ var MaleniaAutomation = (() => {
     await onProgress(summary);
     return summary;
   }
-  return {ROLES, MAX_TEXT, MAX_PAGES, MAX_SEARCHES, normalizeTargets, origins, nextPage, exactGetSearch, reactiveSearch, workplaceSearch, asgardSearchKeys, reasonCode, waitLoaded, run};
+  return {ROLES, MAX_TEXT, MAX_PAGES, MAX_SEARCHES, normalizeTargets, sourceUrl, origins, nextPage, exactGetSearch, reactiveSearch, workplaceSearch, asgardSearchKeys, reasonCode, waitLoaded, run};
 })();

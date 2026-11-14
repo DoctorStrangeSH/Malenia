@@ -1,3 +1,12 @@
+## 2026-11-14 — 0.6.7 / Bridge 1.6.5 — preserve DataLens Orders route
+
+- User screenshot shows DataLens navigation ambiguity mislabeled as Asgard reverse flow. Corrected desktop wording by source: Orders for DataLens; reverse flow for Asgard.
+- The user supplied the known dashboard Orders route `94srinatuhls4-sc?tab=qmM`. Normalize existing path-only bindings to that known Orders route without another setup. Preserve validated bounded DataLens tab IDs, discard state/filter payloads; other services still reject query parameters in normalized automation targets.
+- Active-tab binding and tab discovery use the same source URL canonicalizer. Unrelated parameters, URL credentials, duplicate or malformed tab IDs are not persisted.
+- Navigation now prioritizes actual tab roles and then captions inside the observed tab strip. A same-named page heading is not treated as a second tab. Known direct qmM routes wait for form hydration rather than clicking ambiguous captions prematurely.
+- Validation: 115 Node tests, 236 Python tests (one Windows-only skip), frontend production build. Covers supplied route and old binding through queued searches, active-tab persistence, heading duplication, hydration and source-specific error wording.
+- Bridge 1.6.5 supplies the actual navigation fix; desktop 0.6.7 corrects the error text. Existing bindings preserved. Windows installer/live corporate-session confirmation remain separate.
+
 ## 2026-11-14 — Browser Bridge 1.6.4 — navigate DataLens to Orders
 
 - User screenshot identifies the real missing-field case: a new DataLens dashboard tab opens on the default SC overview, and order search lives on the Orders tab. Source URL sanitization retains dashboard path but drops query/fragment state.

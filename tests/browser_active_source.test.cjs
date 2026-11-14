@@ -44,3 +44,10 @@ test('denied permission, unsafe tab and missing role never save a source',async(
    const p=await popup(url);assert.equal(p.nodes.useActiveSource.disabled,true);assert.equal(p.messages.length,0);
  }
 });
+
+
+test('current DataLens Orders source keeps its tab while stripping state and other parameters',async()=>{
+ const p=await popup('https://datalens.yandex-team.ru/94srinatuhls4-sc?tab=qmM&state=example-state');
+ await p.click();assert.equal(p.saved.datalens,'https://datalens.yandex-team.ru/94srinatuhls4-sc?tab=qmM');
+ assert.equal(p.queries.length,1);assert.equal(p.permissions.length,1);
+});

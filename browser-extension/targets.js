@@ -71,7 +71,7 @@
       for (const tab of tabs) {
         try {
           const url = new URL(tab.url);
-          const clean = url.origin + url.pathname;
+          const clean = MaleniaAutomation.sourceUrl(tab.url);
           // Validate each candidate with the same rules as saved targets.
           MaleniaAutomation.normalizeTargets(Object.fromEntries(
             Object.keys(fields).map(role => [role, clean])));

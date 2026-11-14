@@ -87,3 +87,12 @@ test('restart cancels an active job before resetting and queues a fresh batch',a
    const unknown=exports.auditFailureMessage({failed_role:'asgard',failure_reason:'https://private.example/SECRET'});
    assert.doesNotMatch(unknown,/SECRET|private/);assert.match(unknown,/Подробная причина не получена/);
  });
+
+
+test('DataLens navigation errors name Orders and Asgard errors name reverse flow',()=>{
+ const exports={};vm.runInNewContext(source,{exports});
+ const dl=exports.auditFailureMessage({failed_role:'datalens',failure_reason:'search_navigation_ambiguous'});
+ assert.match(dl,/Заказы/);assert.doesNotMatch(dl,/Обратный поток/);
+ const asgard=exports.auditFailureMessage({failed_role:'asgard',failure_reason:'search_navigation_ambiguous'});
+ assert.match(asgard,/Обратный поток/);
+});

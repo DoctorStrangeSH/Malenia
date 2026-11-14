@@ -8,13 +8,7 @@
   const labels={inventory:'ИНВента',datalens:'DataLens',asgard:'Asgard'};
   let active=null;
   const show=text=>{status.textContent=text;};
-  const clean=url=>{
-    const parsed=new URL(url);
-    if(parsed.username||parsed.password)throw Error('unsafe');
-    const value=parsed.origin+parsed.pathname;
-    MaleniaAutomation.normalizeTargets(Object.fromEntries(roles.map(role=>[role,value])));
-    return value;
-  };
+  const clean=url=>MaleniaAutomation.sourceUrl(url);
   function summary(targets){
     return roles.map(role=>labels[role]+': '+(targets?.[role]?'сохранён ✓':'нужно выбрать')).join(' · ');
   }

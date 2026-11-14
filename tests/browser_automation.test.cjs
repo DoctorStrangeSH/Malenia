@@ -616,7 +616,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, deadline, now=0;
@@ -646,15 +646,16 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
   ]};
   const button={textContent:'Найти',disabled:false,getClientRects:()=>[{}],click(){clicks++;updated=!unchanged;}};
   const ordersTab={textContent:'Заказы',closest:()=>foreignOrders?{href:'https://other.example/orders'}:null,children:[],parentElement:{textContent:unrelatedOrders?'Ссылки на Заказы':'СЦ Статистика Заказы Массовые сканы Многоместка',parentElement:null},getClientRects:()=>[{}],getAttribute:()=>null,click(){navigationClicks++;}};
+  const heading={...ordersTab,parentElement:{textContent:'Заказы. Описание дашборда',parentElement:null}};
   const reverseTab={textContent:'Обратный поток',getClientRects:()=>[{}],getAttribute:()=>null,click(){navigationClicks++;}};
-  const document={body:{},getElementById:id=>id==='barcode-caption'?{textContent:label}:null,querySelectorAll:selector=>selector==='input'?((missing || (reverse && !navigationClicks) || (orders && !ordersAlreadyOpen && !navigationClicks) || (delayed && now<800))?[]:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
+  const document={body:{},getElementById:id=>id==='barcode-caption'?{textContent:label}:null,querySelectorAll:selector=>selector==='input'?((missing || (reverse && !navigationClicks) || (orders && !ordersAlreadyOpen && !navigationClicks && !(deepOrders && now>=800)) || (delayed && now<800))?[]:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
     selector==='button'?(noButton?[]:[button]):selector==='table'?[table]:
     selector==='a,button,[role="tab"]' && reverse?[reverseTab]:
-    selector==='a,button,[role="tab"],[tabindex]' && orders && !plainOrders && !(delayedOrders && now<800)?(duplicateOrders?[ordersTab,{...ordersTab}]:[ordersTab]):
+    selector==='a,button,[role="tab"],[tabindex]' && orders && !plainOrders && !(delayedOrders && now<800)?(duplicateOrders?[ordersTab,{...ordersTab}]:ordersHeading?[ordersTab,heading]:[ordersTab]):
     selector==='span,div' && orders && plainOrders?[ordersTab]:[]};
   const chrome={scripting:{async executeScript({func,args}){
     return [{result:await vm.runInNewContext('('+func.toString()+')(...args)',{
-      document,URL,location:{origin:host,href:host+'/dashboard'},HTMLInputElement:Input,args,
+      document,URL,location:{origin:host,pathname:deepOrders?'/94srinatuhls4-sc':'/dashboard',href:host+(deepOrders?'/94srinatuhls4-sc?tab=qmM':'/dashboard')},HTMLInputElement:Input,args,
       Event:class {constructor(type){this.type=type;}},KeyboardEvent:class {constructor(type){this.type=type;}},
       MutationObserver:class {observe(){}disconnect(){}},
       Date:{now:()=>now},setTimeout:(fn,ms)=>{if(ms<=200){now+=ms;queueMicrotask(fn);}else deadline=fn;return 1;},clearTimeout(){},clearInterval(){},
@@ -855,4 +856,46 @@ test('ambiguous Orders tabs and unrelated Orders text never trigger a guessed cl
   const api=runner(),f=workplaceFixture('datalens',{orders:true,foreignOrders:true});
   await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),/search_origin_mismatch/);
   assert.equal(f.navigationClicks(),0);
+});
+
+
+test('DataLens Orders deep link preserves tab, drops state, and repairs saved dashboard-only bindings',()=>{
+  const api=runner(),url='https://datalens.yandex-team.ru/94srinatuhls4-sc';
+  for(const raw of [url,url+'?tab=qmM&state=example-state']) {
+    const normalized=api.normalizeTargets({...workTargets,datalens:raw});
+    assert.equal(normalized.datalens,url+'?tab=qmM');
+  }
+  assert.equal(api.sourceUrl(url+'?tab=qmM&state=private&token=secret'),url+'?tab=qmM');
+  assert.equal(api.sourceUrl('https://datalens.yandex-team.ru/other?tab=Safe_2&state=x'),
+    'https://datalens.yandex-team.ru/other?tab=Safe_2');
+  for(const raw of [url+'?tab=qmM&token=secret',url+'?tab=qmM&tab=bad',url+'?tab=%2Fother']) {
+    assert.throws(()=>api.normalizeTargets({...workTargets,datalens:raw}));
+  }
+});
+
+test('Orders heading is not mistaken for a second navigation tab',async()=>{
+  const api=runner(),f=workplaceFixture('datalens',{orders:true,ordersHeading:true});
+  const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+  assert.equal(result.rows[0][0],'TEST-1');assert.equal(f.navigationClicks(),1);
+});
+
+test('an explicit qmM route waits for its form rather than clicking duplicate captions during hydration',async()=>{
+  const api=runner(),f=workplaceFixture('datalens',{orders:true,duplicateOrders:true,deepOrders:true});
+  const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+  assert.equal(result.rows[0][0],'TEST-1');assert.equal(f.navigationClicks(),0);
+});
+
+test('queued search opens the supplied qmM Orders route even from an old dashboard-only source',async()=>{
+  const api=runner(),base='https://datalens.yandex-team.ru/94srinatuhls4-sc';
+  for(const raw of [base,base+'?tab=qmM&state=example-state']) {
+    const chrome=fakeBrowser(),opened=[],create=chrome.tabs.create;
+    chrome.tabs.create=async args=>{opened.push(args.url);return create(args);};
+    chrome.scripting.executeScript=async({args:[role,key]})=>{
+      assert.equal(role,'datalens');return [{result:scanBatch([key])}];
+    };
+    const result=await api.run(chrome,{...workTargets,datalens:raw},async()=>({ok:true,type:'site_tables_reconciled',
+      persisted:false,read_only:true,write_enabled:false,total:1,summary:{found:1,in_progress:0,manual_review:0}}),async()=>{},
+      {exactGetSearch:true,seedInventory:inventorySeed(['TEST-ORDER'])});
+    assert.equal(result.phase,'reconciled');assert.deepEqual(opened,[base+'?tab=qmM']);
+  }
 });
