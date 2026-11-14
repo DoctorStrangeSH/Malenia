@@ -29,6 +29,36 @@ class SiteReconciliationTests(unittest.TestCase):
         result = reconcile_tables(data)
         self.assertEqual(result["summary"]["found"], 1)
 
+    def test_03_10_inventory_finds_05_10_scan_without_asgard(self):
+        data = snapshots()
+        data["inventory"]["rows"] = [["VOZ_MK_TEST_001", "2026-10-03"]]
+        data["datalens"]["columns"][0] = "place_external_id"
+        data["datalens"]["rows"] = [
+            ["VOZ_MK_TEST_001", "101 366", "OK", "2026/10/05 16:51:32"],
+            ["VOZ_MK_TEST_001", "101 366", "OK", "2026/09/29 14:59:51"],
+        ]
+        data["asgard"]["rows"] = []
+        self.assertEqual(reconcile_tables(data)["summary"],
+                         {"found": 1, "in_progress": 0, "manual_review": 0})
+
+    def test_twenty_scan_histories_are_not_limited_to_100_rows_together(self):
+        data = snapshots()
+        codes = [f"TEST-{i}" for i in range(20)]
+        data["inventory"]["rows"] = [[code, "2026-10-03"] for code in codes]
+        data["datalens"]["rows"] = [
+            [code, "101366", "OK", "2026-10-05 16:51:32"]
+            for code in codes for _ in range(24)]
+        data["asgard"]["rows"] = []
+        self.assertEqual(reconcile_tables(data)["summary"]["found"], 20)
+        # The per-order bound is unchanged.
+        data["datalens"]["rows"] = [
+            [codes[0], "101366", "OK", "2026-10-05 16:51:32"]] * 101
+        with self.assertRaises(SiteSnapshotError):
+            reconcile_tables(data)
+        data["datalens"]["rows"] *= 20
+        with self.assertRaises(SiteSnapshotError):
+            reconcile_tables(data)
+
     def test_conflicting_datalens_identity_columns_are_rejected(self):
         data = snapshots()
         data["datalens"]["columns"].append("place_external_id")

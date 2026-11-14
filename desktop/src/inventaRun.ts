@@ -104,7 +104,7 @@ export class InventaRun {
         this.fail(current.failure_reason==="sources_not_configured"?"Расширение получило задачу, но источники не настроены. В Browser Bridge выбери рабочие вкладки и сохрани их.":current.failure_reason==="browser_permission_missing"?"Браузер не разрешил чтение источников. В Browser Bridge нажми «Сохранить и разрешить чтение».":current.failure_reason==="agent_restarted"?"Предыдущая проверка прервана перезапуском. Можно начать разбор снова.":current.status==="expired"?"Browser Bridge не ответил. Проверь расширение и разрешения, затем продолжи.":auditFailureMessage(current));
       }else{
         this.update({phase:this.active?(current.status==="running"?"running":"waiting"):"pausing",
-          message:!this.active?"Завершаю текущую партию перед паузой.":current.status==="running"?`Расширение выполняет этап: ${{inventory:"чтение ИНВенты",datalens:"поиск в DataLens",asgard:"поиск в Asgard"}[current.current_role||""]||"подготовка"}.`:"Расширение ещё не забрало задачу. Поиск на сайтах не начался."});
+          message:!this.active?"Завершаю текущую партию перед паузой.":current.status==="running"?`Расширение выполняет этап: ${{inventory:"чтение ИНВенты",datalens:"поиск в DataLens",asgard:"поиск в Asgard для заказов без подтверждённого скана после ИНВенты"}[current.current_role||""]||"подготовка"}.`:"Расширение ещё не забрало задачу. Поиск на сайтах не начался."});
         this.schedule();
       }
     }catch(error){if(epoch===this.epoch)this.fail("Связь с агентом прервалась: "+String(error));}

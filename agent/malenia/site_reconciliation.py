@@ -17,6 +17,7 @@ FIELDS = {
     "asgard": ("cargo_place", "status", "box_id", "extended_history_statuses"),
 }
 MAX_ROWS = 100
+MAX_DATALENS_ROWS = 20 * 100  # 20 browser orders, each with at most 100 scans.
 MAX_COLUMNS = 20
 MAX_CELL = 256
 
@@ -36,7 +37,7 @@ def _table(raw: Any, role: str) -> list[dict[str, str]]:
     if (not isinstance(columns, list) or not 1 <= len(columns) <= MAX_COLUMNS
             or not all(isinstance(c, str) and 0 < len(c) <= MAX_CELL for c in columns)
             or len(columns) != len(set(columns))
-            or not isinstance(rows, list) or len(rows) > MAX_ROWS):
+            or not isinstance(rows, list) or len(rows) > (MAX_DATALENS_ROWS if role == "datalens" else MAX_ROWS)):
         raise SiteSnapshotError("invalid_table")
     # Do not guess site-specific column synonyms: mappings must be reviewed.
     if any(c not in columns for c in FIELDS[role][:2]):

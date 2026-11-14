@@ -1,3 +1,14 @@
+## 2026-11-14 — 0.6.6 / Bridge 1.6.3 — preserve found-order routing in batches
+
+- User supplied a 03.10 sheet and a first-order DataLens history containing OK scans at SC 101366 on 05.10. The expected outcome is Found without Asgard. Screenshots do not identify which order caused the Asgard stage of the 20-order batch.
+- Reproduced a batch defect: accumulated scan histories were capped at 100 rows for the entire batch; a later DataLens failure discarded the partial snapshot and Asgard fell back to all inventory keys. This could re-query already found cargo and mask the DataLens failure with an Asgard failure.
+- Browser and Python reconciliation now permit up to 2000 DataLens rows (20 orders x 100 scans), retaining 100 scans per individual order. Other source row bounds are unchanged.
+- Exact-search audits stop on upstream failure, keep its source/reason, do not reconcile incomplete evidence and never treat missing DataLens schema as a reason to search all keys in Asgard.
+- Updated on-screen explanation: Asgard can refer to other unresolved orders in the same batch. Only complete acknowledged batches advance the sheet cursor.
+- Regression coverage uses synthetic cargo IDs with the reported dates/SC: found-only order skips Asgard; mixed batch routes only the unresolved order; 20 x 24 history rows reconcile; later DataLens errors and unknown schema stop before Asgard; oversized per-order history remains rejected.
+- Validation: 105 Node tests, 236 Python tests (one Windows-only skip), frontend production build. Windows 0.6.6 installer and real user session still need confirmation.
+- This fixes a reproducible routing defect; do not claim screenshots prove that exact defect caused this particular run. Automatic Sheets writeback remains unimplemented in the browser audit flow.
+
 ## 2026-11-14 — Browser Bridge 1.6.2 — missing Asgard search field
 
 - Real user screenshot now reports search_field_missing on Asgard, sheet 03.10. This proves the detailed failure pipeline works; it does not establish whether missing field is hydration, layout, authentication, or navigation.

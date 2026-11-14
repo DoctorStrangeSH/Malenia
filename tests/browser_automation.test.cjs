@@ -737,3 +737,87 @@ test('queued seeded orders route through workplace searches and skip Asgard for 
   await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'asgard','TEST-1',f.host),/search_field_missing/);
   assert.equal(f.clicks(),0);
 });
+
+function scanBatch(codes, count=24) {
+  return {columns:['main_partner_code_original','sc_id','result','scanned_at'],
+    rows:codes.flatMap(code=>Array.from({length:count},(_,i)=>[code,'101366','OK',
+      i<2?'2026-10-05 16:51:32':'2026-09-29 14:59:51']))};
+}
+const workTargets={inventory:'https://docs.google.com/spreadsheets/d/example/edit',
+  datalens:'https://datalens.yandex-team.ru/orders',asgard:'https://asgard.market.yandex-team.ru/returnBox/search'};
+function inventorySeed(codes){return {columns:['cargo_place','inventory_date'],rows:codes.map(code=>[code,'2026-10-03'])};}
+
+test('03.10 inventory and 05.10 successful scan find VOZ_MK_TEST_001 without opening Asgard',async()=>{
+  const api=runner(),chrome=fakeBrowser(),calls=[],code='VOZ_MK_TEST_001';
+  chrome.scripting.executeScript=async({args:[role,key]})=>{
+    calls.push([role,key]);assert.equal(role,'datalens');assert.equal(key,code);
+    return [{result:scanBatch([code])}];
+  };
+  const result=await api.run(chrome,workTargets,async message=>{
+    assert.equal(message.type,'reconcile_site_tables');assert.equal(message.snapshots.asgard.rows.length,0);
+    return {ok:true,type:'site_tables_reconciled',persisted:false,read_only:true,write_enabled:false,total:1,summary:{found:1,in_progress:0,manual_review:0}};
+  },async()=>{}, {exactGetSearch:true,seedInventory:inventorySeed([code])});
+  assert.equal(result.phase,'reconciled');assert.deepEqual(calls,[['datalens',code]]);
+});
+
+test('20 scan histories may exceed 100 rows together without sending found orders to Asgard',async()=>{
+  const api=runner(),chrome=fakeBrowser(),codes=['VOZ_MK_TEST_001',...Array.from({length:19},(_,i)=>'TEST-'+i)],calls=[];
+  chrome.scripting.executeScript=async({args:[role,key]})=>{
+    calls.push([role,key]);assert.equal(role,'datalens');return [{result:scanBatch([key])}];
+  };
+  const result=await api.run(chrome,workTargets,async message=>{
+    assert.equal(message.snapshots.datalens.rows.length,480);assert.equal(message.snapshots.asgard.rows.length,0);
+    return {ok:true,type:'site_tables_reconciled',persisted:false,read_only:true,write_enabled:false,total:20,summary:{found:20,in_progress:0,manual_review:0}};
+  },async()=>{}, {exactGetSearch:true,seedInventory:inventorySeed(codes)});
+  assert.equal(result.phase,'reconciled');assert.equal(calls.length,20);
+});
+
+test('a later DataLens failure stops the batch without searching found orders in Asgard',async()=>{
+  const api=runner(),chrome=fakeBrowser(),codes=['VOZ_MK_TEST_001','BROKEN'],calls=[];
+  chrome.scripting.executeScript=async({args:[role,key]})=>{
+    calls.push([role,key]);assert.equal(role,'datalens');
+    if(key==='BROKEN')throw new Error('site failed');
+    return [{result:scanBatch([key])}];
+  };
+  const result=await api.run(chrome,workTargets,async()=>{throw Error('must not reconcile partial results');},async()=>{},
+    {exactGetSearch:true,seedInventory:inventorySeed(codes)});
+  assert.equal(result.phase,'needs_attention');assert.deepEqual(calls,codes.map(c=>['datalens',c]));
+  assert.equal(result.results.at(-1).role,'datalens');
+});
+
+test('a single oversized scan history is rejected before Asgard',async()=>{
+  const api=runner(),chrome=fakeBrowser();
+  chrome.scripting.executeScript=async({args:[role,key]})=>{
+    assert.equal(role,'datalens');return [{result:scanBatch([key],101)}];
+  };
+  const result=await api.run(chrome,workTargets,async()=>{},async()=>{},
+    {exactGetSearch:true,seedInventory:inventorySeed(['TEST'])});
+  assert.equal(result.phase,'needs_attention');assert.equal(result.results.at(-1).reason,'too_many_search_rows');
+});
+
+test('Asgard in a mixed 03.10 batch receives only the other order, never the found VOZ order',async()=>{
+  const api=runner(),chrome=fakeBrowser(),calls=[],codes=['VOZ_MK_TEST_001','UNRESOLVED'];
+  chrome.scripting.executeScript=async({args:[role,key]})=>{
+    calls.push([role,key]);
+    if(role==='asgard')return [{result:{columns:['cargo_place','status'],rows:[[key,'Выдан']]}}];
+    const table=scanBatch([key]);
+    if(key==='UNRESOLVED')table.rows.forEach(row=>row[3]='2026-09-29 14:59:51');
+    return [{result:table}];
+  };
+  const result=await api.run(chrome,workTargets,async()=>({ok:true,type:'site_tables_reconciled',persisted:false,
+    read_only:true,write_enabled:false,total:2,summary:{found:1,in_progress:1,manual_review:0}}),async()=>{},
+    {exactGetSearch:true,seedInventory:inventorySeed(codes)});
+  assert.equal(result.phase,'reconciled');
+  assert.deepEqual(calls,[['datalens',codes[0]],['datalens',codes[1]],['asgard',codes[1]]]);
+});
+
+test('unmapped DataLens columns never fall back to searching all orders in Asgard',async()=>{
+  const api=runner(),chrome=fakeBrowser(),calls=[];
+  chrome.scripting.executeScript=async({args:[role,key]})=>{
+    calls.push([role,key]);return [{result:{columns:['main_partner_code_original'],rows:[[key]]}}];
+  };
+  const result=await api.run(chrome,workTargets,async()=>{},async()=>{},
+    {exactGetSearch:true,seedInventory:inventorySeed(['VOZ_MK_TEST_001'])});
+  assert.equal(result.phase,'needs_attention');assert.equal(result.results.at(-1).role,'datalens');
+  assert.equal(result.results.at(-1).reason,'unmapped_search_results');assert.equal(calls.length,1);
+});

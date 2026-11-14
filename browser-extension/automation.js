@@ -74,6 +74,7 @@ var MaleniaAutomation = (() => {
   }
 
   const MAX_SEARCHES = 20;
+  const MAX_BATCH_SCAN_ROWS = MAX_SEARCHES * 100;
   // Optimization only: the Python reconciliation engine remains authoritative.
   // We may avoid sending a cargo code to Asgard only with complete, exact
   // evidence of a later successful scan at the approved SC.
@@ -589,8 +590,7 @@ var MaleniaAutomation = (() => {
         const inventoryKeys = snapshots.inventory?.rows?.map(row =>
           row[snapshots.inventory.columns.indexOf("cargo_place")]);
         const searchKeys = role !== "inventory" && options.exactGetSearch ?
-          (role === "asgard" ? asgardSearchKeys(snapshots.inventory, snapshots.datalens) ??
-            inventoryKeys : inventoryKeys) : null;
+          (role === "asgard" ? asgardSearchKeys(snapshots.inventory, snapshots.datalens) : inventoryKeys) : null;
         if (role !== "inventory" && options.exactGetSearch &&
             (!Array.isArray(searchKeys) || (role !== "asgard" && !searchKeys.length) ||
              searchKeys.length > MAX_SEARCHES || new Set(searchKeys).size !== searchKeys.length ||
@@ -620,6 +620,7 @@ var MaleniaAutomation = (() => {
               throw new Error("unverified_search_result_identity");
             }
           }
+          if (visitResult.table?.rows?.length > 100) throw new Error("too_many_search_rows");
           characters += visitResult.characters;
           pages += visitResult.pages;
           if (visitResult.table) {
@@ -631,11 +632,15 @@ var MaleniaAutomation = (() => {
                 throw new Error("changed_search_schema");
               }
               table.rows.push(...visitResult.table.rows);
-              if (table.rows.length > 100) throw new Error("too_many_search_rows");
+              if (table.rows.length > (role === "datalens" ? MAX_BATCH_SCAN_ROWS : 100)) throw new Error("too_many_search_rows");
             }
           }
         }
         if (table) snapshots[role] = table;
+        if (role === "datalens" && options.exactGetSearch &&
+            asgardSearchKeys(snapshots.inventory, snapshots.datalens) === null) {
+          throw new Error("unmapped_search_results");
+        }
         results.push({role, status: "read", characters, pages});
       } catch (error) {
         // Only constant known codes are allowed in persisted progress. Browser errors
@@ -643,6 +648,9 @@ var MaleniaAutomation = (() => {
         results.push({role, status: "needs_attention", reason: reasonCode(error)});
       }
       await onProgress({phase: "reading", role, results: [...results]});
+      // A failed DataLens batch is not evidence that its orders were not found.
+      // Stop before Asgard instead of discarding confirmed scans and searching all keys.
+      if (options.exactGetSearch && results.some(item => item.status === "needs_attention")) break;
     }
     const complete = results.every(item => item.status === "read");
     let reconciliation = null;
