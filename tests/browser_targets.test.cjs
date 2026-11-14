@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const automation = fs.readFileSync(path.resolve(__dirname,'../browser-extension/automation.js'),'utf8');
 const setup = fs.readFileSync(path.resolve(__dirname,'../browser-extension/targets.js'),'utf8');
 const flush = () => new Promise(resolve=>setImmediate(resolve));
-function screen(granted=true, audit=null) {
+function screen(granted=true, audit=null, openTabs=null) {
   const names = ['targetInventory','targetDatalens','targetAsgard','saveTargets','targetsStatus','orderAuditStatus',
     'discoverTargets','selectinventory','selectdatalens','selectasgard'];
   const nodes=Object.fromEntries(names.map(name=>[name,{value:'',textContent:'',className:'',disabled:false,
@@ -17,7 +17,7 @@ function screen(granted=true, audit=null) {
   const chrome={storage:{local:{async get(){return {};},async set(value){stored=value;}},
     session:{async get(){return {maleniaAudit:audit};}}},
     permissions:{async request({origins}){requested++; assert.equal(origins.length,3);return granted;}}};
-  chrome.tabs={async query(){return [
+  chrome.tabs={async query(){return openTabs || [
     {title:'ИНВента',url:'https://docs.google.com/spreadsheets/d/example/edit#gid=42'},
     {title:'DataLens',url:'https://analytics.example/dashboard?token=secret'},
     {title:'Asgard',url:'https://asgard.example/returns'},
@@ -75,4 +75,24 @@ test('diagnostic explains why DataLens failed without exposing cargo or site URL
   await flush();
   assert.match(ui.nodes.orderAuditStatus.textContent,/DataLens: Таблица не обновилась/);
   assert.doesNotMatch(ui.nodes.orderAuditStatus.textContent,/BOX-1|https:/);
+});
+
+test('unique known corporate tabs are preselected without granting permissions or storing anything',async()=>{
+ const tabs=[{title:'ИНВента',url:'https://docs.google.com/spreadsheets/d/example/edit'},
+ {title:'DataLens',url:'https://datalens.yandex-team.ru/orders'},
+ {title:'Asgard',url:'https://asgard.market.yandex-team.ru/'}];
+ const ui=screen(true,null,tabs);
+ for(const name of ['targetInventory','targetDatalens','targetAsgard'])ui.nodes[name].value='';
+ await ui.nodes.discoverTargets.click();
+ assert.equal(ui.nodes.targetInventory.value,tabs[0].url);
+ assert.equal(ui.nodes.targetDatalens.value,tabs[1].url);
+ assert.equal(ui.nodes.targetAsgard.value,tabs[2].url);
+ assert.equal(ui.requested,0);assert.equal(ui.stored,null);
+ await ui.click();assert.equal(ui.requested,1);assert.ok(ui.stored);
+});
+test('ambiguous corporate tabs remain unselected',async()=>{
+ const ui=screen(true,null,[{title:'A',url:'https://datalens.yandex-team.ru/a'},
+ {title:'B',url:'https://datalens.yandex-team.ru/b'}]);
+ ui.nodes.targetDatalens.value='';await ui.nodes.discoverTargets.click();
+ assert.equal(ui.nodes.targetDatalens.value,'');assert.equal(ui.stored,null);
 });
