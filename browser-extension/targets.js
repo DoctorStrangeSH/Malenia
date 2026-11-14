@@ -84,9 +84,16 @@
           option.textContent = page.title + " · " + new URL(page.url).hostname;
           select.append(option);
         }
-        select.value = pages.has(fields[role].value) ? fields[role].value : "";
+        const matching = candidates.filter(page => {
+          const url = new URL(page.url);
+          return role === "inventory" ? url.hostname === "docs.google.com" && /^\/spreadsheets\/d\/[^/]+\/edit\/?$/.test(url.pathname) :
+            url.hostname === (role === "datalens" ? "datalens.yandex-team.ru" : "asgard.market.yandex-team.ru");
+        });
+        const selected = pages.has(fields[role].value) ? fields[role].value : matching.length === 1 ? matching[0].url : "";
+        select.value = selected;
+        fields[role].value = selected;
       }
-      show(candidates.length ? "Выбери вкладки ИНВенты, DataLens и Asgard, затем разреши чтение. Содержимое страниц ещё не читается." :
+      show(candidates.length ? Object.values(fields).every(field=>field.value) ? "Рабочие вкладки определены. Нажми «Сохранить и разрешить чтение», затем вернись в Малению и продолжи разбор." : "Выбери недостающие рабочие вкладки и нажми «Сохранить и разрешить чтение». Содержимое страниц ещё не читается." :
         "Открой рабочие HTTPS-вкладки в этом браузере и повтори поиск.");
     } catch { show("Не удалось получить список вкладок. Повтори поиск.", "error"); }
     finally { discover.disabled = false; }
