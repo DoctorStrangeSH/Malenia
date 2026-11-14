@@ -196,6 +196,16 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                 return
             parsed = urlsplit(self.path)
 
+            if parsed.path == "/v1/browser/audit-cancel":
+                payload = self._read_json(1024)
+                if payload is None:
+                    return
+                if payload:
+                    self._send(422, {"error": "invalid_audit_request"})
+                    return
+                self._send(200, {"cancelled": store.cancel_browser_audit(), "source_records_modified": False})
+                return
+
             if parsed.path == "/v1/browser/audit-request":
                 payload = self._read_json(1024)
                 if payload is None:
@@ -602,6 +612,7 @@ def create_server(host: str, port: int, store: TaskStore, token: str) -> Malenia
     try:
         # Only the runtime that successfully owns the socket can invalidate grants.
         gate.invalidate_open()
+        store.cancel_browser_audit("agent_restarted")
     except Exception:
         server.server_close()
         raise
