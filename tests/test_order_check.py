@@ -115,7 +115,7 @@ class OrderCheckRuleTests(unittest.TestCase):
         )
         self.assertEqual(result["decision"], DECISION_ASGARD)
         self.assertEqual(result["proposed_status"], "В работе")
-        self.assertEqual(result["comment"], "2 ШК Выдан")
+        self.assertEqual(result["comment"], "Два ШК Выдан")
         self.assertEqual(result["color"], "orange")
         self.assertEqual(result["evidence"]["box_id"], "BOX-1")
 

@@ -1296,9 +1296,9 @@ test('marking run verifies the selected Asgard card and acknowledges both write 
    rows:[[key,'101366','OK',key==='FOUND-1'?'2026-10-05 16:00:00':'2026-09-01 16:00:00']]}}];
   if(action==='submit'){submitted=true;return [{result:{submitted:true}}];}
   if(action==='results')return [{result:submitted?{fresh:true,matches:[
-   {box:'122',status:'Выдан',destination:'Купишуз',url:'https://asgard.market.yandex-team.ru/returnBox/122'},
-   {box:'123',status:'В пути',destination:'Купишуз',url:'https://asgard.market.yandex-team.ru/returnBox/123'}]}:{empty:true,fresh:false}}];
-  assert.equal(action,'card');return [{result:{box:'123',history:['В пути'],status:'В пути',kupishuz:true}}];
+   {box:'122',status:'Выдан',destination:'Склад партнера',url:'https://asgard.market.yandex-team.ru/returnBox/122'},
+   {box:'123',status:'В пути',destination:'Склад партнера',url:'https://asgard.market.yandex-team.ru/returnBox/123'}]}:{empty:true,fresh:false}}];
+  assert.equal(action,'card');return [{result:{box:'123',history:['В пути'],status:'В пути',kupishuz:false}}];
  };
  const result=await api.run(chrome,workTargets,async message=>{
   messages.push(message.type);

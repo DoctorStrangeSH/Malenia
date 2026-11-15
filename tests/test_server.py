@@ -465,7 +465,7 @@ class LocalApiTests(unittest.TestCase):
         }
         status, response = self.api(path, body)
         self.assertEqual(status, 200)
-        self.assertEqual(response["proposal"]["comment"], "2 ШК Выдан")
+        self.assertEqual(response["proposal"]["comment"], "Два ШК Выдан")
         self.assertEqual(response["proposal"]["proposed_status"], "В работе")
         self.assertFalse(response["proposal"]["write_enabled"])
         self.assertEqual(self.store.list_tasks(), [])
@@ -511,7 +511,7 @@ class LocalApiTests(unittest.TestCase):
         self.assertEqual(self.api("/v1/runtime", authenticated=False)[0], 401)
         code, runtime = self.api("/v1/runtime")
         self.assertEqual(code, 200)
-        self.assertEqual(runtime["release"], "0.6.10")
+        self.assertEqual(runtime["release"], "0.6.11")
         self.assertEqual(runtime["protocol"], 1)
         self.assertIn("task_idempotency", runtime["capabilities"])
         self.assertIn("google_sheets_editor_approval", runtime["capabilities"])
@@ -570,7 +570,7 @@ class LocalApiTests(unittest.TestCase):
             payload = json.loads(response.read())
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["service"], "malenia-agent")
-        self.assertEqual(payload["version"], "0.6.10")
+        self.assertEqual(payload["version"], "0.6.11")
 
     def test_private_endpoint_rejects_missing_token(self):
         with self.assertRaises(HTTPError) as error:

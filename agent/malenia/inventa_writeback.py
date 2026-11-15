@@ -100,7 +100,7 @@ def mark_found(sheets, context: dict, inventory: dict, datalens: dict) -> int:
 def mark_asgard(sheets, context: dict, inventory: dict, datalens: dict, asgard: dict) -> int:
     """Write only verified unresolved Asgard outcomes in the bound worksheet."""
     from .asgard_outcomes import COLUMNS, outcome
-    if inventory_hash(inventory) != context["inventory_hash"] or asgard.get("columns") != COLUMNS:
+    if inventory_hash(inventory) != context["inventory_hash"] or not isinstance(asgard, dict) or asgard.get("columns") != COLUMNS:
         raise ValueError("inventa_writeback_identity_mismatch")
     dl = reconcile_tables({"inventory": inventory, "datalens": datalens,
         "asgard": {"columns": ["cargo_place", "status"], "rows": []}}, include_results=True)
@@ -146,7 +146,9 @@ def mark_asgard(sheets, context: dict, inventory: dict, datalens: dict, asgard: 
             elif old != value and digest(old) != item[key+"_hash"]:
                 raise ValueError("inventa_writeback_source_changed")
             elif key == "comment" and old and old != value:
-                value = old + "; " + value
+                legacy = {"Два ШК Выдан": "2 ШК Выдан", "Два ШК Принят на ФФ": "2 ШК Принят на ФФ"}.get(value)
+                parts = [part.strip() for part in old.split(";")]
+                value = "; ".join(value if part == legacy else part for part in parts) if legacy in parts else old + "; " + value
             updates.append({"row": item["source_row"], "column": column, "value": value})
     if not updates:
         return 0

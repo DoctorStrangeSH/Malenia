@@ -280,7 +280,7 @@ class AsgardWritebackTests(unittest.TestCase):
         return handle_message({'type': 'mark_inventa_asgard', 'request_id': 'fixture', 'job_id': job['job_id'],
             'inventory': job['inventory'], 'datalens': {'columns': ['main_partner_code_original', 'sc_id', 'result', 'scanned_at'],
                 'rows': [['BOX-0', '101366', 'OK', '2026-10-05 16:00:00'], ['BOX-2', '101366', 'OK', '2026-10-09 16:00:00']]},
-            'asgard': {'columns': COLUMNS, 'rows': [['BOX-1', status, '' if verification=='not_found' else '123', destination,
+            'asgard': {'columns': COLUMNS, 'rows': [['BOX-1', status, '' if verification in {'not_found', 'search_destination', 'issued_group'} else '123', destination,
                 json.dumps(history if history is not None else ['В пути', 'Создан', 'Принят у отправителя']), verification]]}},
             self.store, google_sheets=self.sheets)
 
@@ -317,6 +317,29 @@ class AsgardWritebackTests(unittest.TestCase):
         self.assertEqual(self.api.grid[2][5], 'User edited comment')
         self.store.finish_browser_audit(job['job_id'], True)
         self.assertEqual(self.store.latest_browser_audit_job()['status'], 'failed')
+
+    def test_ready_history_uses_exact_comment_and_migrates_old_automatic_marker(self):
+        self.api.grid[2][5] = 'User note; 2 ШК Выдан'
+        job = self.queue(); self.mark(job)
+        ready = 'Готов для отгрузки в заборную логистику'
+        result = self.mark_asgard(job, status=ready, destination='Другой склад', history=[ready, 'Выдан'])
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(self.api.grid[2][7], 'В работе')
+        self.assertEqual(self.api.grid[2][5], 'User note; Два ШК Выдан')
+
+    def test_kupishuz_search_shortcut_updates_status_without_needing_card_history(self):
+        job = self.queue(); self.mark(job)
+        result = self.mark_asgard(job, status='Купишуз', history=[], verification='search_destination')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(self.api.grid[2][7], 'Ламода')
+        self.assertEqual(self.api.grid[2][5], 'Keep comment')
+
+    def test_all_remaining_issued_after_foreign_active_cards_marks_issued(self):
+        job = self.queue(); self.mark(job)
+        result = self.mark_asgard(job, status='Выдан', destination='', history=['В пути', 'Выдан'], verification='issued_group')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(self.api.grid[2][7], 'Выдан')
+        self.assertEqual(self.api.grid[2][5], 'Keep comment')
 
     def test_unverified_history_never_writes_and_asgard_requires_found_stage(self):
         job = self.queue()

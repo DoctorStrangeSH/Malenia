@@ -36,7 +36,7 @@ class BatchPreviewTests(unittest.TestCase):
         self.assertEqual([r["source_row"] for r in response["results"]], [8, 9, 10, 11])
         self.assertEqual(response["results"][0]["proposal"]["proposed_status"], "Найден")
         self.assertEqual(response["results"][1]["proposal"]["comment"], "Принят на ФФ")
-        self.assertEqual(response["results"][3]["proposal"]["comment"], "2 ШК Выдан")
+        self.assertEqual(response["results"][3]["proposal"]["comment"], "Два ШК Выдан")
         self.assertFalse(response["write_enabled"])
         self.assertTrue(response["read_only"])
         self.assertTrue(all(not row["proposal"]["write_enabled"] for row in response["results"]))

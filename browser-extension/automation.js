@@ -386,7 +386,7 @@ var MaleniaAutomation = (() => {
             if(!data.length||data.length>100)return null;
             const history=[];
             for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return null;const status=clean(cells[heads.indexOf('Статус')].textContent);if(!status||status.length>100)return null;history.push(status);}
-            const statuses=[...new Set([...document.querySelectorAll('span,button,div')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Выдан','Принят на ФФ'].includes(clean(el.textContent))).map(el=>clean(el.textContent)))];
+            const statuses=[...new Set([...document.querySelectorAll('span,button,div')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'].includes(clean(el.textContent))).map(el=>clean(el.textContent)))];
             if(statuses.length!==1)return null;
             return {box,history,status:statuses[0],kupishuz:/купишуз/i.test(text)};
           }
@@ -411,22 +411,37 @@ var MaleniaAutomation = (() => {
     if(!result)throw new Error('search_results_unconfirmed');
     const columns=['cargo_place','status','box_id','destination','history_json','verification'];
     if(result.empty)return {columns,rows:[[code,'Не найден','','','[]','not_found']]};
-    const matches=result.matches.sort((a,b)=>(a.status==='В пути'?0:1)-(b.status==='В пути'?0:1));
+    // The owner authorizes Lamoda directly from a uniformly Купишуз destination
+    // in the fresh, exact-barcode result. Do not infer a company in a mixed list.
+    if(result.matches.length && result.matches.every(row=>/купишуз/i.test(row.destination)))
+      return {columns,rows:[[code,'Купишуз','',result.matches[0].destination,'[]','search_destination']]};
+    const active=['В пути','Готов для отгрузки в заборную логистику'];
+    const rank=status=>status==='В пути'?0:status===active[1]?1:status==='Выдан'?2:3;
+    const matches=result.matches.sort((a,b)=>rank(a.status)-rank(b.status));
     if(matches.length>20)throw new Error('unmapped_search_results');
-    const confirmed=[];
+    const confirmed=[];let foreignActive=0;
     for(const match of matches){
       // A verified transit card wins; a foreign transit card must not hide a matching issued card.
-      if(confirmed.some(row=>row[1]==='В пути')&&match.status!=='В пути')continue;
+      if(confirmed.some(row=>active.includes(row[1]))&&!active.includes(match.status))continue;
       await chromeApi.tabs.update(tabId,{url:match.url});await waitLoaded(chromeApi,tabId);
       let card=null;const deadline=Date.now()+15000;
       while(Date.now()<deadline){card=await probe('card');if(card)break;await new Promise(r=>setTimeout(r,250));}
-      if(card?.other)continue;
+      if(card?.other){if(active.includes(match.status))foreignActive++;continue;}
       if(!card||card.box!==match.box)throw new Error('unverified_search_result_identity');
       if(card.status!==match.status||!card.history.includes(match.status))throw new Error('unverified_search_result_identity');
       const company=/купишуз/i.test(match.destination);
       if(company!==card.kupishuz)throw new Error('unverified_search_result_identity');
       confirmed.push([code,match.status,match.box,match.destination,JSON.stringify(card.history),'card']);
     }
+    // Several exact-cargo issued cards all support the same issued decision.
+    // No history from a foreign active card contributes to this outcome.
+    if(confirmed.length>1 && confirmed.every(row=>row[1]==='Выдан'))return {columns,rows:[confirmed[0]]};
+    // Explicit owner rule: active boxes have different cargo headings, and
+    // every remaining result is issued. Preserve this as group evidence,
+    // not a fabricated matching card or fabricated status history.
+    if(!confirmed.length && foreignActive>0 && foreignActive===matches.filter(row=>active.includes(row.status)).length &&
+        matches.some(row=>row.status==='Выдан') && matches.every(row=>active.includes(row.status)||row.status==='Выдан'))
+      return {columns,rows:[[code,'Выдан','', '',JSON.stringify(matches.map(row=>row.status)),'issued_group']]};
     if(confirmed.length!==1)throw new Error('unverified_search_result_identity');
     return {columns,rows:confirmed};
   }

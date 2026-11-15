@@ -180,7 +180,7 @@ def evaluate_order(
             "write_enabled": False,
         }
 
-    if asgard_status == "В пути":
+    if asgard_status in {"В пути", "Готов для отгрузки в заборную логистику"}:
         box_id = asgard_record.get("box_id")
         history = asgard_record.get("extended_history_statuses")
         if not isinstance(box_id, str) or not box_id.strip():
@@ -191,7 +191,7 @@ def evaluate_order(
             return {
                 "decision": DECISION_ASGARD,
                 "proposed_status": "В работе",
-                "comment": "2 ШК Выдан",
+                "comment": "Два ШК Выдан",
                 "color": "orange",
                 "reason_code": "asgard_in_transit_with_issued_box_history",
                 "evidence": {**base_evidence, "box_id": box_id.strip(), "history_contains": "Выдан"},
