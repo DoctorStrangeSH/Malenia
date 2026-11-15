@@ -24,20 +24,20 @@ async function check(options){
    setBusy(true);
    timer=window.setTimeout(()=>{setResult(options.positive||(options.padding&&value==='0000012345678')?'positive':'empty');setEvidence(value);setGeneration(x=>x+1);setOther(x=>x+1);if(!options.busyForever)setBusy(false);if(options.wrongInput)setValue('OTHER');},200);
   };
-  const empty=React.createElement('div',{key:generation},React.createElement(options.emptyTag||'span',null,'��� ������'));
+  const empty=React.createElement('div',{key:generation},React.createElement(options.emptyTag||'span',null,'Нет данных'));
   const table=React.createElement('table',null,React.createElement('tbody',null,
    React.createElement('tr',null,...['scanned_at','sc_id','result','place_external_id'].map(s=>React.createElement('th',{key:s},s))),
    React.createElement('tr',null,...['2026/10/05 16:51:32','101366','OK',result==='positive'?(options.padding?evidence:'TEST-1'):'OLD'].map((s,i)=>React.createElement('td',{key:i},s)))));
   return React.createElement(React.Fragment,null,
    React.createElement('div',{'data-qa':'dashkit-grid-item','data-dashkit-grid-id':'13'},React.createElement('span',{'data-qa':'chartkit-control-input'},React.createElement('input',{className:'g-text-input__control',type:'text',value,onChange:e=>setValue(e.target.value),onKeyPress:e=>{if(e.charCode===13)submit();}}))),
    React.createElement('section',{'data-qa':options.noWidgetAttributes?undefined:'dashkit-grid-item',key:options.replaceWidget?generation:'history'},
-    React.createElement(options.titleTag||'h3',null,options.noTitle?'��㣮� ������':options.spacedTitle?'�����\u00a0᪠���\n��\u00a0������':'����� ᪠��� �� ������'),
-    busy?React.createElement('div',{role:'progressbar'},'����㧪�'):null,
-    options.error&&generation?React.createElement('div',{role:'alert'},'�訡�� ����㧪�'):null,
+    React.createElement(options.titleTag||'h3',null,options.noTitle?'Другой виджет':options.spacedTitle?'История\u00a0сканов\nпо\u00a0заказу':'История сканов по заказу'),
+    busy?React.createElement('div',{role:'progressbar'},'Загрузка'):null,
+    options.error&&generation?React.createElement('div',{role:'alert'},'Ошибка загрузки'):null,
     result==='empty'?empty:table),
-   React.createElement('div',{'data-qa':'dashkit-grid-item'},React.createElement('h3',null,'��� (��� 1)'),React.createElement(options.emptyTag||'span',null,'��� ������'),React.createElement('span',null,other)),
-   options.hiddenCaption?React.createElement('section',{'aria-hidden':'true'},React.createElement('p',null,'����� ᪠��� �� ������'),React.createElement('em',null,'��� ������')):null,
-   options.duplicateCaption?React.createElement('section',null,React.createElement('p',null,'����� ᪠��� �� ������'),React.createElement('em',null,'��� ������')):null);
+   React.createElement('div',{'data-qa':'dashkit-grid-item'},React.createElement('h3',null,'Инфо (Шард 1)'),React.createElement(options.emptyTag||'span',null,'Нет данных'),React.createElement('span',null,other)),
+   options.hiddenCaption?React.createElement('section',{'aria-hidden':'true'},React.createElement('p',null,'История сканов по заказу'),React.createElement('em',null,'Нет данных')):null,
+   options.duplicateCaption?React.createElement('section',null,React.createElement('p',null,'История сканов по заказу'),React.createElement('em',null,'Нет данных')):null);
  }
  flushSync(()=>root.render(React.createElement(Dashboard,{key:JSON.stringify(options)})));
  const chrome={tabs:{onUpdated:{addListener(){},removeListener(){}},async create({url}){return {id:7,url,status:'complete'};},async get(){return {id:7,url:window.location.href,status:'complete'};},async remove(){}},scripting:{async executeScript({world,func,args}){assert.equal(world,'MAIN');window.args=args;return [{result:await window.eval('('+func.toString()+')(...args)')}];}}};
@@ -73,3 +73,4 @@ cases.push({initialEmpty:true,spacedTitle:true,noWidgetAttributes:true,padding:t
  {initialEmpty:true,spacedTitle:true,wrongInput:true},
  {initialEmpty:true,spacedTitle:true,duplicateCaption:true});
 (async()=>{try{for(const c of cases)await check(c);console.log(`DataLens empty React integration: ${cases.length} scenarios passed`);}finally{root.unmount();window.close();}})().catch(error=>{console.error(error);process.exitCode=1;});
+
