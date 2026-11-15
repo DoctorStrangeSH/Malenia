@@ -42,7 +42,11 @@
   const steps={
     page_changed:"Страница перешла на другой адрес",
     input_setter_unavailable:"Не удалось установить значение поля",
-    input_value_reset:"Страница сбросила введённый номер до подтверждения поиска",
+    input_value_reset:"Поле не приняло номер до отправки поиска",
+    input_changed_after_submit:"После отправки поиска поле не восстановило искомый номер за время ожидания",
+    input_handler_failed:"Обработчик ввода страницы завершился ошибкой",
+    input_handler_unavailable:"Номер не принят; обработчик ввода страницы недоступен",
+    input_replaced_before_submit:"Страница заменила поле во время ввода; поиск не отправлен",
     result_wait_timeout:"Ожидание обновлённой таблицы завершилось без подтверждённого результата",
   };
   function renderAudit(audit) {
@@ -52,7 +56,8 @@
       const source = labels[item.role];
       if (!source) return null;
       return item.status === "needs_attention" ?
-        source+": "+(reasons[item.reason] || "Требуется проверка совместимости")+
+        source+": "+(item.step?.startsWith("input_")?"Не подтверждено значение поля поиска":
+          reasons[item.reason] || "Требуется проверка совместимости")+
           (steps[item.step]?" · "+steps[item.step]:"")+
           (item.review_available===true?" · Страница ошибки оставлена открытой в браузере":"")+
           (item.surface && ['visible_inputs','editable_inputs','bound_inputs','matched_inputs'].every(key=>

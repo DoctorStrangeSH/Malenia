@@ -3,7 +3,7 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
-  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","result_wait_timeout"]);
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","result_wait_timeout"]);
   function normalizeTargets(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid_targets");
     if (Object.keys(input).sort().join(",") !== [...ROLES].sort().join(",")) throw new Error("invalid_roles");
@@ -420,7 +420,7 @@ var MaleniaAutomation = (() => {
           if(Date.now()>=readyUntil) return controls;
           await new Promise(resolve=>setTimeout(resolve,200));
         } while(true);
-        const {input,buttons}=controls;
+        let {input,buttons}=controls;
         const read = () => {
           const candidates=[];
           for(const table of document.querySelectorAll('table')) {
@@ -466,12 +466,22 @@ var MaleniaAutomation = (() => {
         return await new Promise(resolve=>{
           let timer, deadline, trigger, observer, last='', stableAt=0, mismatchAt=null, done=false;
           let submitted=false, recovered=false, ready=false;
-          const startedAt=Date.now();
           const finish=value=>{if(done)return;done=true;clearInterval(timer);clearTimeout(deadline);clearTimeout(trigger);observer.disconnect();resolve(value);};
           const check=()=>{
             if(location.origin!==expectedOrigin) return finish({error:'search_origin_mismatch',step:'page_changed'});
             if(!ready)return;
+            if(input.isConnected===false){
+              const live=findControls();
+              if(!submitted)return finish({error:'unmapped_search_results',step:'input_replaced_before_submit'});
+              if(live.error){stableAt=0;last='';return;}
+              input=live.input;
+            }
             if(!accepted()){
+              stableAt=0;last='';
+              // Reloading controls can temporarily restore/replace their input.
+              // After submission wait for the whole result deadline, without
+              // another write or another query, then require live acknowledgement.
+              if(submitted)return;
               if(!submitted && !recovered){
                 recovered=true;
                 const props=currentProps();
@@ -485,22 +495,32 @@ var MaleniaAutomation = (() => {
                       bubbles:true,defaultPrevented:false,isTrusted:false,
                       preventDefault(){this.defaultPrevented=true;},stopPropagation(){},persist(){},
                       isDefaultPrevented(){return this.defaultPrevented;},isPropagationStopped(){return false;}});
-                  } catch {return finish({error:'unmapped_search_results',step:'input_value_reset'});}
+                  } catch {return finish({error:'unmapped_search_results',step:'input_handler_failed'});}
                   return;
                 }
               }
               if(mismatchAt===null)mismatchAt=Date.now();
-              if((!submitted && Date.now()-startedAt>=1000) || Date.now()-mismatchAt>=1000)finish({error:'unmapped_search_results',step:'input_value_reset'});
+              if(Date.now()-mismatchAt>=3000)finish({error:'unmapped_search_results',
+                step:typeof currentProps()?.onChange==='function'?'input_value_reset':'input_handler_unavailable'});
               return;
             }
             mismatchAt=null;
             if(!submitted){
               submitted=true;
+              const props=currentProps();
+              // Newer Gravity TextInput versions forward onBlur but omit the
+              // deprecated onKeyPress prop. Pick one supported commit path.
+              if(role==='datalens' && props && typeof props.onKeyPress!=='function' &&
+                  typeof props.onBlur==='function'){
+                input.blur?.();
+                return;
+              }
               const enter={key:'Enter',code:'Enter',keyCode:13,charCode:13,which:13,bubbles:true,composed:true};
               input.dispatchEvent(new KeyboardEvent('keydown',enter));
               input.dispatchEvent(new KeyboardEvent('keypress',enter));
               input.dispatchEvent(new KeyboardEvent('keyup',enter));
-              input.blur?.();
+              // DataLens BaseControlInput submits on Enter AND on blur.
+              // Keep focus: calling blur here can submit twice with stale props.
               return;
             }
             const table=read(), serialized=JSON.stringify(table);
@@ -510,7 +530,12 @@ var MaleniaAutomation = (() => {
           };
           observer=new MutationObserver(check);
           observer.observe(document.body,{subtree:true,childList:true,characterData:true});
-          deadline=setTimeout(()=>finish({error:'search_results_unconfirmed',step:'result_wait_timeout'}),15000);
+          deadline=setTimeout(()=>{
+            if(!submitted)return finish({error:'unmapped_search_results',
+              step:typeof currentProps()?.onChange==='function'?'input_value_reset':'input_handler_unavailable'});
+            finish({error:'search_results_unconfirmed',
+              step:input.isConnected===false || !accepted()?'input_changed_after_submit':'result_wait_timeout'});
+          },15000);
           input.focus?.();
           setter.call(input,code);
           const inputEvent=typeof InputEvent==='function'

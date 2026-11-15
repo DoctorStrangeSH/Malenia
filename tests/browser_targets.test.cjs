@@ -108,7 +108,7 @@ test('automatic search failure displays the failed tab counts separately from ac
 test('failed-search popup explains a reset cargo value and retained review tab',async()=>{
  const ui=screen(true,{phase:'needs_attention',results:[{role:'datalens',status:'needs_attention',
    reason:'unmapped_search_results',step:'input_value_reset',review_available:true}]});
- await flush();assert.match(ui.nodes.orderAuditStatus.textContent,/сбросила введённый номер/);
+ await flush();assert.match(ui.nodes.orderAuditStatus.textContent,/не приняло номер до отправки/);
  assert.match(ui.nodes.orderAuditStatus.textContent,/Страница ошибки оставлена открытой/);
 });
 
@@ -116,4 +116,13 @@ test('failed-search popup explains a reset cargo value and retained review tab',
 test('audit status identifies the extension version that actually executed the job',async()=>{
  const ui=screen(true,{bridge_version:'1.6.9',phase:'needs_attention',results:[]});
  await flush();assert.match(ui.nodes.orderAuditStatus.textContent,/Browser Bridge 1\.6\.9/);
+});
+
+
+test('popup distinguishes post-submit input reset from a failure to type or parse a table',async()=>{
+ const ui=screen(true,{phase:'needs_attention',results:[{role:'datalens',status:'needs_attention',
+  reason:'search_results_unconfirmed',step:'input_changed_after_submit'}]});
+ await flush();
+ assert.match(ui.nodes.orderAuditStatus.textContent,/После отправки поиска/);
+ assert.doesNotMatch(ui.nodes.orderAuditStatus.textContent,/до отправки|распознать таблицу/);
 });

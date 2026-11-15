@@ -18,17 +18,28 @@ const {flushSync}=require('react-dom');
 window.eval(fs.readFileSync(path.join(__dirname,'../browser-extension/automation.js'),'utf8'));
 const api=window.eval('MaleniaAutomation');
 const root=createRoot(window.document.getElementById('root'));
-async function check({blockEvents=false,refuse=false}){
- let changes=0,submits=0;
+async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false}){
+ let changes=0,submits=0,blurSubmits=0;
  function Dashboard(){
   const [value,setValue]=React.useState('DEFAULT-EXAMPLE');
   const [result,setResult]=React.useState('OLD');
+  const [generation,setGeneration]=React.useState(0);
   return React.createElement(React.Fragment,null,
    React.createElement('div',{'data-qa':'dashkit-grid-item','data-dashkit-grid-id':'13'},
     React.createElement('span',{'data-qa':'chartkit-control-input'},
-     React.createElement('input',{className:'g-text-input__control',type:'text',value,
+     React.createElement('input',{key:generation,className:'g-text-input__control',type:'text',value,
       onChange:event=>{changes++;if(!refuse)setValue(event.target.value);},
-      onKeyPress:event=>{if(event.charCode===13){submits++;setResult(value);}}
+      onKeyPress:blurOnly?undefined:event=>{if(event.charCode===13){
+       submits++;setResult(value);
+       if(reload){
+        const requested=value;
+        setValue('');setGeneration(x=>x+1);
+        // Simulate reload replacing the node while a result already looks fresh.
+        setTimeout(()=>setValue(requested),2200);
+       }
+      }},
+      // DataLens also commits on blur; Enter must not be followed by blur.
+      onBlur:()=>{blurSubmits++;if(blurOnly){submits++;setTimeout(()=>setResult(value),0);}else setResult('STALE-BLUR');}
      }))),
    React.createElement('table',null,React.createElement('tbody',null,
     React.createElement('tr',null,...['scanned_at','sc_id','result','place_external_id'].map(x=>React.createElement('th',{key:x},x))),
@@ -54,6 +65,7 @@ async function check({blockEvents=false,refuse=false}){
    assert.equal(window.document.querySelector('input').value,'TEST-1');
   }
   assert.equal(changes,1);
+  assert.equal(blurSubmits,blurOnly?1:0);
  }finally{
   if(blockEvents)for(const type of ['input','change'])window.document.removeEventListener(type,block,true);
  }
@@ -63,6 +75,8 @@ async function check({blockEvents=false,refuse=false}){
   await check({});
   await check({blockEvents:true});
   await check({blockEvents:true,refuse:true});
-  console.log('PASS: React 18 controlled input: normal events, rejected DOM events, refused state.');
+  await check({reload:true});
+  await check({blurOnly:true});
+  console.log('PASS: React 18 controlled input: normal events, rejected DOM events, refused state, 2.2s input replacement, blur-only control, no double submit.');
  }finally{root.unmount();window.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

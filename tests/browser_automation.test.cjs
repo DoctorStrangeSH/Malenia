@@ -618,7 +618,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, committedEvents=0, handlerCalls=0, worldUsed, stateValue=initialValue, deadline, now=0;
@@ -644,6 +644,7 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
   if(controlled){
     input.__reactProps$fixture={value:initialValue,onChange(event){
       handlerCalls++;
+      if(handlerThrows)throw new Error('PRIVATE-PAGE-ERROR');
       const value=event.target.value;
       queueMicrotask(()=>{
         if(refuseChange)return;
@@ -654,6 +655,8 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
       });
     }};
   }
+  if(noReactHandler && controlled)input.__reactProps$fixture.onChange=undefined;
+  if(detachedBeforeSubmit)input.isConnected=false;
   if(caption || hidden || multiField) {
     const captionNode={textContent:label+' : *',getClientRects:()=>[{}]};
     const hiddenInput={type:'hidden',getClientRects:()=>[]};
@@ -1004,7 +1007,7 @@ test('a failed workplace search leaves its owned page open for review and report
 test('a page that resets the entered cargo is distinguished from a table parse failure',async()=>{
  const api=runner(),f=workplaceFixture('datalens',{resetValue:true});
  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
-   error=>error.message==='unmapped_search_results' && error.step==='input_value_reset');
+   error=>error.message==='search_results_unconfirmed' && error.step==='input_changed_after_submit');
 });
 
 test('repeated failures replace only an unchanged extension-owned review page',async()=>{
@@ -1088,4 +1091,19 @@ test('Asgard search remains isolated from page JavaScript',async()=>{
  const api=runner(),f=workplaceFixture('asgard');
  await api.workplaceSearch(f.chrome,7,'asgard','TEST-1',f.host);
  assert.equal(f.world(),'ISOLATED');
+});
+
+
+test('DataLens distinguishes an absent handler, a throwing handler and pre-submit replacement',async()=>{
+ const api=runner();
+ for(const [options,step] of [
+  [{controlled:true,noReactHandler:true},'input_handler_unavailable'],
+  [{controlled:true,handlerThrows:true},'input_handler_failed'],
+  [{detachedBeforeSubmit:true},'input_replaced_before_submit']
+ ]){
+  const f=workplaceFixture('datalens',{keypressOnly:true,...options});
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
+   error=>error.step===step && !error.message.includes('PRIVATE-PAGE-ERROR'));
+  assert.equal(f.committedEvents(),0);
+ }
 });
