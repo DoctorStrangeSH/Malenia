@@ -2,7 +2,7 @@
 
 Explicit «Нет данных» inside the uniquely titled «История сканов по заказу» widget now returns canonical empty scan rows and routes that cargo to Asgard without stopping the batch. Requires live controlled-input acknowledgement, post-submit child/text refresh within that widget (or its loading cycle), and stable output. Unrelated empty widgets, unchanged empty results, loaders, alerts and input resets do not authorize an empty answer. No synthetic scan evidence, native business rules or Sheets writes changed. App/native remains 0.6.12.
 
-Regression reproduced on 1.6.20. Local checks: 167 Node tests, 9 real React empty-result scenarios, 27 Asgard DOM scenarios; corporate account behavior unverified. New React checks run in Desktop CI. Publication pending.
+Regression reproduced on 1.6.20. Local checks: 167 Node tests, 9 real React empty-result scenarios, 27 Asgard DOM scenarios; corporate account behavior unverified. New React checks passed on Windows in Desktop run 43725478266, alongside Asgard and the other Bridge checks. Python CI 43725478095 passed. Code commit 41ca5d87c251f6daf2f0844654b3b1c50fc29389 published extension artifact 14166079036 in Windows run 43725478102: https://github.com/DoctorStrangeSH/WorkPilot/actions/runs/43725478102/artifacts/14166079036 . At delivery, unchanged installer compilation and Tauri/runtime checks were still running; do not claim those full runs passed. Update/reload only Bridge to 1.6.21 when app is already 0.6.12, then continue the selected sheet.
 
 ## Current correction — 2026-11-15 — 0.6.12 / 1.6.20 pause and Found skip
 
