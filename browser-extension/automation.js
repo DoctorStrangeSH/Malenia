@@ -330,6 +330,7 @@ var MaleniaAutomation = (() => {
             buttons[0].click();return {submitted:true};
           }
           if(document.querySelector('[aria-busy="true"],[role="progressbar"],.ant-spin-spinning'))return null;
+          if([...document.querySelectorAll('[role="alert"],.ant-alert-error,.ant-message-error')].some(el=>visible(el)&&/ошиб|не удалось|недоступ|error|failed/i.test(clean(el.textContent))))return failure('search_results_unconfirmed');
           if(action==='results'){
             const tables=[...document.querySelectorAll('table')].filter(visible).map(table=>{
               const heads=Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(el=>clean(el.textContent));
@@ -338,7 +339,9 @@ var MaleniaAutomation = (() => {
             if(tables.length!==1)return null;
             const {table,heads}=tables[0];
             const rows=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
-            const empty=rows.length===0||rows.length===1&&rows[0].querySelectorAll('td').length===1&&/^(Нет данных|Ничего не найдено|Нет результатов|Данные не найдены)$/i.test(clean(rows[0].textContent));
+            const emptyMessage=s=>/^(Нет данных|Ничего не найдено|Нет результатов|Данные не найдены)$/i.test(clean(s));
+            const empty=rows.length===1&&rows[0].querySelectorAll('td').length===1&&emptyMessage(rows[0].textContent) || rows.length===0&&[...table.parentElement.querySelectorAll('div,span,p')].some(el=>visible(el)&&emptyMessage(el.textContent));
+            if(!rows.length&&!empty)return null;
             if(empty)return {empty:true,fresh:globalThis.__maleniaAsgardSearch?.changed===true&&globalThis.__maleniaAsgardSearch.input.value===code};
             if(rows.length>100)return failure('unmapped_search_results');
             const result=[];
