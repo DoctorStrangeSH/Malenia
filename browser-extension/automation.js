@@ -284,7 +284,7 @@ var MaleniaAutomation = (() => {
   async function workplaceSearch(chromeApi, tabId, role, code, origin) {
     const hosts = {datalens:"https://datalens.yandex-team.ru",asgard:"https://asgard.market.yandex-team.ru"};
     if (origin !== hosts[role] || !/^[A-Za-z0-9_.-]{1,128}$/.test(code)) throw new Error("unsupported_dynamic_search");
-    const response = await chromeApi.scripting.executeScript({target:{tabId},
+    const response = await chromeApi.scripting.executeScript({target:{tabId},world:role==='datalens'?'MAIN':'ISOLATED',
       func: async (role, code, expectedOrigin) => {
         if (location.origin !== expectedOrigin) return null;
         const clean = s => String(s || "").replace(/\s+/g," ").trim();
@@ -449,17 +449,60 @@ var MaleniaAutomation = (() => {
         const before=JSON.stringify(read());
         const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
         if(!setter) return {error:'unmapped_search_results',step:'input_setter_unavailable'};
+        // DataLens owns a controlled React input. A DOM value alone is not an
+        // acknowledgement: React can restore its previous value on Enter/blur.
+        // Read only this selected node's current props, never the component tree.
+        const currentProps=()=>{
+          if(role!=='datalens')return null;
+          const keys=Object.getOwnPropertyNames(input).filter(key=>key.startsWith('__reactProps$'));
+          if(keys.length!==1)return null;
+          const props=Object.getOwnPropertyDescriptor(input,keys[0])?.value;
+          return props && typeof props==='object'?props:null;
+        };
+        const accepted=()=>{
+          const props=currentProps();
+          return input.value===code && (!props || props.value==null || String(props.value)===code);
+        };
         return await new Promise(resolve=>{
           let timer, deadline, trigger, observer, last='', stableAt=0, mismatchAt=null, done=false;
+          let submitted=false, recovered=false, ready=false;
+          const startedAt=Date.now();
           const finish=value=>{if(done)return;done=true;clearInterval(timer);clearTimeout(deadline);clearTimeout(trigger);observer.disconnect();resolve(value);};
           const check=()=>{
             if(location.origin!==expectedOrigin) return finish({error:'search_origin_mismatch',step:'page_changed'});
-            if(input.value!==code){
+            if(!ready)return;
+            if(!accepted()){
+              if(!submitted && !recovered){
+                recovered=true;
+                const props=currentProps();
+                if(typeof props?.onChange==='function'){
+                  // Synthetic DOM events may not reach React's change plugin.
+                  // Use the bound input handler once, then wait for its render.
+                  setter.call(input,code);
+                  try {
+                    props.onChange({type:'change',target:input,currentTarget:input,
+                      nativeEvent:new Event('input',{bubbles:true,composed:true}),
+                      bubbles:true,defaultPrevented:false,isTrusted:false,
+                      preventDefault(){this.defaultPrevented=true;},stopPropagation(){},persist(){},
+                      isDefaultPrevented(){return this.defaultPrevented;},isPropagationStopped(){return false;}});
+                  } catch {return finish({error:'unmapped_search_results',step:'input_value_reset'});}
+                  return;
+                }
+              }
               if(mismatchAt===null)mismatchAt=Date.now();
-              if(Date.now()-mismatchAt>=1000)finish({error:'unmapped_search_results',step:'input_value_reset'});
+              if((!submitted && Date.now()-startedAt>=1000) || Date.now()-mismatchAt>=1000)finish({error:'unmapped_search_results',step:'input_value_reset'});
               return;
             }
             mismatchAt=null;
+            if(!submitted){
+              submitted=true;
+              const enter={key:'Enter',code:'Enter',keyCode:13,charCode:13,which:13,bubbles:true,composed:true};
+              input.dispatchEvent(new KeyboardEvent('keydown',enter));
+              input.dispatchEvent(new KeyboardEvent('keypress',enter));
+              input.dispatchEvent(new KeyboardEvent('keyup',enter));
+              input.blur?.();
+              return;
+            }
             const table=read(), serialized=JSON.stringify(table);
             if(!table || serialized===before){stableAt=0;return;}
             if(serialized!==last){last=serialized;stableAt=Date.now();return;}
@@ -470,21 +513,14 @@ var MaleniaAutomation = (() => {
           deadline=setTimeout(()=>finish({error:'search_results_unconfirmed',step:'result_wait_timeout'}),15000);
           input.focus?.();
           setter.call(input,code);
-          input.dispatchEvent(new Event('input',{bubbles:true}));
-          input.dispatchEvent(new Event('change',{bubbles:true}));
-          if(role==='asgard') buttons[0].click();
-          else {
-            // The published DataLens BaseControlInput commits on keypress
-            // charCode=13 or blur. Let React apply onUpdate before committing.
-            trigger=setTimeout(()=>{
-              if(done || location.origin!==expectedOrigin || input.value!==code) return;
-              const enter={key:'Enter',code:'Enter',keyCode:13,charCode:13,which:13,bubbles:true};
-              input.dispatchEvent(new KeyboardEvent('keydown',enter));
-              input.dispatchEvent(new KeyboardEvent('keypress',enter));
-              input.dispatchEvent(new KeyboardEvent('keyup',enter));
-              input.blur?.();
-            },0);
-          }
+          const inputEvent=typeof InputEvent==='function'
+            ?new InputEvent('input',{bubbles:true,composed:true,inputType:'insertText',data:code})
+            :new Event('input',{bubbles:true,composed:true});
+          input.dispatchEvent(inputEvent);
+          input.dispatchEvent(new Event('change',{bubbles:true,composed:true}));
+          ready=true;
+          if(role==='asgard'){submitted=true;buttons[0].click();}
+          else trigger=setTimeout(check,0);
           timer=setInterval(check,250);
         });
       },args:[role,code,origin]});

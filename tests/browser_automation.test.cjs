@@ -618,17 +618,22 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue=''}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
-  let updated=false, clicks=0, navigationClicks=0, committedEvents=0, stateValue, deadline, now=0;
+  let updated=false, clicks=0, navigationClicks=0, committedEvents=0, handlerCalls=0, worldUsed, stateValue=initialValue, deadline, now=0;
   class Input {
     constructor(){this.type='text';this._value=initialValue;this.disabled=false;this.readOnly=false;
       this.parentElement={textContent:label,querySelectorAll:selector=>selector==='input'?[this]:[],parentElement:null};}
     get value(){return this._value;} set value(v){this._value=v;}
     getAttribute(){return null;} getClientRects(){return [{}];}
     dispatchEvent(event){
-      if(event.type==='input')queueMicrotask(()=>{stateValue=this.value;});
+      if(event.type==='input'){
+        if(controlled){
+          if(normalReactEvents)this.__reactProps$fixture.onChange({target:this});
+          else queueMicrotask(()=>{this._value=stateValue;});
+        }else queueMicrotask(()=>{stateValue=this.value;});
+      }
       if(keypressOnly){
         if(event.type==='keypress' && event.charCode===13 && stateValue===this.value){committedEvents++;updated=!unchanged;}
       }else if(event.type==='keyup')updated=!unchanged;
@@ -636,6 +641,19 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
     }
   }
   const input=new Input();
+  if(controlled){
+    input.__reactProps$fixture={value:initialValue,onChange(event){
+      handlerCalls++;
+      const value=event.target.value;
+      queueMicrotask(()=>{
+        if(refuseChange)return;
+        input._value=value;
+        if(domOnlyChange){updated=true;return;}
+        stateValue=value;
+        input.__reactProps$fixture={...input.__reactProps$fixture,value};
+      });
+    }};
+  }
   if(caption || hidden || multiField) {
     const captionNode={textContent:label+' : *',getClientRects:()=>[{}]};
     const hiddenInput={type:'hidden',getClientRects:()=>[]};
@@ -672,16 +690,17 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
     selector==='a,button,[role="tab"]' && reverse?[reverseTab]:
     selector==='a,button,[role="tab"],[tabindex]' && orders && !plainOrders && !(delayedOrders && now<800)?(duplicateOrders?[ordersTab,{...ordersTab}]:ordersHeading?[ordersTab,heading]:[ordersTab]):
     selector==='span,div' && orders && plainOrders?[ordersTab]:[]};
-  const chrome={scripting:{async executeScript({func,args}){
+  const chrome={scripting:{async executeScript({func,args,world}){
+    worldUsed=world;
     return [{result:await vm.runInNewContext('('+func.toString()+')(...args)',{
       document,URL,location:{origin:host,pathname:deepOrders?'/94srinatuhls4-sc':'/dashboard',href:host+(deepOrders?'/94srinatuhls4-sc?tab=qmM':'/dashboard')},HTMLInputElement:Input,args,
       Event:class {constructor(type){this.type=type;}},KeyboardEvent:class {constructor(type,options){this.type=type;Object.assign(this,options);}},
       MutationObserver:class {observe(){}disconnect(){}},
       Date:{now:()=>now},setTimeout:(fn,ms)=>{if(ms<=200){now+=ms;queueMicrotask(fn);}else deadline=fn;return 1;},clearTimeout(){},clearInterval(){},
-      setInterval:fn=>{queueMicrotask(()=>{for(let i=0;i<6;i++){now+=250;fn();}deadline();});return 2;}
+      setInterval:fn=>{queueMicrotask(async()=>{for(let i=0;i<6;i++){now+=250;fn();await Promise.resolve();}deadline();});return 2;}
     })}];
   }}};
-  return {chrome,host,clicks:()=>clicks,navigationClicks:()=>navigationClicks,committedEvents:()=>committedEvents,currentValue:()=>input.value};
+  return {chrome,host,clicks:()=>clicks,navigationClicks:()=>navigationClicks,committedEvents:()=>committedEvents,currentValue:()=>input.value,handlerCalls:()=>handlerCalls,world:()=>worldUsed};
 }
 
 test('workplace adapters bind search results using observed labels and normalize source schemas',async()=>{
@@ -1034,4 +1053,39 @@ test('dashboard default cargo is replaced by the requested inventory cargo befor
  const api=runner(),f=workplaceFixture('datalens',{initialValue:'DEFAULT-EXAMPLE',keypressOnly:true});
  const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
  assert.equal(f.currentValue(),'TEST-1');assert.equal(f.committedEvents(),1);assert.equal(result.rows[0][0],'TEST-1');
+});
+
+
+test('DataLens waits for controlled React state after a rejected synthetic input event',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{controlled:true,initialValue:'DEFAULT-EXAMPLE',keypressOnly:true});
+ const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(f.world(),'MAIN');
+ assert.equal(f.handlerCalls(),1);
+ assert.equal(f.currentValue(),'TEST-1');
+ assert.equal(f.committedEvents(),1);
+ assert.equal(result.rows[0][0],'TEST-1');
+});
+
+test('DataLens does not call the React handler twice when ordinary input events are accepted',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{controlled:true,normalReactEvents:true,keypressOnly:true});
+ await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(f.handlerCalls(),1);
+ assert.equal(f.committedEvents(),1);
+});
+
+test('DataLens never submits or accepts a DOM-only value when controlled state refuses the cargo',async()=>{
+ const api=runner();
+ for(const options of [{refuseChange:true},{domOnlyChange:true}]){
+  const f=workplaceFixture('datalens',{controlled:true,keypressOnly:true,...options});
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
+    error=>error.message==='unmapped_search_results' && error.step==='input_value_reset');
+  assert.equal(f.handlerCalls(),1);
+  assert.equal(f.committedEvents(),0);
+ }
+});
+
+test('Asgard search remains isolated from page JavaScript',async()=>{
+ const api=runner(),f=workplaceFixture('asgard');
+ await api.workplaceSearch(f.chrome,7,'asgard','TEST-1',f.host);
+ assert.equal(f.world(),'ISOLATED');
 });

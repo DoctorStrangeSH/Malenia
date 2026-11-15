@@ -1,3 +1,12 @@
+## 2026-11-15 — Bridge 1.6.10 — controlled-input acknowledgement
+
+- Confirmed user evidence: popup explicitly reports Bridge 1.6.9, inventory read complete, DataLens input_value_reset, retained error page. This narrows the observed failure to a value reset, not field discovery. The underlying React event/state mechanism is a reproduced hypothesis, not a live-site diagnosis.
+- DataLens workplace interaction now runs in Chrome MAIN world so the selected control's own React props are visible. Asgard remains ISOLATED. The injected function uses only the authorized cargo and DOM; no native host or extension storage/API is exposed to page code.
+- Native setter and composed input/change events are followed by acknowledgement of both DOM value and the selected input's current controlled value before Enter. If ordinary events do not update React, invoke that input's bound onChange once, then wait for its rendered props. Never traverse fibers/app state or repeatedly force the value. Missing/refusing acknowledgement stops with input_value_reset and retains the failed tab. Exact cargo, updated table, scan schema, SC/date/result requirements remain.
+- Validation: 136 Node tests passed. Added scripts/verify-datalens-react-input.cjs: real React 18.3.1 + ReactDOM 18.3.1 + jsdom 26.1.0 passed normal events, blocked DOM events requiring the bound handler, and refused-state/no-submit cases. Run with NODE_PATH pointing to an external installation of those dependencies. jsdom is not a real browser and does not validate the user's corporate dashboard or Chrome extension isolation implementation.
+- React source checked: packages/react-dom-bindings/src/client/ReactDOMComponentTree.js uses __reactProps$ on the DOM node for current props. This is a private implementation detail; fallback is bounded and fails when controlled value does not acknowledge the cargo.
+- Deliver extension ZIP 1.6.10 only; desktop reinstall not required. Live workflow remains unconfirmed. Automatic Google Sheets writeback remains unimplemented. Next evidence is whether the retained page shows the actual inventory cargo and refreshed scan rows, with popup version/step if it fails.
+
 ## 2026-11-15 — Bridge 1.6.9 — activate workplace before inspecting controls
 
 - User clarifies that a number already appears when a fresh dashboard opens, but it is the dashboard's example/default; the job still reports missing search field. Its presence must not be treated as proof that Malenia read an inventory order or submitted it.
