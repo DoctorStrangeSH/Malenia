@@ -200,10 +200,11 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                 payload = self._read_json(1024)
                 if payload is None:
                     return
-                if payload:
+                if (set(payload) - {"job_id"} or ("job_id" in payload and
+                        (not isinstance(payload["job_id"], str) or len(payload["job_id"]) != 36))):
                     self._send(422, {"error": "invalid_audit_request"})
                     return
-                self._send(200, {"cancelled": store.cancel_browser_audit(), "source_records_modified": False})
+                self._send(200, {"cancelled": store.cancel_browser_audit(job_id=payload.get("job_id")), "source_records_modified": False})
                 return
 
             if parsed.path == "/v1/browser/audit-request":
@@ -323,8 +324,9 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                     from .inventa import analyze_inventa
                     source = sheets.read_active_sheet(payload["spreadsheet_url"])
                     is_batch = parsed.path.endswith("check-order-batch")
+                    marking = is_batch and payload.get("mark_found") is True
                     analysis = analyze_inventa(source["values"], source["sheet_title"],
-                                              audit_batch_limit=20 if is_batch else 0,
+                                              audit_batch_limit=20 if is_batch else 0, skip_found=marking,
                                               inventory_date=payload.get("inventory_date"))
                     if is_batch:
                         source_hash = hashlib.sha256(
@@ -333,7 +335,7 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                         fingerprint = analysis["audit_fingerprint"]
                         if payload.get("mark_found") is True:
                             # Read-only cursors cannot skip rows never marked.
-                            fingerprint = hashlib.sha256((fingerprint + "\nmark_found:v3-asgard-rules").encode()).hexdigest()
+                            fingerprint = hashlib.sha256((fingerprint + "\nmark_found:v4-skip-found").encode()).hexdigest()
                         offset = store.inventa_batch_position(source_hash, fingerprint)
                         if not analysis["eligible_audit_candidates"]:
                             self._send(422, {"error": analysis["first_order_blocker"] or "no_safe_audit_candidates"})
@@ -345,12 +347,12 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                         if offset:
                             analysis = analyze_inventa(source["values"], source["sheet_title"],
                                                       audit_batch_limit=20,
-                                                      audit_batch_offset=offset,
+                                                      audit_batch_offset=offset, skip_found=marking,
                                                       inventory_date=payload.get("inventory_date"))
                         selected = analysis["audit_candidates"]
                         if not selected:
-                            self._send(422, {"error": analysis["first_order_blocker"] or
-                                             "no_safe_audit_candidates"})
+                            self._send(409, {"error": "inventa_batch_complete",
+                                             "eligible_orders": analysis["eligible_audit_candidates"]})
                             return
                         from .inventa_writeback import build_context
                         marking = payload.get("mark_found") is True
@@ -360,13 +362,13 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                              "inventory_date": item["inventory_date"]} for item in selected],
                             batch_cursor={"source_hash": source_hash,
                                           "fingerprint": fingerprint,
-                                          "start": offset,
+                                          "start": offset, "end": analysis["audit_next_offset"],
                                           "total": analysis["eligible_audit_candidates"]},
                             writeback_context=writeback)
                         self._send(202, {"job": job, "queued_orders": len(selected),
                                          "eligible_orders": analysis["eligible_audit_candidates"],
-                                         "batch_start": offset,
-                                         "remaining_orders": analysis["eligible_audit_candidates"] - offset - len(selected),
+                                         "batch_start": offset, "batch_end": analysis["audit_next_offset"],
+                                         "remaining_orders": analysis["remaining_audit_candidates"],
                                          "read_only": not marking, "write_enabled": marking})
                     else:
                         order = analysis["first_order"]

@@ -46,7 +46,7 @@ function workerHarness() {
   let claims = 0;
   let closes = 0;
   const context = vm.createContext({
-    URL,
+    URL,AbortController,setTimeout,clearTimeout,
     importScripts() {},
     chrome: {
       runtime: {
@@ -74,6 +74,7 @@ function workerHarness() {
           claims++;
           return {ok:true,job:{job_id:'job-1'}};
         }
+        if(message.type==='browser_audit_active')return {ok:true,type:'browser_audit_active',active:true};
         return {ok:true};
       },
       close() { closes++; }
@@ -191,7 +192,7 @@ test('marking jobs require host support and verified completion',async()=>{
   const worker=workerHarness(),send=worker.context.testSession.send;let ran=false;
   worker.context.testSession.send=async message=>{
    const response=await send(message);
-   if(message.type==='hello' && support)response.capabilities.push('mark_inventa_found');
+   if(message.type==='hello' && support)response.capabilities.push('mark_inventa_found','browser_audit_cancellation');
    if(message.type==='claim_browser_audit')response.job.writeback_required=true;
    return response;
   };
@@ -204,4 +205,28 @@ test('marking jobs require host support and verified completion',async()=>{
   const finish=worker.messages.find(m=>m.type==='finish_browser_audit');
   assert.equal(finish.succeeded,false);assert.equal(finish.failure_reason,'inventa_writeback_required');
  }
+});
+
+test('independent cancellation channel aborts a worker even while a write reply is pending',async()=>{
+ const worker=workerHarness();let port=0,active=true;const closed=[],traffic=[];
+ worker.context.nativeSession=()=>{const id=++port;return {
+  async send(message){
+   traffic.push({id,type:message.type});
+   if(message.type==='hello')return {ok:true,host:'com.malenia.browser',capabilities:['claim_browser_audit','finish_browser_audit','update_browser_audit_progress','reconcile_site_tables','mark_inventa_found','mark_inventa_asgard','browser_audit_cancellation']};
+   if(message.type==='claim_browser_audit')return {ok:true,job:{job_id:'old',writeback_required:true}};
+   if(message.type==='browser_audit_active')return {ok:true,type:'browser_audit_active',active};
+   if(message.type==='mark_inventa_found')return new Promise(()=>{});
+   return {ok:true};
+  },close(){closed.push(id);}
+ };};
+ worker.context.MaleniaAutomation.run=async(chrome,targets,native,report,options)=>{
+  setTimeout(()=>{active=false;},10);
+  return Promise.race([native({type:'mark_inventa_found'}),new Promise((_,reject)=>options.signal.addEventListener('abort',()=>reject(Error('audit_cancelled')),{once:true}))]);
+ };
+ await worker.poll();
+ assert.equal(vm.runInContext('running',worker.context),false);
+ assert.ok(traffic.some(x=>x.id===2&&x.type==='browser_audit_active'));
+ assert.ok(traffic.some(x=>x.id===1&&x.type==='mark_inventa_found'));
+ assert.ok(!traffic.some(x=>x.type==='finish_browser_audit'));
+ assert.deepEqual(closed.sort(),[1,2]);
 });

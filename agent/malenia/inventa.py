@@ -160,7 +160,7 @@ def _inventory_day_from_title(title: str, rows: list[list[Any]], date_col: int |
 
 def analyze_inventa(rows: list[list[Any]], sheet_title: str = "", *,
                    audit_batch_limit: int = 0, audit_batch_offset: int = 0,
-                   inventory_date: str | None = None) -> dict[str, Any]:
+                   inventory_date: str | None = None, skip_found: bool = False) -> dict[str, Any]:
     """Summarize an auto-read sheet; never invent statuses or repair source cells."""
     if not isinstance(rows, list) or len(rows) > 10000:
         raise ValueError("inventa_row_limit")
@@ -266,7 +266,13 @@ def analyze_inventa(rows: list[list[Any]], sheet_title: str = "", *,
         report["audit_fingerprint"] = hashlib.sha256(
             json.dumps([sheet_title, signature], ensure_ascii=False,
                        separators=(",", ":")).encode("utf-8")).hexdigest()
-        report["audit_candidates"] = safe_candidates[
-            audit_batch_offset:audit_batch_offset + audit_batch_limit]
+        # Cursor positions belong to the full stable source list, not a list
+        # that shrinks as this very audit writes Found statuses.
+        pending = [(index, item) for index, item in enumerate(safe_candidates)
+                   if index >= audit_batch_offset and not (skip_found and _norm(item["status"]) == "найден")]
+        report["audit_candidates"] = [item for _, item in pending[:audit_batch_limit]]
+        report["audit_next_offset"] = pending[audit_batch_limit][0] if len(pending) > audit_batch_limit else len(safe_candidates)
+        report["remaining_audit_candidates"] = max(0, len(pending) - audit_batch_limit)
+        report["skipped_found"] = sum(_norm(item["status"]) == "найден" for item in safe_candidates) if skip_found else 0
         report["eligible_audit_candidates"] = len(safe_candidates)
     return report

@@ -63,6 +63,10 @@
     scan_table_ambiguous:"Найдено несколько основных таблиц истории сканов",
     scan_table_incomplete:"История сканов превышает лимит или имеет неполные строки",
     scan_table_identity_mismatch:"Грузоместо в истории сканов не совпало с запросом",
+    asgard_card_heading:"Не подтверждён заголовок карточки грузоместа",
+    asgard_card_box:"Не подтверждён ID грузоместа в карточке",
+    asgard_card_history:"Не удалось прочитать отдельную историю изменения статусов",
+    asgard_card_status:"Не подтверждён текущий статус карточки",
     asgard_wait_loading:"Asgard не завершил загрузку результата",
     asgard_table_missing:"Не найдена таблица результатов обратного потока",
     asgard_table_ambiguous:"Найдено несколько таблиц результатов обратного потока",
@@ -95,7 +99,7 @@
     }).filter(Boolean);
     const end = audit.phase === "reconciled" ? (audit.writeback?.verified===true?"Сверка и запись в ИНВенту завершены.":"Сверка выполнена без изменений сайтов.") :
       audit.phase === "read_only" ? (reasons[audit.reason] || "Только чтение: сверка не подтверждена") :
-      audit.phase === "needs_attention" ? "Автоматическая проверка не завершена." : "Проверка выполняется…";
+      audit.phase === "needs_attention" ? "Автоматическая проверка не завершена." : audit.phase === "paused" ? "Задача остановлена." : "Проверка выполняется…";
     const version=typeof audit.bridge_version==='string' && /^\d+\.\d+\.\d+$/.test(audit.bridge_version)?
       "Browser Bridge "+audit.bridge_version:null;
     const written=audit.writeback?.verified===true && Number.isInteger(audit.writeback.written) &&

@@ -118,7 +118,7 @@ fn api_post_json(token: &str, path: &str, payload: Value, timeout: Duration) -> 
             "invalid_spreadsheet_id" => "Некорректный ID таблицы Google Sheets.".to_string(),
             "invalid_spreadsheet_range" => "Проверьте диапазон ячеек (например, Orders!A1:Z100).".to_string(),
             "browser_audit_already_active" => "Проверка уже ожидает запуска или выполняется.".to_string(),
-            "inventa_batch_complete" => "[inventa_batch_complete] Все однозначные грузоместа этого листа уже прошли пакетную сверку. Если таблица изменится, обработка нового списка начнётся сначала.".to_string(),
+            "inventa_batch_complete" => "[inventa_batch_complete] Заказов для проверки не осталось. Уже пройденные позиции и строки со статусом «Найден» пропускаются.".to_string(),
             "no_safe_audit_candidates" | "no_unambiguous_order_with_cargo_and_date" => "Не найдены заказы с однозначным грузоместом. Проверьте выбранный лист и заголовки таблицы.".to_string(),
             "sheet_date_not_verified" => "[sheet_date_not_verified] День и месяц взяты из названия листа, но год не определён по его данным.".to_string(),
             "inventa_writeback_select_sheet" => "Выберите конкретный лист ИНВенты для записи отметок.".to_string(),
@@ -295,10 +295,10 @@ fn get_dashboard(state: State<'_, AgentState>) -> Result<Dashboard, String> {
 }
 
 #[tauri::command]
-fn cancel_browser_audit(state: State<'_, AgentState>) -> Result<Value, String> {
+fn cancel_browser_audit(state: State<'_, AgentState>, job_id: Option<String>) -> Result<Value, String> {
     let token = state.token.lock().map_err(|_| "Состояние агента недоступно".to_string())?
         .clone().ok_or_else(|| "Сначала запустите агента".to_string())?;
-    api_post_json(&token, "/v1/browser/audit-cancel", serde_json::json!({}), Duration::from_secs(10))
+    api_post_json(&token, "/v1/browser/audit-cancel", job_id.map(|id| serde_json::json!({"job_id":id})).unwrap_or_else(|| serde_json::json!({})), Duration::from_secs(10))
 }
 
 #[tauri::command]

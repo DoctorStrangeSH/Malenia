@@ -3,7 +3,7 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
-  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout","asgard_wait_loading","asgard_table_missing","asgard_table_ambiguous","asgard_table_incomplete","asgard_input_unconfirmed","asgard_result_not_refreshed"]);
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout","asgard_wait_loading","asgard_table_missing","asgard_table_ambiguous","asgard_table_incomplete","asgard_input_unconfirmed","asgard_result_not_refreshed","asgard_card_heading","asgard_card_box","asgard_card_history","asgard_card_status"]);
   function safeScanShape(value){
     const fields=['rows','columns','min_cells','max_cells','duplicate_required_headers','max_required_chars'];
     return value && Object.keys(value).length===fields.length && fields.every(key=>
@@ -52,6 +52,7 @@ var MaleniaAutomation = (() => {
   const origins = targets => [...new Set(ROLES.map(role => new URL(targets[role]).origin + "/*"))];
 
   async function waitLoaded(chromeApi, tabId, timeoutMs = 20000) {
+    const signal=chromeApi.auditSignal;
     return new Promise((resolve, reject) => {
       let finished = false;
       const settle = (error) => {
@@ -59,13 +60,17 @@ var MaleniaAutomation = (() => {
         finished = true;
         clearTimeout(timer);
         chromeApi.tabs.onUpdated.removeListener(onUpdated);
+        signal?.removeEventListener('abort',onAbort);
         if (error) reject(error); else resolve();
       };
       const onUpdated = (id, info) => {
         if (id === tabId && info.status === "complete") settle();
       };
+      const onAbort=()=>settle(new Error(signal.reason==='audit_progress_unavailable'?'audit_progress_unavailable':'audit_cancelled'));
       const timer = setTimeout(() => settle(new Error("page_timeout")), timeoutMs);
       chromeApi.tabs.onUpdated.addListener(onUpdated);
+      signal?.addEventListener('abort',onAbort,{once:true});
+      if(signal?.aborted){onAbort();return;}
       chromeApi.tabs.get(tabId).then(tab => {
         if (tab.status === "complete") settle();
       }).catch(() => settle(new Error("tab_closed")));
@@ -98,7 +103,7 @@ var MaleniaAutomation = (() => {
     "site_or_browser_error", "inventa_writeback_required", "inventa_writeback_failed",
     "inventa_writeback_source_changed", "inventa_writeback_formula_protected",
     "inventa_writeback_reauthorization_required", "inventa_writeback_permission_denied",
-    "inventa_writeback_verification_failed",
+    "inventa_writeback_verification_failed", "audit_cancelled", "audit_progress_unavailable",
   ]);
   function reasonCode(error) {
     return error instanceof Error && SAFE_FAILURE_CODES.has(error.message) ?
@@ -392,36 +397,31 @@ var MaleniaAutomation = (() => {
             return {matches:result,...freshness};
           }
           if(action==='card'){
-            const headings=[...document.querySelectorAll('h1,h2,[role="heading"]')].filter(visible).map(el=>text(el));
-            const cargo=headings.filter(s=>/^Грузоместо\s+/.test(s));
-            if(cargo.length!==1)return null;
-            const actual=cargo[0].replace(/^Грузоместо\s+/,'');
-            if(actual!==code)return {other:true};
+            const cargoText=el=>text(el).match(/^Грузоместо\s*([A-Za-z0-9_.-]{1,128})$/)?.[1];
+            let headings=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')].filter(el=>visible(el)&&cargoText(el));
+            if(!headings.length)headings=[...document.querySelectorAll('div,span,p,strong,b')].filter(el=>visible(el)&&!el.closest('table')&&cargoText(el)&&![...el.children].some(child=>cargoText(child)));
+            const cargo=[...new Set(headings.map(cargoText))];
+            if(cargo.length!==1)return {pending:true,step:'asgard_card_heading'};
+            if(cargo[0]!==code)return {other:true};
             const pageText=clean(document.body.innerText||document.body.textContent);
-            const box=pageText.match(/ID грузоместа\s+(\d{1,20})(?!\d)/)?.[1];
-            if(!box)return null;
-            const titles=[...document.querySelectorAll('h1,h2,h3,h4,h5,div,span')].filter(el=>visible(el)&&text(el)==='История изменения статусов'&&![...el.children].some(child=>text(child)==='История изменения статусов'));
-            const tables=new Set();
-            for(const title of titles){
-              let scope=title;
-              for(let depth=0;scope&&depth<4;depth++,scope=scope.parentElement){
-                const local=[...scope.querySelectorAll('table')].filter(visible).filter(t=>{
-                  const heads=[...t.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]].map(el=>text(el));
-                  return heads.length===2&&heads.includes('Дата')&&heads.includes('Статус');
-                });
-                if(local.length===1){tables.add(local[0]);break;}
-              }
-              let next=title.nextElementSibling;
-              if(next?.matches('table'))tables.add(next);
-            }
-            if(tables.size!==1)return null;
-            const table=[...tables][0],heads=[...table.querySelectorAll('tr')[0].querySelectorAll('th')].map(el=>text(el));
+            const ids=[...new Set([...pageText.matchAll(/ID\s*грузоместа\s*(\d{1,20})(?!\d)/g)].map(match=>match[1]))];
+            if(ids.length!==1)return {pending:true,step:'asgard_card_box'};
+            const box=ids[0];
+            const titles=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,div,span,p,strong,b')].filter(el=>visible(el)&&text(el)==='История изменения статусов'&&![...el.children].some(child=>text(child)==='История изменения статусов'));
+            // Header and table may be in deeply nested sibling wrappers. Require
+            // a unique titled history table following its visible section title.
+            const tables=[...document.querySelectorAll('table')].filter(table=>{
+              const heads=[...table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]].map(text);
+              return visible(table)&&heads.length===2&&heads.includes('Дата')&&heads.includes('Статус')&&titles.some(title=>title.compareDocumentPosition(table)&4);
+            });
+            if(tables.length!==1)return {pending:true,step:'asgard_card_history'};
+            const table=tables[0],heads=[...table.querySelectorAll('tr')[0].querySelectorAll('th')].map(text);
             const data=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
-            if(!data.length||data.length>100)return null;
+            if(!data.length||data.length>100)return {pending:true,step:'asgard_card_history'};
             const history=[];
-            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return null;const status=text(cells[heads.indexOf('Статус')]);if(!status||status.length>100)return null;history.push(status);}
-            const statuses=[...new Set([...document.querySelectorAll('span,button,div')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'].includes(text(el))).map(el=>text(el)))];
-            if(statuses.length!==1)return null;
+            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return {pending:true,step:'asgard_card_history'};const status=text(cells[heads.indexOf('Статус')]);if(!status||status.length>100)return {pending:true,step:'asgard_card_history'};history.push(status);}
+            const statuses=[...new Set([...document.querySelectorAll('span,button,div,p,strong,b,a,[role="status"]')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'].includes(text(el))).map(text))];
+            if(statuses.length!==1)return {pending:true,step:'asgard_card_status'};
             return {box,history,status:statuses[0],kupishuz:/купишуз/i.test(pageText)};
           }
           return null;
@@ -463,8 +463,14 @@ var MaleniaAutomation = (() => {
       // A verified transit card wins; a foreign transit card must not hide a matching issued card.
       if(confirmed.some(row=>active.includes(row[1]))&&!active.includes(match.status))continue;
       await chromeApi.tabs.update(tabId,{url:match.url});await waitLoaded(chromeApi,tabId);
-      let card=null;const deadline=Date.now()+15000;
-      while(Date.now()<deadline){card=await probe('card');if(card)break;await new Promise(r=>setTimeout(r,250));}
+      let card=null,cardStep='asgard_card_heading';const deadline=Date.now()+15000;
+      while(Date.now()<deadline){
+        const snapshot=await probe('card');
+        if(snapshot&&!snapshot.pending){card=snapshot;break;}
+        if(SEARCH_STEPS.has(snapshot?.step))cardStep=snapshot.step;
+        await new Promise(r=>setTimeout(r,250));
+      }
+      if(!card){const error=new Error('unverified_search_result_identity');error.step=cardStep;throw error;}
       if(card?.other){if(active.includes(match.status))foreignActive++;continue;}
       if(!card||card.box!==match.box)throw new Error('unverified_search_result_identity');
       if(card.status!==match.status||!card.history.includes(match.status))throw new Error('unverified_search_result_identity');
@@ -877,6 +883,7 @@ var MaleniaAutomation = (() => {
             const table = await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin, verifyAsgard);
             return {table,characters:0,pages:1};
           } catch(error) {
+            if(error?.message==='audit_cancelled'||error?.message==='audit_progress_unavailable')throw error;
             // Keep only a failed page on the explicitly authorized service origin.
             // Never close the user's existing tabs; these IDs were created here.
             try {
@@ -1058,7 +1065,7 @@ var MaleniaAutomation = (() => {
     }
   }
 
-  async function run(chromeApi, input, sendNative, onProgress, options = {}) {
+  async function runAudit(chromeApi, input, sendNative, onProgress, options = {}) {
     const targets = normalizeTargets(input);
     const results = [];
     const snapshots = {};
@@ -1199,6 +1206,41 @@ var MaleniaAutomation = (() => {
       ...(reconciliation ? {reconciliation} : {})};
     await onProgress(summary);
     return summary;
+  }
+  async function run(chromeApi,input,sendNative,onProgress,options={}) {
+    const signal=options.signal;
+    if(!signal)return runAudit(chromeApi,input,sendNative,onProgress,options);
+    const owned=new Set();let rejectStop,stopped=false;
+    const stopError=()=>new Error(signal.reason==='audit_progress_unavailable'?'audit_progress_unavailable':'audit_cancelled');
+    const check=()=>{if(stopped||signal.aborted)throw stopError();};
+    const cancelled=new Promise((_,reject)=>{rejectStop=reject;});
+    const closeOwned=async()=>{const ids=[...owned];owned.clear();await Promise.allSettled(ids.map(id=>chromeApi.tabs.remove(id)));};
+    const stop=()=>{stopped=true;rejectStop(stopError());void closeOwned();};
+    const race=promise=>Promise.race([promise,cancelled]);
+    const active=async()=>{check();if(options.checkActive&&await options.checkActive()===false){stop();throw stopError();}check();};
+    signal.addEventListener('abort',stop,{once:true});
+    // Every action is scoped to this run's tabs. A cancelled generation cannot
+    // act under a newer job ID, and closing a task tab interrupts its page script.
+    const taskChrome={...chromeApi,auditSignal:signal,windows:chromeApi.windows,tabs:{...chromeApi.tabs,onUpdated:chromeApi.tabs.onUpdated,
+      async create(args){
+        await active();const tab=await chromeApi.tabs.create(args);
+        if(Number.isInteger(tab.id))owned.add(tab.id);
+        if(stopped||signal.aborted){await closeOwned();throw stopError();}return tab;
+      },
+      async update(id,args){await active();return race(chromeApi.tabs.update(id,args));},
+      async get(id){check();return race(chromeApi.tabs.get(id));},
+      async remove(id){if(!owned.delete(id)&&(stopped||signal.aborted))return;return chromeApi.tabs.remove(id);}
+    },scripting:{...chromeApi.scripting,
+      async executeScript(args){check();return race(chromeApi.scripting.executeScript(args));}
+    }};
+    try{
+      check();
+      return await race(runAudit(taskChrome,input,async message=>{await active();return race(sendNative(message));},
+        async report=>{check();return race(onProgress(report));},options));
+    }finally{
+      signal.removeEventListener('abort',stop);
+      if(stopped||signal.aborted)await closeOwned();
+    }
   }
   return {ROLES, MAX_TEXT, MAX_PAGES, MAX_SEARCHES, normalizeTargets, sourceUrl, origins, nextPage, exactGetSearch, reactiveSearch, workplaceSearch, asgardSearchKeys, reasonCode, waitLoaded, run};
 })();

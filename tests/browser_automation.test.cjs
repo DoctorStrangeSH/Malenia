@@ -1313,3 +1313,46 @@ test('marking run verifies the selected Asgard card and acknowledges both write 
  assert.equal(result.phase,'reconciled');assert.equal(result.writeback.asgard_written,1);
  assert.deepEqual(messages,['mark_inventa_found','mark_inventa_asgard','reconcile_site_tables']);
 });
+
+test('cancellation closes only task-owned tabs and interrupts an in-flight page script',async()=>{
+ const api=runner(),chrome=fakeBrowser(),controller=new AbortController();let release,entered;
+ const started=new Promise(resolve=>entered=resolve),native=[];
+ chrome.scripting.executeScript=()=>{entered();return new Promise(resolve=>release=resolve);};
+ const run=api.run(chrome,workTargets,async message=>{native.push(message);},async()=>{},
+  {exactGetSearch:true,seedInventory:inventorySeed(['TEST-1','TEST-2']),signal:controller.signal,checkActive:async()=>true});
+ await started;controller.abort('audit_cancelled');await assert.rejects(run,/audit_cancelled/);
+ assert.equal(chrome.stats.created,1);assert.equal(chrome.stats.removed,1);assert.equal(native.length,0);
+ release([{result:scanBatch(['TEST-1'])}]);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(chrome.stats.created,1);assert.equal(native.length,0);
+});
+test('a tab created after cancellation is closed before any page action',async()=>{
+ const api=runner(),chrome=fakeBrowser(),controller=new AbortController();let release,entered;
+ const started=new Promise(resolve=>entered=resolve);let scripts=0;
+ chrome.tabs.create=()=>{entered();return new Promise(resolve=>release=resolve);};
+ chrome.scripting.executeScript=async()=>{scripts++;return [];};
+ const run=api.run(chrome,workTargets,async()=>{},async()=>{},
+  {exactGetSearch:true,seedInventory:inventorySeed(['TEST-1']),signal:controller.signal});
+ await started;controller.abort('audit_cancelled');await assert.rejects(run,/audit_cancelled/);
+ release({id:7});await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(chrome.stats.removed,1);assert.equal(scripts,0);
+});
+
+test('cancellable runs preserve non-enumerable browser events on successful completion',async()=>{
+ const api=runner(),chrome=fakeBrowser(),controller=new AbortController();
+ Object.defineProperty(chrome.tabs,'onUpdated',{value:chrome.tabs.onUpdated,enumerable:false});
+ chrome.scripting.executeScript=async()=>[{result:scanBatch(['TEST-1'])}];
+ const result=await api.run(chrome,workTargets,async()=>({ok:true,type:'site_tables_reconciled',persisted:false,read_only:true,write_enabled:false,total:1,summary:{found:1,in_progress:0,manual_review:0}}),async()=>{},
+  {exactGetSearch:true,seedInventory:inventorySeed(['TEST-1']),signal:controller.signal,checkActive:async()=>true});
+ assert.equal(result.phase,'reconciled');assert.equal(chrome.stats.created,1);assert.equal(chrome.stats.removed,1);
+});
+test('cancellation clears page-loading listeners and stops before injecting a script',async()=>{
+ const api=runner(),chrome=fakeBrowser(),controller=new AbortController();let scripts=0;
+ chrome.tabs.get=async()=>({id:7,status:'loading',url:workTargets.datalens});
+ chrome.scripting.executeScript=async()=>{scripts++;return [];};
+ const run=api.run(chrome,workTargets,async()=>{},async()=>{},
+  {exactGetSearch:true,seedInventory:inventorySeed(['TEST-1']),signal:controller.signal});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(typeof chrome.tabs.onUpdated.listener,'function');
+ controller.abort('audit_cancelled');await assert.rejects(run,/audit_cancelled/);
+ assert.equal(chrome.tabs.onUpdated.listener,null);assert.equal(scripts,0);assert.equal(chrome.stats.removed,1);
+});

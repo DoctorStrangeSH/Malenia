@@ -69,7 +69,7 @@ class NativeMessagingProtocolTests(unittest.TestCase):
         self.assertEqual(response["host"], HOST_NAME)
         self.assertEqual(response["capabilities"], ["share_active_tab", "inspect_active_page", "inspect_capabilities", "reconcile_site_tables",
                          "claim_browser_audit", "finish_browser_audit",
-                         "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found", "mark_inventa_asgard"])
+                         "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found", "mark_inventa_asgard", "browser_audit_cancellation"])
         self.assertTrue(response["ok"])
 
     def test_user_shared_tab_is_sanitized_and_persisted(self):

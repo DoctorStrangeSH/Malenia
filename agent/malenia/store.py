@@ -176,11 +176,11 @@ class TaskStore:
                 if column not in {row[1] for row in db.execute("PRAGMA table_info(inventa_writeback)")}:
                     db.execute(f"ALTER TABLE inventa_writeback ADD COLUMN {column} {definition}")
 
-    def cancel_browser_audit(self, reason: str = "cancelled") -> bool:
+    def cancel_browser_audit(self, reason: str = "cancelled", *, job_id: str | None = None) -> bool:
         with self._session() as db:
             db.execute("BEGIN IMMEDIATE")
             changed = db.execute("UPDATE browser_audit_job SET status='failed',failure_reason=?,updated_at=? "
-                "WHERE id=1 AND status IN ('pending','running')", (reason, _now())).rowcount
+                "WHERE id=1 AND status IN ('pending','running') AND (? IS NULL OR job_id=?)", (reason, _now(), job_id, job_id)).rowcount
             if changed:
                 db.execute("UPDATE inventa_batch_cursor SET pending_job_id=NULL,pending_end=NULL")
                 db.execute("DELETE FROM browser_audit_seed")
@@ -359,6 +359,11 @@ class TaskStore:
                    "(SELECT job_id FROM browser_audit_job WHERE status IN ('pending','running'))")
 
 
+    def browser_audit_active(self, job_id: str) -> bool:
+        with self._session() as db:
+            self._expire_browser_audit(db)
+            return db.execute("SELECT 1 FROM browser_audit_job WHERE id=1 AND job_id=? AND status='running'", (job_id,)).fetchone() is not None
+
     def claim_inventa_writeback(self, job_id: str, *, asgard: bool = False) -> dict[str, Any]:
         with self._session() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -428,7 +433,7 @@ class TaskStore:
             raise ValueError("invalid_audit_batch")
         if batch_cursor is not None:
             if (batch is None or not isinstance(batch_cursor, dict)
-                    or set(batch_cursor) != {"source_hash", "fingerprint", "start", "total"}
+                    or set(batch_cursor) not in ({"source_hash", "fingerprint", "start", "total"}, {"source_hash", "fingerprint", "start", "total", "end"})
                     or any(not isinstance(batch_cursor[field], str) or
                            len(batch_cursor[field]) != 64 or
                            any(c not in "0123456789abcdef" for c in batch_cursor[field])
@@ -437,7 +442,9 @@ class TaskStore:
                     or type(batch_cursor["total"]) is not int
                     or batch_cursor["start"] < 0
                     or batch_cursor["start"] + len(batch) > batch_cursor["total"]
-                    or batch_cursor["total"] > 10000):
+                    or batch_cursor["total"] > 10000
+                    or type(batch_cursor.get("end", batch_cursor["start"] + len(batch))) is not int
+                    or not batch_cursor["start"] + len(batch) <= batch_cursor.get("end", batch_cursor["start"] + len(batch)) <= batch_cursor["total"]):
                 raise ValueError("invalid_audit_cursor")
         if writeback_context is not None and (batch is None or not isinstance(writeback_context, dict)
                 or len(json.dumps(writeback_context)) > 16000):
@@ -524,7 +531,7 @@ class TaskStore:
                        pending_end=excluded.pending_end,pending_job_id=excluded.pending_job_id""",
                     (batch_cursor["source_hash"], batch_cursor["fingerprint"],
                      batch_cursor["start"], batch_cursor["total"],
-                     batch_cursor["start"] + len(batch), job_id))
+                     batch_cursor.get("end", batch_cursor["start"] + len(batch)), job_id))
         return {"job_id": job_id, "status": "pending", "created_at": now,
                 "updated_at": now}
 

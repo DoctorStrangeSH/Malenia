@@ -121,8 +121,18 @@ def handle_message(payload: dict[str, Any], store: TaskStore, *, google_sheets=N
             "version": "0.1.0",
             "capabilities": ["share_active_tab", "inspect_active_page", "inspect_capabilities", "reconcile_site_tables",
                              "claim_browser_audit", "finish_browser_audit",
-                             "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found", "mark_inventa_asgard"],
+                             "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found", "mark_inventa_asgard", "browser_audit_cancellation"],
         }
+
+    if message_type == "browser_audit_active":
+        if (set(payload) != {"type", "request_id", "job_id"} or
+                not isinstance(payload.get("job_id"), str) or len(payload["job_id"]) != 36):
+            return {**response, "ok": False, "error": "invalid_audit_request"}
+        try:
+            active = store.browser_audit_active(payload["job_id"])
+        except sqlite3.Error:
+            return {**response, "ok": False, "error": "audit_job_unavailable"}
+        return {**response, "ok": True, "type": "browser_audit_active", "active": active}
 
     if message_type == "claim_browser_audit":
         try:

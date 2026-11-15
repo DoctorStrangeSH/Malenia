@@ -127,6 +127,7 @@ class InventaWritebackTests(unittest.TestCase):
                       data=json.dumps(payload).encode(), headers={'Authorization': 'Bearer test-token',
                       'Content-Type': 'application/json'})
         with urlopen(req) as response: result = json.load(response)
+        self.last_batch = result
         self.assertEqual(result['write_enabled'], payload['mark_found'])
         return self.store.claim_browser_audit()
 
@@ -347,6 +348,74 @@ class AsgardWritebackTests(unittest.TestCase):
         self.mark(job)
         self.assertFalse(self.mark_asgard(job, verification='generic_table')['ok'])
         self.assertEqual(self.api.grid[2][7], '')
+
+
+class InventaSkipAndCancelTests(unittest.TestCase):
+    setUp = InventaWritebackTests.setUp
+    tearDown = InventaWritebackTests.tearDown
+    queue = InventaWritebackTests.queue
+    mark = InventaWritebackTests.mark
+
+    def test_existing_found_is_not_seeded_and_sparse_end_is_explicit(self):
+        self.api.grid[1][7] = ' Найден '
+        job = self.queue()
+        self.assertEqual([row[0] for row in job['inventory']['rows']], ['BOX-1', 'BOX-2'])
+        self.assertEqual(self.last_batch['batch_end'], 3)
+        self.assertEqual(self.last_batch['queued_orders'], 2)
+
+    def test_retry_after_partial_marking_does_not_search_found_again(self):
+        job = self.queue(); self.assertEqual(self.mark(job)['written'], 2)
+        self.store.finish_browser_audit(job['job_id'], False)
+        retried = self.queue()
+        self.assertEqual(retried['inventory']['rows'], [['BOX-1', '2026-10-03']])
+        self.assertEqual(self.api.grid[1][7], 'Найден')
+        self.assertEqual(self.api.grid[3][7], 'Найден')
+
+    def test_sparse_cursor_stays_stable_as_completed_batch_becomes_found(self):
+        header = self.api.grid[0]
+        self.api.grid = [header] + [['2026-10-03', f'ORDER-{i}', f'BOX-{i}', 100, '', '', '',
+            'Найден' if i % 4 == 0 else '', 'Group', '=1'] for i in range(45)]
+        pending = [i for i in range(45) if i % 4]
+        job = self.queue()
+        self.assertEqual([r[0] for r in job['inventory']['rows']], [f'BOX-{i}' for i in pending[:20]])
+        self.assertEqual(self.last_batch['batch_end'], pending[20])
+        for i in pending[:20]: self.api.grid[i+1][7] = 'Найден'
+        self.store.claim_inventa_writeback(job['job_id']); self.store.complete_inventa_writeback(job['job_id'], 20)
+        self.store.claim_inventa_writeback(job['job_id'], asgard=True); self.store.complete_inventa_writeback(job['job_id'], 0, asgard=True)
+        self.store.finish_browser_audit(job['job_id'], True)
+        second = self.queue()
+        self.assertEqual(self.last_batch['batch_start'], pending[20])
+        self.assertEqual([r[0] for r in second['inventory']['rows']], [f'BOX-{i}' for i in pending[20:]])
+        self.assertEqual(self.last_batch['batch_end'], 45)
+        self.assertEqual(self.last_batch['remaining_orders'], 0)
+
+    def test_all_found_returns_completed_without_creating_a_browser_job(self):
+        from urllib.error import HTTPError
+        for row in self.api.grid[1:]: row[7] = 'Найден'
+        with self.assertRaises(HTTPError) as error: self.queue()
+        self.assertEqual(json.load(error.exception)['error'], 'inventa_batch_complete')
+        self.assertIsNone(self.store.latest_browser_audit_job())
+
+    def test_cancel_and_native_watch_are_bound_to_the_exact_job_generation(self):
+        first = self.queue(); old_id = first['job_id']
+        self.assertTrue(self.store.cancel_browser_audit(job_id=old_id))
+        second = self.queue(); new_id = second['job_id']
+        self.assertFalse(self.store.cancel_browser_audit(job_id=old_id))
+        for job_id, expected in ((old_id, False), (new_id, True)):
+            response = handle_message({'type':'browser_audit_active','request_id':'watch','job_id':job_id}, self.store)
+            self.assertEqual(response['active'], expected)
+            self.assertEqual(set(response), {'ok','request_id','type','active'})
+        self.assertFalse(self.store.finish_browser_audit(old_id, True))
+        self.assertTrue(self.store.browser_audit_active(new_id))
+
+    def test_targeted_http_cancel_does_not_cancel_a_newer_job(self):
+        first = self.queue(); old_id = first['job_id']; self.store.cancel_browser_audit(job_id=old_id)
+        second = self.queue()
+        req = Request(f'http://127.0.0.1:{self.server.server_port}/v1/browser/audit-cancel',
+            data=json.dumps({'job_id':old_id}).encode(), headers={'Authorization':'Bearer test-token','Content-Type':'application/json'})
+        with urlopen(req) as response: result = json.load(response)
+        self.assertFalse(result['cancelled']); self.assertTrue(self.store.browser_audit_active(second['job_id']))
+
 
 
 if __name__ == '__main__': unittest.main()

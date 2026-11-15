@@ -149,6 +149,7 @@ async function pollDesktopAudit() {
     if (!claimed?.ok || !claimed.job || typeof jobId !== "string") return;
     let succeeded = false;
     let failureReason = "execution_failed";
+    let watcher,watchTimer,controller,checkActive,jobStopped=false;
     try {
       let targets;
       try { targets = MaleniaAutomation.normalizeTargets(stored?.maleniaTargets); }
@@ -182,21 +183,43 @@ async function pollDesktopAudit() {
       if(claimed.job.asgard_writeback_required && !hello.capabilities.includes('mark_inventa_asgard')){
         failureReason='inventa_writeback_required';throw new Error(failureReason);
       }
+      if(claimed.job.writeback_required && !hello.capabilities.includes('browser_audit_cancellation')){
+        failureReason='inventa_writeback_required';throw new Error(failureReason);
+      }
+      if(hello.capabilities.includes('browser_audit_cancellation')){
+        // Keep the stop channel independent of a potentially slow Sheets write.
+        watcher=nativeSession();controller=new AbortController();let checking=null;
+        checkActive=()=>{
+          if(controller.signal.aborted)return Promise.resolve(false);
+          if(checking)return checking;
+          checking=watcher.send({type:'browser_audit_active',job_id:jobId}).then(response=>{
+            if(!response?.ok||response.type!=='browser_audit_active'||typeof response.active!=='boolean')throw Error('audit_progress_unavailable');
+            if(!response.active){jobStopped=true;controller.abort('audit_cancelled');}
+            return response.active;
+          }).catch(error=>{controller.abort('audit_progress_unavailable');throw error;}).finally(()=>{checking=null;});
+          return checking;
+        };
+        const watch=async()=>{try{await checkActive();}catch{/* Fail closed on loss of the stop channel. */}
+          if(!controller.signal.aborted)watchTimer=setTimeout(watch,500);};
+        await checkActive();watchTimer=setTimeout(watch,500);
+      }
       const result = await MaleniaAutomation.run(chrome,targets,
         message=>session.send(message),report,
         {exactGetSearch:claimed.job.inventory ? true : stored.maleniaExactGetSearch !== false,
          ...(claimed.job.inventory ? {seedInventory:claimed.job.inventory} : {}),
          ...(claimed.job.writeback_required?{writebackJobId:jobId}:{}),
-         asgardWriteback:claimed.job.asgard_writeback_required===true});
+         asgardWriteback:claimed.job.asgard_writeback_required===true,
+         ...(controller?{signal:controller.signal,checkActive}:{})});
       succeeded = result.phase === "reconciled" &&
         (!claimed.job.writeback_required || result.writeback?.verified===true);
       if(claimed.job.writeback_required && result.phase==='reconciled' && !succeeded)
         failureReason='inventa_writeback_required';
     } catch {
-      await progress({phase:"needs_attention",results:[],error:"setup_or_connection"});
+      await progress(jobStopped?{phase:"paused",results:[]}:{phase:"needs_attention",results:[],error:"setup_or_connection"});
     } finally {
+      if(watchTimer!==undefined)clearTimeout(watchTimer);watcher?.close();
       // Never retry an unacknowledged claim automatically. The store expires it.
-      try { await session.send({type:"finish_browser_audit",job_id:jobId,succeeded, ...(hello.capabilities.includes("audit_failure_reasons")?{failure_reason:succeeded?null:failureReason}:{})}); }
+      try { if(!jobStopped)await session.send({type:"finish_browser_audit",job_id:jobId,succeeded, ...(hello.capabilities.includes("audit_failure_reasons")?{failure_reason:succeeded?null:failureReason}:{})}); }
       catch { /* Extension may have disconnected. */ }
     }
   } catch { /* Host unavailable, no permissions, or extension restarting. */ }

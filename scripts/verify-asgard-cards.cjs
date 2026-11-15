@@ -7,7 +7,7 @@ const vm=require('node:vm');
 const source=fs.readFileSync('browser-extension/automation.js','utf8');
 const READY='Готов для отгрузки в заборную логистику';
 async function check({empty=false,foreign=false,mismatch=false,duplicate=false,company=false,
- foreignTransit=false,serviceError=false,ready=false,wasIssued=false,multipleIssued=false,foreignGroup=false,initialMissing=false,replaceTable=false,replaceInput=false,wrongInput=false,hiddenBusy=false,cacheBusy=false,unrelated=false,tableAttribute=false}={}){
+ foreignTransit=false,serviceError=false,ready=false,wasIssued=false,multipleIssued=false,foreignGroup=false,initialMissing=false,replaceTable=false,replaceInput=false,wrongInput=false,hiddenBusy=false,cacheBusy=false,unrelated=false,tableAttribute=false,headingLevel=1,compactCard=false,deepTitle=0,statusTag="span",fourHistory=false}={}){
  const host='https://asgard.market.yandex-team.ru';let dom,clicks=0,visited=[],renderTimer;
  const active=ready?READY:'В пути',dest=company?'Склад ООО "Купишуз"':'Склад партнера';
  function page(html,url){
@@ -37,9 +37,10 @@ async function check({empty=false,foreign=false,mismatch=false,duplicate=false,c
    visited.push(url);const cardId=url.split('/').pop(),box=mismatch?'999':cardId;
    const cardStatus=statuses[Number(cardId)-100];
    const other=foreign||(foreignTransit&&cardId==='101');
-   const history=[cardStatus,'Принят у отправителя',...(wasIssued?['Выдан']:[])];
-   page(`<h1>Грузоместо ${other?'OTHER':'TEST-1'}</h1><span>${cardStatus}</span><aside>ID грузоместа ${box} Точка назначения ${dest}</aside>
-    <section><h3>История изменения статусов</h3><table><tr><th>Дата</th><th>Статус</th></tr>
+   const history=fourHistory?[cardStatus,'Создан',cardStatus,'Создан']:[cardStatus,'Принят у отправителя',...(wasIssued?['Выдан']:[])];
+   const title='<div>'.repeat(deepTitle)+'<h3>История изменения статусов</h3>'+'</div>'.repeat(deepTitle);
+   page(`<h${headingLevel}>Грузоместо ${other?'OTHER':'TEST-1'}</h${headingLevel}><${statusTag}>${cardStatus}</${statusTag}><aside>ID грузоместа${compactCard?'':' '}${box} Точка назначения ${dest}</aside>
+    <section>${title}<table><tr><th>Дата</th><th>Статус</th></tr>
     ${history.map(s=>`<tr><td>23.09.2026 08:18:51</td><td>${s}</td></tr>`).join('')}</table></section>`,new URL(url).pathname);
   },
   async get(){return {status:'complete',url:dom.window.location.href};},
@@ -62,7 +63,7 @@ async function check({empty=false,foreign=false,mismatch=false,duplicate=false,c
    else if(!empty){
     const expectedStatus=foreignTransit?'Выдан':active;
     assert.equal(row[2],foreignTransit?'100':'101');assert.equal(row[1],expectedStatus);
-    assert.deepEqual(JSON.parse(row[4]),[expectedStatus,'Принят у отправителя',...(wasIssued?['Выдан']:[])]);
+    assert.deepEqual(JSON.parse(row[4]),fourHistory?[expectedStatus,'Создан',expectedStatus,'Создан']:[expectedStatus,'Принят у отправителя',...(wasIssued?['Выдан']:[])]);
    }
   }
   assert.equal(clicks,1);
@@ -73,5 +74,7 @@ const scenarios=[{},{empty:true},{foreign:true},{mismatch:true},{duplicate:true}
  {foreignTransit:true},{serviceError:true},{ready:true},{ready:true,wasIssued:true},
  {wasIssued:true},{foreignTransit:true,multipleIssued:true},{company:true,ready:true},{foreign:true,foreignGroup:true},
  {company:true,initialMissing:true},{company:true,replaceTable:true},{company:true,replaceInput:true},
- {company:true,replaceInput:true,wrongInput:true},{company:true,hiddenBusy:true},{company:true,cacheBusy:true},{company:true,unrelated:true},{company:true,tableAttribute:true}];
+ {company:true,replaceInput:true,wrongInput:true},{company:true,hiddenBusy:true},{company:true,cacheBusy:true},{company:true,unrelated:true},{company:true,tableAttribute:true},
+ {headingLevel:3},{compactCard:true},{deepTitle:8},{statusTag:"p"},
+ {headingLevel:3,compactCard:true,deepTitle:8,statusTag:"p",fourHistory:true}];
 (async()=>{for(const scenario of scenarios)await check(scenario);console.log(`Asgard DOM integration: ${scenarios.length} scenarios passed`);})().catch(error=>{console.error(error);process.exit(1);});
