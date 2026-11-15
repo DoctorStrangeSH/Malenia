@@ -106,7 +106,7 @@ def _clean_tab_url(value: Any) -> str:
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", query, ""))
 
 
-def handle_message(payload: dict[str, Any], store: TaskStore) -> dict[str, Any]:
+def handle_message(payload: dict[str, Any], store: TaskStore, *, google_sheets=None) -> dict[str, Any]:
     """Handle the deliberately small, user-initiated Browser Bridge protocol."""
     request_id = payload.get("request_id")
     response: dict[str, Any] = {"request_id": request_id}
@@ -121,7 +121,7 @@ def handle_message(payload: dict[str, Any], store: TaskStore) -> dict[str, Any]:
             "version": "0.1.0",
             "capabilities": ["share_active_tab", "inspect_active_page", "inspect_capabilities", "reconcile_site_tables",
                              "claim_browser_audit", "finish_browser_audit",
-                             "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures"],
+                             "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found"],
         }
 
     if message_type == "claim_browser_audit":
@@ -153,6 +153,44 @@ def handle_message(payload: dict[str, Any], store: TaskStore) -> dict[str, Any]:
         except sqlite3.Error:
             return {**response, "ok": False, "error": "audit_job_unavailable"}
         return {**response, "ok": updated, "type": "browser_audit_finished"}
+
+    if message_type == "mark_inventa_found":
+        from .google_sheets import GoogleSheetsConnector, GoogleSheetsError
+        from .inventa_writeback import mark_found
+        if (set(payload) != {"type", "request_id", "job_id", "inventory", "datalens"}
+                or not isinstance(payload.get("job_id"), str) or len(payload["job_id"]) != 36):
+            return {**response, "ok": False, "error": "inventa_writeback_failed"}
+        job_id = payload["job_id"]
+        leased = False
+        try:
+            operation = store.claim_inventa_writeback(job_id)
+            if operation.get("already_applied"):
+                return {**response, "ok": True, "type": "inventa_found_marked",
+                        "written": operation["written"], "verified": True, "write_enabled": True}
+            leased = True
+            written = mark_found(google_sheets if google_sheets is not None else GoogleSheetsConnector(),
+                                 operation["context"], payload["inventory"], payload["datalens"])
+            if not store.complete_inventa_writeback(job_id, written):
+                raise ValueError("inventa_writeback_failed")
+            return {**response, "ok": True, "type": "inventa_found_marked",
+                    "written": written, "verified": True, "write_enabled": True}
+        except (GoogleSheetsError, SiteSnapshotError, ValueError, TypeError, KeyError, OSError, sqlite3.Error) as error:
+            if leased:
+                try:
+                    store.complete_inventa_writeback(job_id, None)
+                except sqlite3.Error:
+                    pass
+            code = str(error)
+            if isinstance(error, GoogleSheetsError):
+                if error.code == "google_reauthorization_required":
+                    code = "inventa_writeback_reauthorization_required"
+                elif error.status == 403:
+                    code = "inventa_writeback_permission_denied"
+            if code not in {"inventa_writeback_source_changed", "inventa_writeback_formula_protected",
+                            "inventa_writeback_reauthorization_required", "inventa_writeback_permission_denied",
+                            "inventa_writeback_verification_failed"}:
+                code = "inventa_writeback_failed"
+            return {**response, "ok": False, "error": code}
 
     if message_type == "reconcile_site_tables":
         # The authenticated native channel carries bounded structured table data.

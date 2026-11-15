@@ -1248,3 +1248,43 @@ test('foreign nonempty identifiers and all-unattributed histories remain rejecte
    error=>error.step==='scan_table_identity_mismatch');
  }
 });
+
+
+test('authorized inventory marking happens before Asgard and returns only a verified count',async()=>{
+ const api=runner(),chrome=fakeBrowser(),messages=[],reports=[];
+ const seed=inventorySeed(['FOUND-1','REVIEW-2']);let marked=false;
+ chrome.scripting.executeScript=async({args:[role,key]})=>{
+  if(role==='asgard'){
+   assert.ok(marked);assert.equal(key,'REVIEW-2');
+   return [{result:{columns:['cargo_place','status','box_id'],rows:[[key,'Принят на ФФ','BOX']]}}];
+  }
+  return [{result:{columns:['main_partner_code_original','sc_id','result','scanned_at'],
+   rows:[[key,'101366','OK',key==='FOUND-1'?'2026-10-05 16:00:00':'2026-10-01 16:00:00']]}}];
+ };
+ const result=await api.run(chrome,workTargets,async message=>{
+  messages.push(message.type);
+  if(message.type==='mark_inventa_found'){
+   assert.equal(message.job_id,'authorized-job');assert.equal(message.inventory.rows.length,2);
+   marked=true;return {ok:true,type:'inventa_found_marked',verified:true,written:1};
+  }
+  return {ok:true,type:'site_tables_reconciled',persisted:false,read_only:true,write_enabled:false,
+   total:2,summary:{found:1,in_progress:1,manual_review:0}};
+ },async report=>reports.push(report),{exactGetSearch:true,seedInventory:seed,writebackJobId:'authorized-job'});
+ assert.equal(result.phase,'reconciled');assert.equal(result.writeback.written,1);
+ assert.deepEqual(messages,['mark_inventa_found','reconcile_site_tables']);
+ assert.ok(!JSON.stringify(reports).includes('FOUND-1'));
+});
+
+test('inventory write failure stops the batch before Asgard or successful completion',async()=>{
+ const api=runner(),chrome=fakeBrowser();
+ chrome.scripting.executeScript=async({args:[role,key]})=>{
+  assert.equal(role,'datalens');return [{result:scanBatch([key])}];
+ };
+ const result=await api.run(chrome,workTargets,async message=>{
+  assert.equal(message.type,'mark_inventa_found');
+  return {ok:false,error:'inventa_writeback_source_changed'};
+ },async()=>{}, {exactGetSearch:true,seedInventory:inventorySeed(['TEST-1']),writebackJobId:'job'});
+ assert.equal(result.phase,'needs_attention');
+ assert.equal(result.results.at(-1).reason,'inventa_writeback_source_changed');
+ assert.equal(result.writeback,undefined);
+});

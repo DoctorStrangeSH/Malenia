@@ -184,3 +184,24 @@ test('session diagnostic includes the running manifest version without changing 
  assert.ok(saved.every(data=>data.maleniaAudit.bridge_version==='1.6.9'));
  assert.ok(worker.messages.every(message=>!Object.hasOwn(message,'bridge_version')));
 });
+
+
+test('marking jobs require host support and verified completion',async()=>{
+ for(const support of [false,true]){
+  const worker=workerHarness(),send=worker.context.testSession.send;let ran=false;
+  worker.context.testSession.send=async message=>{
+   const response=await send(message);
+   if(message.type==='hello' && support)response.capabilities.push('mark_inventa_found');
+   if(message.type==='claim_browser_audit')response.job.writeback_required=true;
+   return response;
+  };
+  worker.context.MaleniaAutomation.run=async(chrome,targets,native,report,options)=>{
+   ran=true;assert.equal(options.writebackJobId,'job-1');
+   return {phase:'reconciled'}; // deliberately missing a verified write acknowledgement
+  };
+  await worker.poll();
+  assert.equal(ran,support);
+  const finish=worker.messages.find(m=>m.type==='finish_browser_audit');
+  assert.equal(finish.succeeded,false);assert.equal(finish.failure_reason,'inventa_writeback_required');
+ }
+});

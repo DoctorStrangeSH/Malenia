@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 import uuid
@@ -110,6 +111,13 @@ class TaskStore:
                     UNIQUE(job_id, cargo_place)
                 );
 
+                CREATE TABLE IF NOT EXISTS inventa_writeback (
+                    job_id TEXT PRIMARY KEY,
+                    context_json TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'pending',
+                    written INTEGER NOT NULL DEFAULT 0
+                );
+
                 CREATE TABLE IF NOT EXISTS inventa_batch_cursor (
                     source_hash TEXT PRIMARY KEY,
                     fingerprint TEXT NOT NULL,
@@ -174,6 +182,7 @@ class TaskStore:
                 db.execute("UPDATE inventa_batch_cursor SET pending_job_id=NULL,pending_end=NULL")
                 db.execute("DELETE FROM browser_audit_seed")
                 db.execute("DELETE FROM browser_audit_seed_items")
+                db.execute("DELETE FROM inventa_writeback")
             return bool(changed)
 
     def create_task(self, title: str, description: str = "", request_id: str | None = None) -> dict[str, Any]:
@@ -343,6 +352,29 @@ class TaskStore:
                    "(SELECT job_id FROM browser_audit_job WHERE status='pending')")
         db.execute("DELETE FROM browser_audit_seed_items WHERE job_id NOT IN "
                    "(SELECT job_id FROM browser_audit_job WHERE status='pending')")
+        db.execute("DELETE FROM inventa_writeback WHERE job_id NOT IN "
+                   "(SELECT job_id FROM browser_audit_job WHERE status IN ('pending','running'))")
+
+
+    def claim_inventa_writeback(self, job_id: str) -> dict[str, Any]:
+        with self._session() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._expire_browser_audit(db)
+            row = db.execute("SELECT w.context_json,w.state,w.written FROM inventa_writeback w "
+                "JOIN browser_audit_job j ON j.job_id=w.job_id WHERE w.job_id=? AND j.status='running'",
+                (job_id,)).fetchone()
+            if row is None or row["state"] == 'writing':
+                raise ValueError("inventa_writeback_context_unavailable")
+            if row["state"] == 'applied':
+                return {"already_applied": True, "written": row["written"]}
+            db.execute("UPDATE inventa_writeback SET state='writing' WHERE job_id=?", (job_id,))
+            return {"context": json.loads(row["context_json"])}
+
+    def complete_inventa_writeback(self, job_id: str, written: int | None) -> bool:
+        with self._session() as db:
+            return db.execute("UPDATE inventa_writeback SET state=?,written=? WHERE job_id=? AND state='writing' "
+                "AND job_id IN (SELECT job_id FROM browser_audit_job WHERE status='running')",
+                ('applied' if written is not None else 'pending', written or 0, job_id)).rowcount == 1
 
     def latest_browser_audit_job(self) -> dict[str, Any] | None:
         with self._session() as db:
@@ -384,7 +416,8 @@ class TaskStore:
 
     def request_browser_audit(self, first_order: dict[str, str] | None = None,
                               batch: list[dict[str, str]] | None = None,
-                              batch_cursor: dict[str, Any] | None = None) -> dict[str, Any]:
+                              batch_cursor: dict[str, Any] | None = None,
+                              writeback_context: dict[str, Any] | None = None) -> dict[str, Any]:
         """Single bounded browser audit requested through the authenticated desktop API."""
         if first_order is not None and batch is not None:
             raise ValueError("invalid_audit_batch")
@@ -401,6 +434,9 @@ class TaskStore:
                     or batch_cursor["start"] + len(batch) > batch_cursor["total"]
                     or batch_cursor["total"] > 10000):
                 raise ValueError("invalid_audit_cursor")
+        if writeback_context is not None and (batch is None or not isinstance(writeback_context, dict)
+                or len(json.dumps(writeback_context)) > 16000):
+            raise ValueError("invalid_inventa_writeback_context")
         selected = batch if batch is not None else ([first_order] if first_order is not None else [])
         if batch is not None and not 1 <= len(batch) <= 20:
             raise ValueError("invalid_audit_batch")
@@ -439,6 +475,10 @@ class TaskStore:
             job_id = str(uuid.uuid4())
             db.execute("DELETE FROM browser_audit_seed WHERE id=1")
             db.execute("DELETE FROM browser_audit_seed_items")
+            db.execute("DELETE FROM inventa_writeback")
+            if writeback_context is not None:
+                db.execute("INSERT INTO inventa_writeback(job_id,context_json) VALUES (?,?)",
+                           (job_id, json.dumps(writeback_context, ensure_ascii=False)))
             db.execute(
                 """INSERT INTO browser_audit_job
                    (id,job_id,status,created_at,created_unix,updated_at)
@@ -505,6 +545,9 @@ class TaskStore:
             db.execute("DELETE FROM browser_audit_seed WHERE id=1")
             db.execute("DELETE FROM browser_audit_seed_items WHERE job_id=?", (row["job_id"],))
         result = {"job_id": row["job_id"], "status": "running"}
+        with self._session() as db:
+            if db.execute("SELECT 1 FROM inventa_writeback WHERE job_id=?", (row["job_id"],)).fetchone():
+                result["writeback_required"] = True
         if items:
             result["inventory"] = {"columns": ["cargo_place", "inventory_date"],
                                    "rows": [[item["cargo_place"], item["inventory_date"]]
@@ -530,12 +573,18 @@ class TaskStore:
                     "dynamic_search_no_result_update", "dynamic_search_unchanged_table", "search_field_missing",
                     "search_field_ambiguous", "search_filters_not_empty", "search_button_missing",
                     "search_button_ambiguous", "search_navigation_ambiguous", "search_results_unconfirmed",
-                    "site_or_browser_error",
+                    "site_or_browser_error", "inventa_writeback_required", "inventa_writeback_failed",
+                    "inventa_writeback_source_changed", "inventa_writeback_formula_protected",
+                    "inventa_writeback_reauthorization_required", "inventa_writeback_permission_denied",
+                    "inventa_writeback_verification_failed",
                 }):
             return False
         with self._session() as db:
             db.execute("BEGIN IMMEDIATE")
             self._expire_browser_audit(db)
+            pending_write = db.execute("SELECT state FROM inventa_writeback WHERE job_id=?", (job_id,)).fetchone()
+            if succeeded and pending_write and pending_write["state"] != 'applied':
+                succeeded, failure_reason = False, 'inventa_writeback_required'
             cursor = db.execute(
                 """UPDATE browser_audit_job SET status=?,updated_at=?,failure_reason=?
                    WHERE id=1 AND job_id=? AND status='running'""",
@@ -548,6 +597,8 @@ class TaskStore:
                            pending_end=NULL,pending_job_id=NULL
                        WHERE pending_job_id=?""",
                     (1 if succeeded else 0, job_id))
+            if cursor.rowcount:
+                db.execute("DELETE FROM inventa_writeback WHERE job_id=?", (job_id,))
             return cursor.rowcount == 1
 
     def update_browser_audit_progress(

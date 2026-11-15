@@ -95,7 +95,10 @@ var MaleniaAutomation = (() => {
     "dynamic_search_no_result_update", "dynamic_search_unchanged_table", "search_field_missing",
     "search_field_ambiguous", "search_filters_not_empty", "search_button_missing",
     "search_button_ambiguous", "search_navigation_ambiguous", "search_results_unconfirmed",
-    "site_or_browser_error",
+    "site_or_browser_error", "inventa_writeback_required", "inventa_writeback_failed",
+    "inventa_writeback_source_changed", "inventa_writeback_formula_protected",
+    "inventa_writeback_reauthorization_required", "inventa_writeback_permission_denied",
+    "inventa_writeback_verification_failed",
   ]);
   function reasonCode(error) {
     return error instanceof Error && SAFE_FAILURE_CODES.has(error.message) ?
@@ -863,6 +866,7 @@ var MaleniaAutomation = (() => {
     const targets = normalizeTargets(input);
     const results = [];
     const snapshots = {};
+    let writeback=null;
     if (options.seedInventory !== undefined) {
       const seed = options.seedInventory;
       if (!seed || JSON.stringify(seed.columns) !== JSON.stringify(["cargo_place", "inventory_date"]) ||
@@ -937,6 +941,15 @@ var MaleniaAutomation = (() => {
           }
         }
         if (table) snapshots[role] = table;
+        if(role==='datalens' && options.writebackJobId){
+          const marked=await sendNative({type:'mark_inventa_found',job_id:options.writebackJobId,
+            inventory:snapshots.inventory,datalens:snapshots.datalens});
+          if(!marked?.ok || marked.type!=='inventa_found_marked' || marked.verified!==true ||
+              !Number.isInteger(marked.written) || marked.written<0 || marked.written>snapshots.inventory.rows.length){
+            throw new Error(SAFE_FAILURE_CODES.has(marked?.error)?marked.error:'inventa_writeback_failed');
+          }
+          writeback={written:marked.written,verified:true};
+        }
         if (role === "datalens" && options.exactGetSearch &&
             asgardSearchKeys(snapshots.inventory, snapshots.datalens) === null) {
           throw new Error("unmapped_search_results");
@@ -974,6 +987,7 @@ var MaleniaAutomation = (() => {
     }
     const summary = {phase: !complete ? "needs_attention" :
       reconciliation ? "reconciled" : "read_only", results,
+      ...(writeback?{writeback}:{}),
       ...(!reconciliation && complete ? {reason:"reconciliation_unavailable"} : {}),
       ...(reconciliation ? {reconciliation} : {})};
     await onProgress(summary);

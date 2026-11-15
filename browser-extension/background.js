@@ -37,7 +37,7 @@ function nativeSession() {
             port.disconnect();
             reject(new Error("host_timeout"));
           }
-        }, 5000);
+        }, message.type==='mark_inventa_found'?120000:5000);
         pending = {id, timer, resolve, reject};
         try { port.postMessage({...message, request_id:id}); }
         catch {
@@ -176,11 +176,18 @@ async function pollDesktopAudit() {
           throw new Error("audit_progress_unavailable");
         }
       };
+      if(claimed.job.writeback_required && !hello.capabilities.includes('mark_inventa_found')){
+        failureReason='inventa_writeback_required';throw new Error(failureReason);
+      }
       const result = await MaleniaAutomation.run(chrome,targets,
         message=>session.send(message),report,
         {exactGetSearch:claimed.job.inventory ? true : stored.maleniaExactGetSearch !== false,
-         ...(claimed.job.inventory ? {seedInventory:claimed.job.inventory} : {})});
-      succeeded = result.phase === "reconciled";
+         ...(claimed.job.inventory ? {seedInventory:claimed.job.inventory} : {}),
+         ...(claimed.job.writeback_required?{writebackJobId:jobId}:{})});
+      succeeded = result.phase === "reconciled" &&
+        (!claimed.job.writeback_required || result.writeback?.verified===true);
+      if(claimed.job.writeback_required && result.phase==='reconciled' && !succeeded)
+        failureReason='inventa_writeback_required';
     } catch {
       await progress({phase:"needs_attention",results:[],error:"setup_or_connection"});
     } finally {

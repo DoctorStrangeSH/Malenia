@@ -145,3 +145,11 @@ test('scan-structure diagnostics show bounded counts and the specific reason',as
  assert.match(ui.nodes.orderAuditStatus.textContent,/Число ячеек строки/);
  assert.match(ui.nodes.orderAuditStatus.textContent,/строк 23, колонок 11, ячеек в строке 1–11/);
 });
+
+
+test('verified writeback count is shown without claiming the run was read-only',async()=>{
+ const ui=screen(true,{phase:'reconciled',results:[],writeback:{written:2,verified:true}});
+ await flush();
+ assert.match(ui.nodes.orderAuditStatus.textContent,/отмечено зелёным: 2/);
+ assert.doesNotMatch(ui.nodes.orderAuditStatus.textContent,/без изменений сайтов/);
+});

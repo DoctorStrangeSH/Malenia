@@ -616,7 +616,7 @@ async fn check_inventa_order_batch(state: State<'_, AgentState>, spreadsheet_url
         .clone().ok_or_else(|| "Сначала запустите агента".to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
         api_post_json(&token, "/v1/integrations/google-sheets/check-order-batch",
-            serde_json::json!({"spreadsheet_url": spreadsheet_url,"inventory_date":inventory_date}), Duration::from_secs(60))
+            serde_json::json!({"spreadsheet_url": spreadsheet_url,"inventory_date":inventory_date,"mark_found":true}), Duration::from_secs(60))
     }).await.map_err(|_| "Не удалось создать пакетную проверку заказов".to_string())?
 }
 

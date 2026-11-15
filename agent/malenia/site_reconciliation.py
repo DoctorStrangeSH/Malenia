@@ -72,8 +72,8 @@ def _date(raw: str, *, timestamp: bool = False) -> str:
         raise SiteSnapshotError("invalid_date") from exc
 
 
-def reconcile_tables(snapshots: Any) -> dict[str, Any]:
-    """Return aggregate status suggestions without returning identifiable rows.
+def reconcile_tables(snapshots: Any, *, include_results: bool = False) -> dict[str, Any]:
+    """Return aggregate suggestions; private writeback callers can request outcomes.
 
     An incomplete or unknown site schema yields manual-review for known inventory
     rows, and never a positive status. One matching DataLens row may be used only
@@ -156,5 +156,6 @@ def reconcile_tables(snapshots: Any) -> dict[str, Any]:
         decision = outcome["proposal"]["decision"]
         summary["found" if decision == "found" else
                 "in_progress" if decision == "asgard" else "manual_review"] += 1
-    return {"total": len(rows), "summary": summary,
+    return {**({"results": result["results"]} if include_results else {}),
+            "total": len(rows), "summary": summary,
             "read_only": True, "write_enabled": False, "source": "browser_tables"}

@@ -314,8 +314,9 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                 payload = self._read_json(4096)
                 if payload is None:
                     return
-                if (set(payload) - {"spreadsheet_url", "inventory_date"} or
-                        not isinstance(payload.get("spreadsheet_url"), str)):
+                if (set(payload) - {"spreadsheet_url", "inventory_date", "mark_found"} or
+                        not isinstance(payload.get("spreadsheet_url"), str)
+                        or ("mark_found" in payload and type(payload["mark_found"]) is not bool)):
                     self._send(422, {"error": "invalid_google_sheets_active_url"})
                     return
                 try:
@@ -330,6 +331,9 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                             (source["spreadsheet_id"] + "\n" + source["sheet_title"]).encode("utf-8")
                         ).hexdigest()
                         fingerprint = analysis["audit_fingerprint"]
+                        if payload.get("mark_found") is True:
+                            # Read-only cursors cannot skip rows never marked.
+                            fingerprint = hashlib.sha256((fingerprint + "\nmark_found:v1").encode()).hexdigest()
                         offset = store.inventa_batch_position(source_hash, fingerprint)
                         if not analysis["eligible_audit_candidates"]:
                             self._send(422, {"error": analysis["first_order_blocker"] or "no_safe_audit_candidates"})
@@ -348,18 +352,22 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                             self._send(422, {"error": analysis["first_order_blocker"] or
                                              "no_safe_audit_candidates"})
                             return
+                        from .inventa_writeback import build_context
+                        marking = payload.get("mark_found") is True
+                        writeback = build_context(source, analysis) if marking else None
                         job = store.request_browser_audit(batch=[
                             {"cargo_place": item["cargo_place"],
                              "inventory_date": item["inventory_date"]} for item in selected],
                             batch_cursor={"source_hash": source_hash,
                                           "fingerprint": fingerprint,
                                           "start": offset,
-                                          "total": analysis["eligible_audit_candidates"]})
+                                          "total": analysis["eligible_audit_candidates"]},
+                            writeback_context=writeback)
                         self._send(202, {"job": job, "queued_orders": len(selected),
                                          "eligible_orders": analysis["eligible_audit_candidates"],
                                          "batch_start": offset,
                                          "remaining_orders": analysis["eligible_audit_candidates"] - offset - len(selected),
-                                         "read_only": True, "write_enabled": False})
+                                         "read_only": not marking, "write_enabled": marking})
                     else:
                         order = analysis["first_order"]
                         if order is None:

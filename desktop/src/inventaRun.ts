@@ -6,6 +6,16 @@ type Job = {job_id:string;status:string;failure_reason?:string;current_role?:str
 type Batch = {job:Job;queued_orders:number;eligible_orders:number;batch_start:number;remaining_orders:number};
 type Invoke = <T>(command:string,args?:Record<string,unknown>)=>Promise<T>;
 export function auditFailureMessage(job:Job):string {
+  const writes:Record<string,string>={
+    inventa_writeback_required:"Обнови Малению и расширение для записи отметок в ИНВенту.",
+    inventa_writeback_failed:"Не удалось записать отметки в ИНВенту. Позиция сохранена.",
+    inventa_writeback_source_changed:"Выбранный лист или строки изменились. Запись остановлена; начни разбор заново.",
+    inventa_writeback_formula_protected:"В колонке статуса есть формула. Маления не перезаписывает её.",
+    inventa_writeback_reauthorization_required:"Заново подключи Google Sheets в настройках Малении.",
+    inventa_writeback_permission_denied:"Google не разрешил редактирование выбранного листа.",
+    inventa_writeback_verification_failed:"Не удалось подтвердить запись статуса и заливки. Проверь отметки в ИНВенте; позиция сохранена.",
+  };
+  if(writes[job.failure_reason||""])return writes[job.failure_reason!];
   const role=({inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"} as Record<string,string>)[job.failed_role||""]||"Источник";
   const reasons:Record<string,string>={
     search_field_missing:"Не найдено поле поиска. Открой рабочую страницу сервиса и проверь, что вход выполнен.",
@@ -97,7 +107,7 @@ export class InventaRun {
       if(current.status==="completed"){
         const completed=this.job;this.job=null;
         this.update({processed:completed.end});
-        if(!completed.remaining){this.active=false;this.update({phase:"completed",message:"Разбор листа завершён. Запись результатов в таблицу ещё не подключена."});return;}
+        if(!completed.remaining){this.active=false;this.update({phase:"completed",message:"Разбор листа завершён. Подтверждённые заказы отмечены «Найден» и зелёной заливкой."});return;}
         if(this.active)await this.next();
         else this.update({phase:"paused",message:"Пауза. Проверенная позиция сохранена; продолжение не пропустит строки."});
       }else if(["failed","expired"].includes(current.status)){

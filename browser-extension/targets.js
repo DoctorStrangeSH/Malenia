@@ -12,6 +12,13 @@
   const selectors = Object.fromEntries(Object.keys(fields).map(role =>
     [role, document.getElementById("select" + role)]));
   const reasons = {
+    inventa_writeback_required:"Для записи результатов обнови Малению и Browser Bridge",
+    inventa_writeback_failed:"Не удалось записать отметки в ИНВенту; позиция не сдвинута",
+    inventa_writeback_source_changed:"Лист или строки ИНВенты изменились; запись остановлена",
+    inventa_writeback_formula_protected:"В колонке статуса обнаружена формула; запись остановлена",
+    inventa_writeback_reauthorization_required:"Нужно заново подключить Google Sheets в Малении",
+    inventa_writeback_permission_denied:"Google не разрешил редактирование выбранного листа",
+    inventa_writeback_verification_failed:"Google не подтвердил статус и зелёную заливку; проверь отметки",
     search_field_missing:"Не найдено поле поиска: проверь вход и рабочую страницу",
     search_field_ambiguous:"Найдено несколько подходящих полей поиска",
     search_filters_not_empty:"В Asgard заполнены другие фильтры: очисти их и продолжи разбор",
@@ -80,12 +87,14 @@
             ` [Вкладка разбора: видимых полей ${item.surface.visible_inputs}, доступных ${item.surface.editable_inputs}, в блоке №13 ${item.surface.bound_inputs}, совпадений ${item.surface.matched_inputs}]`:"") :
         source+": чтение завершено";
     }).filter(Boolean);
-    const end = audit.phase === "reconciled" ? "Сверка выполнена без изменений сайтов." :
+    const end = audit.phase === "reconciled" ? (audit.writeback?.verified===true?"Сверка и запись в ИНВенту завершены.":"Сверка выполнена без изменений сайтов.") :
       audit.phase === "read_only" ? (reasons[audit.reason] || "Только чтение: сверка не подтверждена") :
       audit.phase === "needs_attention" ? "Автоматическая проверка не завершена." : "Проверка выполняется…";
     const version=typeof audit.bridge_version==='string' && /^\d+\.\d+\.\d+$/.test(audit.bridge_version)?
       "Browser Bridge "+audit.bridge_version:null;
-    orderStatus.textContent = [version,...items,end].filter(Boolean).join(" · ");
+    const written=audit.writeback?.verified===true && Number.isInteger(audit.writeback.written) &&
+      audit.writeback.written>=0 && audit.writeback.written<=20?`В ИНВенте отмечено зелёным: ${audit.writeback.written}`:null;
+    orderStatus.textContent = [version,...items,written,end].filter(Boolean).join(" · ");
     orderStatus.className = "status"+(audit.phase === "reconciled" ? " ok" : "");
   }
   chrome.storage.session?.get("maleniaAudit").then(data => renderAudit(data?.maleniaAudit)).catch(()=>{});

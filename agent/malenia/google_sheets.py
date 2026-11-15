@@ -534,6 +534,69 @@ fetch("/", {method:"POST", headers:{"Content-Type":"application/x-www-form-urlen
                     for item in sheets if isinstance(item, dict) and isinstance(item.get("properties"), dict)
                     and type(item["properties"].get("sheetId")) is int and isinstance(item["properties"].get("title"), str)]}
 
+    def mark_inventa_found(self, spreadsheet_id: str, sheet_id: int, sheet_title: str,
+                           source_rows: list[int], status_column: int, end_column: int) -> int:
+        """Set Found and green fill together; verify returned grid for exact rows."""
+        if (not isinstance(spreadsheet_id, str) or not _SPREADSHEET_ID_RE.fullmatch(spreadsheet_id)
+                or type(sheet_id) is not int or not 0 <= sheet_id <= 2147483647
+                or not isinstance(sheet_title, str) or not 1 <= len(sheet_title) <= 200
+                or not isinstance(source_rows, list) or not 1 <= len(source_rows) <= 20
+                or len(set(source_rows)) != len(source_rows)
+                or any(type(row) is not int or not 2 <= row <= 5000 for row in source_rows)
+                or type(status_column) is not int or type(end_column) is not int
+                or not 1 <= status_column <= end_column <= 26):
+            raise GoogleSheetsError("invalid_inventa_writeback")
+        green = {"red": 106 / 255, "green": 168 / 255, "blue": 79 / 255}
+        requests, ranges = [], []
+        title = sheet_title.replace("'", "''")
+        for row in source_rows:
+            base = {"sheetId": sheet_id, "startRowIndex": row - 1, "endRowIndex": row}
+            requests.extend([
+                {"updateCells": {"range": {**base, "startColumnIndex": status_column - 1,
+                                           "endColumnIndex": status_column},
+                    "rows": [{"values": [{"userEnteredValue": {"stringValue": "Найден"}}]}],
+                    "fields": "userEnteredValue"}},
+                {"repeatCell": {"range": {**base, "startColumnIndex": 0, "endColumnIndex": end_column},
+                    "cell": {"userEnteredFormat": {"backgroundColorStyle": {"rgbColor": green}}},
+                    "fields": "userEnteredFormat.backgroundColorStyle"}},
+            ])
+            ranges.append(f"'{title}'!A{row}:{chr(64 + end_column)}{row}")
+        body = json.dumps({"requests": requests, "includeSpreadsheetInResponse": True,
+            "responseRanges": ranges, "responseIncludeGridData": True}, ensure_ascii=False).encode("utf-8")
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}:batchUpdate"
+        def send(token):
+            return self._request_json(Request(url, data=body, headers={
+                "Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                "Accept": "application/json"}, method="POST"), _MAX_SHEETS_RESPONSE_BYTES)
+        try:
+            payload = send(self._get_access_token())
+        except GoogleSheetsError as error:
+            if error.status != 401:
+                raise
+            payload = send(self._refresh_access_token())
+        book = payload.get("updatedSpreadsheet", {})
+        sheets = [item for item in book.get("sheets", []) if item.get("properties", {}).get("sheetId") == sheet_id
+                  and item.get("properties", {}).get("title") == sheet_title]
+        verified = set()
+        if book.get("spreadsheetId") == spreadsheet_id and len(sheets) == 1:
+            for block in sheets[0].get("data", []):
+                start_col = block.get("startColumn", 0)
+                for offset, row_data in enumerate(block.get("rowData", [])):
+                    row = block.get("startRow", 0) + offset + 1
+                    if row not in source_rows or start_col != 0:
+                        continue
+                    cells = row_data.get("values", [])
+                    if len(cells) < end_column or cells[status_column - 1].get("userEnteredValue") != {"stringValue": "Найден"}:
+                        continue
+                    colors = [cell.get("userEnteredFormat", {}).get("backgroundColorStyle", {}).get("rgbColor", {})
+                              for cell in cells[:end_column]]
+                    if all(all(isinstance(color.get(k), (int, float)) and abs(color[k] - v) < 0.00001
+                               for k, v in green.items()) for color in colors):
+                        verified.add(row)
+        if verified != set(source_rows):
+            raise GoogleSheetsError("inventa_writeback_verification_failed")
+        return len(verified)
+
     def write_values(self, spreadsheet_id: str, range_a1: str, values: list[list[Any]]) -> dict[str, Any]:
         """Write literal values to an exact range; callers must enforce approval."""
         if not isinstance(spreadsheet_id, str) or _SPREADSHEET_ID_RE.fullmatch(spreadsheet_id) is None:
