@@ -305,6 +305,8 @@ var MaleniaAutomation = (() => {
           if(location.origin!==origin)return {error:'search_origin_mismatch'};
           const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
           const text=el=>clean(el?.innerText??el?.textContent);
+          const canonicalStatuses=['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'];
+          const normalizeStatus=value=>canonicalStatuses.find(status=>status.toLowerCase()===clean(value).toLowerCase())||clean(value);
           const visible=el=>el.getClientRects().length>0;
           const failure=(error,step)=>({error,...(step?{step}:{})});
           const required=['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'];
@@ -401,7 +403,7 @@ var MaleniaAutomation = (() => {
               const cells=[...tr.querySelectorAll('td')];if(cells.length!==heads.length)return {pending:true,step:'asgard_table_incomplete'};
               const cell=name=>cells[heads.indexOf(name)];
               const links=[...cell('ID коробки').querySelectorAll('a[href]')];
-              const box=text(cell('ID коробки')),status=text(cell('Статус грузоместа')),destination=text(cell('Точка назначения'));
+              const box=text(cell('ID коробки')),status=normalizeStatus(text(cell('Статус грузоместа'))),destination=text(cell('Точка назначения'));
               if(links.length!==1||!/^\d{1,20}$/.test(box)||destination.length>256)return failure('unmapped_search_results');
               const url=new URL(links[0].href,location.href);
               if(url.origin!==origin||url.username||url.password||url.pathname===location.pathname)return failure('search_origin_mismatch');
@@ -432,8 +434,8 @@ var MaleniaAutomation = (() => {
             const data=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
             if(!data.length||data.length>100)return {pending:true,step:'asgard_card_history'};
             const history=[];
-            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return {pending:true,step:'asgard_card_history'};const status=text(cells[heads.indexOf('Статус')]);if(!status||status.length>100)return {pending:true,step:'asgard_card_history'};history.push(status);}
-            const statuses=[...new Set([...document.querySelectorAll('span,button,div,p,strong,b,a,[role="status"]')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'].includes(text(el))).map(text))];
+            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return {pending:true,step:'asgard_card_history'};const status=normalizeStatus(text(cells[heads.indexOf('Статус')]));if(!status||status.length>100)return {pending:true,step:'asgard_card_history'};history.push(status);}
+            const statuses=[...new Set([...document.querySelectorAll('span,button,div,p,strong,b,a,[role="status"]')].filter(el=>visible(el)&&!el.closest('table')&&canonicalStatuses.includes(normalizeStatus(text(el)))).map(el=>normalizeStatus(text(el))))];
             if(statuses.length!==1)return {pending:true,step:'asgard_card_status'};
             return {box,history,status:statuses[0],kupishuz:/купишуз/i.test(pageText)};
           }

@@ -1477,3 +1477,19 @@ test('confirmed empty Asgard searches reach writeback and continue to later orde
  assert.deepEqual([...submitted],['MISSING-A','MISSING-B']);
  assert.deepEqual(messages,['mark_inventa_found','mark_inventa_asgard','reconcile_site_tables']);
 });
+
+
+test('Asgard canonicalizes FF casing while keeping current status separate from history',()=>{
+  const adapter=source.slice(source.indexOf('async function asgardWorkplaceSearch'));
+  const helpers=adapter.slice(adapter.indexOf('          const clean='),adapter.indexOf('          const visible='));
+  const statusLine=adapter.split('\n').find(line=>line.includes('const statuses=[...new Set'));
+  assert.ok(statusLine);
+  const extract=nodes=>vm.runInNewContext(helpers+statusLine+';statuses',{
+    document:{querySelectorAll:()=>nodes.map(([label,inTable])=>({textContent:label,closest:()=>inTable?{}:null}))},visible:()=>true
+  });
+  assert.deepEqual(Array.from(extract([['Принят на фф',false]])),['Принят на ФФ']);
+  assert.deepEqual(Array.from(extract([['ПРИНЯТ НА ФФ',false],['Принят на фф',false]])),['Принят на ФФ']);
+  assert.deepEqual(Array.from(extract([['Принят на фф',true]])),[]);
+  assert.equal(extract([['Принят на фф',false],['Выдан',false]]).length,2);
+  assert.deepEqual(Array.from(extract([['Принят на неизвестный склад',false]])),[]);
+});
