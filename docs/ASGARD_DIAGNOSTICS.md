@@ -1,3 +1,11 @@
+## 2026-11-15 — Bridge 1.6.24 — Asgard empty notice without guessed CSS
+
+User confirms 1.6.23 still times out with asgard_table_missing while «Коробки не найдены» is visible. Screenshot does not establish actual DOM classes. Source review finds 1.6.23 unnecessarily requires an Ant/ARIA alert ancestor; a classless notice regression reproduces exactly that failure. The literal «Коробки не найдены» now works independently of CSS/ARIA alert markup, including nested strong/headings. Other generic empty phrases outside a recognized alert remain untrusted. Exclude table/navigation/header/footer/dialog/tooltip/aria-hidden content; count only visible leaf messages. Require a unique notice, matching current barcode and a post-submit result mutation or loading completion. Stale messages, wrong fields, hidden notices, duplicate messages, permanent loading and service errors remain rejected.
+
+Retains existing not_found evidence → native status «В работе», comment «Взять в работу», then next cargo. App/native stays 0.6.12; Bridge becomes 1.6.24. DataLens zero recovery, Found skip and targeted cancellation unchanged.
+
+Local validation: 174 Node tests, 42 real DOM Asgard scenarios (ten new classless/nested/cached/stale/input/error/hidden/ambiguous/loading/generic-notice checks), 10 real React DataLens scenarios. Corporate DOM/account execution remains unverified. Publication pending.
+
 ## 2026-11-15 — Bridge 1.6.23 — Asgard standalone empty-result notice
 
 Owner screenshot shows «Коробки не найдены» in a standalone informational alert on reverse-flow search, with no results table. Bridge 1.6.22 times out at asgard_table_missing on the reproduced DOM. Recognize exact empty text inside a visible informational/status alert, including table-less results. Observe additions/removals/text updates of recognized result notices alongside recognized tables. Require the live exact barcode field and post-submit result change or loading completion; stale notices after unrelated changes, wrong input, loaders and service errors remain unconfirmed. Ambiguous/mixed table-and-notice results reject.

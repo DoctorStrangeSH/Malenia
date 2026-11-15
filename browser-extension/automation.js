@@ -310,15 +310,19 @@ var MaleniaAutomation = (() => {
           const required=['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'];
           const resultTable=table=>table?.matches?.('table')&&required.every(name=>Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(text).includes(name));
           const emptyMessage=s=>/^(Нет данных|Ничего не найдено|Нет результатов|Данные не найдены|Коробки не найдены)$/i.test(clean(s));
-          // Asgard replaces the entire table with an informational alert for an
-          // empty reverse-flow search. Recognize the exact message, not errors.
+          // The corporate page uses custom message wrappers, not necessarily
+          // Ant classes/ARIA roles. Its exact reverse-flow empty message is
+          // sufficient markup evidence; freshness and live query still apply.
+          const noticeNodes='div,span,p,strong,b,h1,h2,h3,h4,h5,h6,section,output';
           const emptyNotice=el=>el?.nodeType===1 && visible(el) &&
-            !el.closest('table') && !!el.closest('.ant-alert,[role="alert"],[role="status"]') &&
-            emptyMessage(text(el)) && ![...el.children].some(child=>emptyMessage(text(child)));
-          const containsEmptyNotice=el=>!!el && (emptyNotice(el)||[...el.querySelectorAll('div,span,p')].some(emptyNotice));
+            !el.closest('table,nav,header,footer,[role="dialog"],[role="tooltip"],[aria-hidden="true"]') &&
+            (/^Коробки не найдены$/i.test(text(el)) ||
+              !!el.closest('.ant-alert,[role="alert"],[role="status"]') && emptyMessage(text(el))) &&
+            ![...el.children].some(child=>emptyMessage(text(child)));
+          const containsEmptyNotice=el=>!!el && (emptyNotice(el)||[...el.querySelectorAll(noticeNodes)].some(emptyNotice));
           const withinResults=node=>{
             const el=node?.nodeType===1?node:node?.parentElement;
-            return !!el&&(resultTable(el)||resultTable(el.closest?.('table'))||emptyNotice(el)||emptyNotice(el.closest?.('.ant-alert-message')));
+            return !!el&&(resultTable(el)||resultTable(el.closest?.('table'))||emptyNotice(el));
           };
           const touchesResults=node=>{
             const el=node?.nodeType===1?node:node?.parentElement;
@@ -382,7 +386,7 @@ var MaleniaAutomation = (() => {
             const accepted=live.matches.length===1&&live.matches[0].value===code;
             const fresh=state?.code===code&&accepted&&(state.changed||state.loadingSeen);
             const freshness={fresh,step:accepted?'asgard_result_not_refreshed':'asgard_input_unconfirmed'};
-            const notices=[...document.querySelectorAll('div,span,p')].filter(emptyNotice);
+            const notices=[...document.querySelectorAll(noticeNodes)].filter(emptyNotice);
             if(!tables.length && notices.length===1)return {empty:true,...freshness};
             if(tables.length!==1 || notices.length>1)return {pending:true,step:tables.length||notices.length>1?'asgard_table_ambiguous':'asgard_table_missing'};
             const {table,heads}=tables[0];
