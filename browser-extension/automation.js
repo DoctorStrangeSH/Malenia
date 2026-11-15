@@ -2,6 +2,8 @@
 var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
+  const reviewTabs = new Map();
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","result_wait_timeout"]);
   function normalizeTargets(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid_targets");
     if (Object.keys(input).sort().join(",") !== [...ROLES].sort().join(",")) throw new Error("invalid_roles");
@@ -446,12 +448,18 @@ var MaleniaAutomation = (() => {
         };
         const before=JSON.stringify(read());
         const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
-        if(!setter) return null;
+        if(!setter) return {error:'unmapped_search_results',step:'input_setter_unavailable'};
         return await new Promise(resolve=>{
-          let timer, deadline, trigger, observer, last='', stableAt=0, done=false;
+          let timer, deadline, trigger, observer, last='', stableAt=0, mismatchAt=null, done=false;
           const finish=value=>{if(done)return;done=true;clearInterval(timer);clearTimeout(deadline);clearTimeout(trigger);observer.disconnect();resolve(value);};
           const check=()=>{
-            if(location.origin!==expectedOrigin || input.value!==code) return finish(null);
+            if(location.origin!==expectedOrigin) return finish({error:'search_origin_mismatch',step:'page_changed'});
+            if(input.value!==code){
+              if(mismatchAt===null)mismatchAt=Date.now();
+              if(Date.now()-mismatchAt>=1000)finish({error:'unmapped_search_results',step:'input_value_reset'});
+              return;
+            }
+            mismatchAt=null;
             const table=read(), serialized=JSON.stringify(table);
             if(!table || serialized===before){stableAt=0;return;}
             if(serialized!==last){last=serialized;stableAt=Date.now();return;}
@@ -459,7 +467,7 @@ var MaleniaAutomation = (() => {
           };
           observer=new MutationObserver(check);
           observer.observe(document.body,{subtree:true,childList:true,characterData:true});
-          deadline=setTimeout(()=>finish({error:'search_results_unconfirmed'}),15000);
+          deadline=setTimeout(()=>finish({error:'search_results_unconfirmed',step:'result_wait_timeout'}),15000);
           input.focus?.();
           setter.call(input,code);
           input.dispatchEvent(new Event('input',{bubbles:true}));
@@ -483,6 +491,7 @@ var MaleniaAutomation = (() => {
     const table=response?.[0]?.result;
     if(table?.error) {
       const error=new Error(table.error);
+      if(SEARCH_STEPS.has(table.step))error.step=table.step;
       const surface=table.surface, fields=['visible_inputs','editable_inputs','bound_inputs','matched_inputs'];
       if(surface && Object.keys(surface).length===fields.length &&
           fields.every(key=>Number.isInteger(surface[key]) && surface[key]>=0 && surface[key]<=10000)) {
@@ -495,7 +504,7 @@ var MaleniaAutomation = (() => {
   }
 
   async function visit(chromeApi, role, url, sendNative, searchKey = null) {
-    let tabId;
+    let tabId, keepForReview=false;
     try {
       const tab = await chromeApi.tabs.create({url, active: false});
       if (!Number.isInteger(tab.id)) throw new Error("invalid_tab");
@@ -508,8 +517,30 @@ var MaleniaAutomation = (() => {
         }
         if ((role === "datalens" && new URL(url).origin === "https://datalens.yandex-team.ru") ||
             (role === "asgard" && new URL(url).origin === "https://asgard.market.yandex-team.ru")) {
-          const table = await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin);
-          return {table,characters:0,pages:1};
+          try {
+            const table = await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin);
+            return {table,characters:0,pages:1};
+          } catch(error) {
+            // Keep only a failed page on the explicitly authorized service origin.
+            // Never close the user's existing tabs; these IDs were created here.
+            try {
+              const failed=await chromeApi.tabs.get(tabId);
+              if(new URL(failed.url || '').origin===new URL(url).origin) {
+                keepForReview=true;
+                const prior=reviewTabs.get(role);
+                if(prior && prior.id!==tabId) {
+                  try {
+                    const old=await chromeApi.tabs.get(prior.id);
+                    if(old.url===prior.url)await chromeApi.tabs.remove(prior.id);
+                  } catch { /* Previous review page was closed or navigated away. */ }
+                }
+                reviewTabs.set(role,{id:tabId,url:failed.url});
+                try { await chromeApi.tabs.update(tabId,{active:true}); } catch { /* Keep visible on the tab strip if activation failed. */ }
+                if(error && typeof error==='object')error.reviewAvailable=true;
+              }
+            } catch { /* Closed or redirected tabs still follow regular cleanup. */ }
+            throw error;
+          }
         }
         try {
           await exactGetSearch(chromeApi, tabId, role, searchKey, new URL(url).origin);
@@ -665,7 +696,7 @@ var MaleniaAutomation = (() => {
       }
       throw new Error("pagination_limit");
     } finally {
-      if (tabId !== undefined) {
+      if (tabId !== undefined && !keepForReview) {
         try { await chromeApi.tabs.remove(tabId); } catch { /* Tab already closed. */ }
       }
     }
@@ -762,6 +793,8 @@ var MaleniaAutomation = (() => {
         const safe=surface && Object.keys(surface).length===fields.length &&
           fields.every(key=>Number.isInteger(surface[key]) && surface[key]>=0 && surface[key]<=10000);
         results.push({role, status: "needs_attention", reason: reasonCode(error),
+          ...(SEARCH_STEPS.has(error?.step)?{step:error.step}:{}),
+          ...(error?.reviewAvailable===true?{review_available:true}:{}),
           ...(safe?{surface:Object.fromEntries(fields.map(key=>[key,surface[key]]))}:{})});
       }
       await onProgress({phase: "reading", role, results: [...results]});

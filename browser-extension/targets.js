@@ -39,6 +39,12 @@
     reconciliation_unavailable:"Не удалось сверить данные источников: нужно подтвердить колонки",
     site_or_browser_error:"Ошибка при чтении сайта или браузера",
   };
+  const steps={
+    page_changed:"Страница перешла на другой адрес",
+    input_setter_unavailable:"Не удалось установить значение поля",
+    input_value_reset:"Страница сбросила введённый номер до подтверждения поиска",
+    result_wait_timeout:"Ожидание обновлённой таблицы завершилось без подтверждённого результата",
+  };
   function renderAudit(audit) {
     if (!orderStatus || !audit || !Array.isArray(audit.results)) return;
     const labels = {inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"};
@@ -47,6 +53,8 @@
       if (!source) return null;
       return item.status === "needs_attention" ?
         source+": "+(reasons[item.reason] || "Требуется проверка совместимости")+
+          (steps[item.step]?" · "+steps[item.step]:"")+
+          (item.review_available===true?" · Страница ошибки оставлена открытой в браузере":"")+
           (item.surface && ['visible_inputs','editable_inputs','bound_inputs','matched_inputs'].every(key=>
             Number.isInteger(item.surface[key]) && item.surface[key]>=0 && item.surface[key]<=10000)?
             ` [Вкладка разбора: видимых полей ${item.surface.visible_inputs}, доступных ${item.surface.editable_inputs}, в блоке №13 ${item.surface.bound_inputs}, совпадений ${item.surface.matched_inputs}]`:"") :

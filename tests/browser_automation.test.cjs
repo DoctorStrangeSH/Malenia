@@ -13,12 +13,13 @@ function runner() {
 function fakeBrowser(finalUrl = null) {
   let current = null;
   const events = {listener:null,addListener(fn){this.listener=fn;},removeListener(){this.listener=null;}};
-  const stats = {created:0,removed:0,executed:0};
+  const stats = {created:0,removed:0,executed:0,activated:0};
   return {stats, tabs:{
     onUpdated:events,
     async create({url,active}) {assert.equal(active,false); stats.created++; current={id:7,url:finalUrl || url,status:'complete'};return current;},
     async get(id){assert.equal(id,7);return current;},
-    async remove(id){assert.equal(id,7);stats.removed++;}
+    async remove(id){assert.equal(id,7);stats.removed++;},
+    async update(id,patch){assert.equal(id,7);if(patch.active)stats.activated++;return {...current,...patch};}
   }, scripting:{
     async executeScript({target}) {
       assert.equal(target.tabId,7);stats.executed++;
@@ -616,7 +617,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, committedEvents=0, stateValue, deadline, now=0;
@@ -630,6 +631,7 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
       if(keypressOnly){
         if(event.type==='keypress' && event.charCode===13 && stateValue===this.value){committedEvents++;updated=!unchanged;}
       }else if(event.type==='keyup')updated=!unchanged;
+      if(resetValue && event.type==='keyup')this._value='';
     }
   }
   const input=new Input();
@@ -965,4 +967,47 @@ test('failed automatic-page diagnostics carry only bounded input counts, not pag
  const rejected=await api.run(chrome,workTargets,async()=>{},async()=>{},
    {exactGetSearch:true,seedInventory:inventorySeed(['TEST-PRIVATE'])});
  assert.equal(rejected.results.at(-1).surface,undefined);assert.ok(!JSON.stringify(rejected).includes('SECRET'));
+});
+
+
+test('a failed workplace search leaves its owned page open for review and reports a bounded failure step',async()=>{
+ const api=runner(),chrome=fakeBrowser(),reports=[];
+ chrome.scripting.executeScript=async()=>[{result:{error:'unmapped_search_results',step:'input_value_reset'}}];
+ const result=await api.run(chrome,workTargets,async()=>{},async s=>reports.push(s),
+   {exactGetSearch:true,seedInventory:inventorySeed(['TEST-PRIVATE'])});
+ assert.equal(result.phase,'needs_attention');assert.equal(chrome.stats.created,1);
+ assert.equal(chrome.stats.removed,0);assert.equal(chrome.stats.activated,1);
+ assert.equal(result.results.at(-1).step,'input_value_reset');assert.equal(result.results.at(-1).review_available,true);
+ assert.ok(!JSON.stringify(reports).includes('TEST-PRIVATE'));
+});
+
+test('a page that resets the entered cargo is distinguished from a table parse failure',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{resetValue:true});
+ await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
+   error=>error.message==='unmapped_search_results' && error.step==='input_value_reset');
+});
+
+test('repeated failures replace only an unchanged extension-owned review page',async()=>{
+ const api=runner(),chrome=fakeBrowser(),tabs=new Map([[99,{id:99,url:workTargets.datalens,status:'complete'}]]),removed=[];
+ let nextId=10;
+ chrome.tabs.create=async({url})=>{const tab={id:nextId++,url,status:'complete'};tabs.set(tab.id,tab);return tab;};
+ chrome.tabs.get=async id=>{if(!tabs.has(id))throw Error('closed');return tabs.get(id);};
+ chrome.tabs.remove=async id=>{removed.push(id);tabs.delete(id);};
+ chrome.tabs.update=async(id,patch)=>{Object.assign(tabs.get(id),patch);return tabs.get(id);};
+ chrome.scripting.executeScript=async()=>[{result:{error:'unmapped_search_results',step:'input_value_reset'}}];
+ const run=()=>api.run(chrome,workTargets,async()=>{},async()=>{},
+   {exactGetSearch:true,seedInventory:inventorySeed(['TEST'])});
+ await run();await run();assert.deepEqual(removed,[10]);assert.ok(tabs.has(99));
+ tabs.get(11).url='https://datalens.yandex-team.ru/user-selected-other-dashboard';
+ await run();assert.deepEqual(removed,[10]);assert.ok(tabs.has(11));assert.ok(tabs.has(12));
+});
+
+test('failed search redirected away from the authorized origin is cleaned up rather than retained',async()=>{
+ const api=runner(),chrome=fakeBrowser(),get=chrome.tabs.get;let redirected=false;
+ chrome.tabs.get=async id=>{const tab=await get(id);return redirected?{...tab,url:'https://login.example/'}:tab;};
+ chrome.scripting.executeScript=async()=>{redirected=true;return [{result:{error:'search_origin_mismatch',step:'page_changed'}}];};
+ const result=await api.run(chrome,workTargets,async()=>{},async()=>{},
+   {exactGetSearch:true,seedInventory:inventorySeed(['TEST'])});
+ assert.equal(result.phase,'needs_attention');assert.equal(chrome.stats.removed,1);
+ assert.equal(result.results.at(-1).review_available,undefined);
 });

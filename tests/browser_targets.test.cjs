@@ -103,3 +103,11 @@ test('automatic search failure displays the failed tab counts separately from ac
    reason:'search_field_missing',surface:{visible_inputs:10,editable_inputs:10,bound_inputs:0,matched_inputs:0}}]});
  await flush();assert.match(ui.nodes.orderAuditStatus.textContent,/Вкладка разбора: видимых полей 10, доступных 10/);
 });
+
+
+test('failed-search popup explains a reset cargo value and retained review tab',async()=>{
+ const ui=screen(true,{phase:'needs_attention',results:[{role:'datalens',status:'needs_attention',
+   reason:'unmapped_search_results',step:'input_value_reset',review_available:true}]});
+ await flush();assert.match(ui.nodes.orderAuditStatus.textContent,/сбросила введённый номер/);
+ assert.match(ui.nodes.orderAuditStatus.textContent,/Страница ошибки оставлена открытой/);
+});

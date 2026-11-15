@@ -1,3 +1,12 @@
+## 2026-11-15 — Bridge 1.6.8 — retain failed workplace page
+
+- User now reports DataLens unmapped_search_results and says the extension opens then closes the page. This is a different failure from missing-field discovery; it does not by itself prove a search was submitted.
+- Found unconditional finally cleanup of all created tabs. Failed workplace searches now retain and activate their created tab only on the authorized service origin. Successful page cleanup remains. Later failures may replace only the prior unchanged extension-owned review page; user tabs and navigated-away review pages are preserved. Cross-origin redirects are not retained.
+- Added allowlisted transient failure steps: input_value_reset, input_setter_unavailable, page_changed, result_wait_timeout. Popup explains these and the retained-page state; no raw URLs, field values or page text are stored. Native protocol/version is unchanged.
+- A transient controlled-input mismatch is allowed a bounded one-second grace before reporting a value reset; permanent mismatch still fails, never interprets old table data as a successful check.
+- Validation: 128 Node tests passed, including retained failed tab, scoped replacement, foreign-origin cleanup, reset-value classification, and popup explanation. Live corporate search and automated writeback remain unconfirmed/unimplemented.
+- Deliver extension 1.6.8 separately; installed Malenia does not need reinstalling. Inspect the retained page and popup step if the next check fails, rather than requesting the user to reconstruct HTML again.
+
 ## 2026-11-14 — Browser Bridge 1.6.7 — owner-confirmed widget binding
 
 - User supplied actual Elements screenshots: selected input is inside data-qa=dashkit-grid-item / data-dashkit-grid-id=13, then chartkit-control, chartkit-control-title, chartkit-control-input, and input.g-text-input__control. Input has no unique ID, readonly or disabled attributes.
