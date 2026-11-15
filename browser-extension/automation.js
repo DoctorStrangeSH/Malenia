@@ -508,11 +508,19 @@ var MaleniaAutomation = (() => {
             if(scanShape.max_required_chars>256){readFailure='scan_cell_limit';return null;}
             if(role==='datalens') {
               const col=name=>heads.indexOf(name);
-              if(rows.some(row=>row[col('place_external_id')]!==code)){
+              // Some scans describe the sortable/container, with a rendered
+              // null place identifier. They are not evidence for this cargo.
+              // Ignore only absent identities; a different explicit cargo still
+              // invalidates the snapshot rather than being silently filtered.
+              const identified=rows.filter(row=>{
+                const id=row[col('place_external_id')];
+                return id!=='' && id!=='null';
+              });
+              if(!identified.length || identified.some(row=>row[col('place_external_id')]!==code)){
                 readFailure='scan_table_identity_mismatch';return null;
               }
               candidates.push({columns:['main_partner_code_original','sc_id','result','scanned_at'],
-                rows:rows.map(row=>[code,row[col('sc_id')].replace(/\s/g,''),row[col('result')],row[col('scanned_at')].replace(/\//g,'-')])});
+                rows:identified.map(row=>[code,row[col('sc_id')].replace(/\s/g,''),row[col('result')],row[col('scanned_at')].replace(/\//g,'-')])});
             } else {
               // A result is bound only to the exact barcode search completed below.
               if(rows.length!==1) return null;

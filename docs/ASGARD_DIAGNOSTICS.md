@@ -1,3 +1,11 @@
+## 2026-11-15 — Bridge 1.6.15 — null place identifiers are not cargo evidence
+
+- New user screenshot confirms 1.6.14, a different cargo in the search field (PVZ_FBS_RET_7877107), and scan_table_identity_mismatch with rows=13, columns=33, cells=33..33, duplicate_required_headers=0, max_required_chars=19. Structure and size are valid. Last visible scan row renders null in place_external_id; earlier rows carry the exact cargo and later OK scans at SC101366. Do not describe the full batch as completed; progress to a different cargo is visible, but audit has stopped.
+- Prior parser required every historical row to carry the requested place_external_id. A single container/other unattributed scan represented by null caused rejection of all correctly identified scans. Regression added before the fix fails with the same identity-mismatch stage.
+- Normalize evidence only from rows with explicit nonempty identifiers. Ignore exactly rendered 'null' and empty string; never replace their identity with the requested cargo, and never infer it from sortable_id/order_external_id. At least one explicit exact-cargo row is required. Any other nonempty identity (including N/A) still rejects the snapshot. Existing date/SC/result rules and limits remain unchanged.
+- Tests prove exact later scans still yield no Asgard lookup alongside null/empty rows; later unattributed scans cannot convert older exact scans into Found; all-unattributed and foreign histories fail. React/jsdom regression includes italic rendered null in a real extra table row, excludes it from returned scans and checks the Found decision for cutoff 2026-10-03.
+- Validation: 150 Node tests passed; full React 18.3.1/ReactDOM 18.3.1/jsdom 26.1.0 suite passed. Script supports --null-identity-only. Deliver extension 1.6.15 only, no desktop reinstall. Actual full corporate batch remains unconfirmed; Google Sheets writeback remains unimplemented.
+
 ## 2026-11-15 — Bridge 1.6.14 — parse body evidence and expose numeric structure
 
 - User confirms 1.6.13 now reaches scan_table_incomplete with the exact cargo and valid-looking scan rows displayed. That stage previously combined >100 total tr elements, duplicate header labels, row-width mismatch, and any cell over 256 chars. The screenshot alone does not identify which condition occurred. Do not claim a live root cause or success.

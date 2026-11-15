@@ -18,7 +18,7 @@ const {flushSync}=require('react-dom');
 window.eval(fs.readFileSync(path.join(__dirname,'../browser-extension/automation.js'),'utf8'));
 const api=window.eval('MaleniaAutomation');
 const root=createRoot(window.document.getElementById('root'));
-async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false,tableDecorations=false,tableStructure=false}){
+async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false,tableDecorations=false,tableStructure=false,nullIdentityRow=false}){
  let changes=0,submits=0,blurSubmits=0;
  function Dashboard(){
   const [value,setValue]=React.useState('DEFAULT-EXAMPLE');
@@ -48,6 +48,12 @@ async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false
  }
  flushSync(()=>root.render(React.createElement(Dashboard)));
  const extras=[];
+ if(nullIdentityRow){
+  const raw=window.document.createElement('tr');
+  raw.innerHTML='<td>2026/10/09 18:15:10</td><td>101 366</td><td>OK</td><td><i>null</i></td>';
+  window.document.querySelector('table tbody').append(raw);extras.push(raw);
+ }
+
  if(tableStructure){
   const table=window.document.querySelector('table');
   const footer=window.document.createElement('tfoot');
@@ -83,6 +89,11 @@ async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false
   }else{
    const result=await api.workplaceSearch(chrome,1,'datalens','TEST-1',window.location.origin);
    assert.equal(result.rows[0][0],'TEST-1');
+   if(nullIdentityRow){
+    assert.equal(result.rows.length,1);
+    assert.deepEqual(Array.from(api.asgardSearchKeys({columns:['cargo_place','inventory_date'],
+     rows:[['TEST-1','2026-10-03']]},result)),[]);
+   }
    assert.equal(submits,1);
    assert.equal(window.document.querySelector('input').value,'TEST-1');
   }
@@ -140,6 +151,7 @@ async function checkLoadingStub(){
 }
 (async()=>{
  try{
+  if(process.argv.includes('--null-identity-only')){await check({nullIdentityRow:true});console.log('PASS: null-identity scan is excluded; exact cargo still satisfies Found.');return;}
   if(process.argv.includes('--table-structure-only')){await check({tableStructure:true});console.log('PASS: footer summary is not interpreted as a scan row.');return;}
   if(process.argv.includes('--table-layout-only')){await check({tableDecorations:true});console.log('PASS: sticky header and offscreen measurement copy do not invalidate the scan table.');return;}
   if(process.argv.includes('--loading-stub-only')){await checkLoadingStub();return;}
@@ -150,6 +162,7 @@ async function checkLoadingStub(){
   await check({blurOnly:true});
   await check({tableDecorations:true});
   await check({tableStructure:true});
+  await check({nullIdentityRow:true});
   await checkLoadingStub();
   console.log('PASS: React 18 controlled input: normal events, rejected DOM events, refused state, 2.2s input replacement, blur-only control, no double submit.');
  }finally{root.unmount();window.close();}

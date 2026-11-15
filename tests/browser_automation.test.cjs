@@ -618,7 +618,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false,loadingControl=false,neverReadyControl=false,foreignReadyOwner=false,stickyHeader=false,measurementCopy=false,hiddenCopy=false,duplicateScanTable=false,footer=false,irrelevantColumns=false,duplicateRequired=false,rowCount=1,badWidth=false,requiredLong=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false,loadingControl=false,neverReadyControl=false,foreignReadyOwner=false,stickyHeader=false,measurementCopy=false,hiddenCopy=false,duplicateScanTable=false,footer=false,irrelevantColumns=false,duplicateRequired=false,rowCount=1,badWidth=false,requiredLong=false,extraIdentities=[],allUnbound=false,baseDate='2026/10/05 20:35:36'}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, committedEvents=0, handlerCalls=0, worldUsed, stateValue=initialValue, deadline, now=0, firstEditAt=null;
@@ -693,13 +693,16 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
     if(selector!=='td')return [];
     const values=role==='asgard'?
       [updated?'Выдан':'В пути','1','2',updated?'NEW-BOX':'OLD-BOX']:
-      ['2026/10/05 20:35:36',requiredLong?'X'.repeat(257):'101 366','OK',wrongCode?'OTHER':updated?'TEST-1':'OLD'];
+      [baseDate,requiredLong?'X'.repeat(257):'101 366','OK',allUnbound?'null':wrongCode?'OTHER':updated?'TEST-1':'OLD'];
     if(irrelevantColumns)values.push('UNUSED'.repeat(1000),'OTHER'.repeat(1000));
     if(duplicateRequired)values.push('101366');
     if(badWidth)values.pop();
     return values.map(textContent=>({textContent}));
   }};
-  const bodyRows=Array.from({length:rowCount},()=>dataRow);
+  const bodyRows=[...Array.from({length:rowCount},()=>dataRow),...extraIdentities.map(identity=>({
+    querySelectorAll:selector=>selector==='td'?['2026/10/05 20:35:36','101 366','OK',identity]
+      .map(textContent=>({textContent})):[]
+  }))];
   const footerRow={querySelectorAll:selector=>selector==='td'?[{textContent:'Summary',colSpan:headers.length}]:[]};
   const table={querySelectorAll:()=>[headerRow,...bodyRows,...(footer?[footerRow]:[])],
     tBodies:[{rows:bodyRows}]};
@@ -1215,5 +1218,33 @@ test('audit progress accepts only numeric scan shape, excluding unknown/private 
   assert.equal(Boolean(result.results.at(-1).scan_shape),allowed);
   assert.ok(!JSON.stringify(result).includes('SECRET'));
   assert.ok(!JSON.stringify(result).includes('TEST-PRIVATE'));
+ }
+});
+
+
+test('DataLens keeps exact-cargo scan evidence while ignoring rows with null or empty place identifiers',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{extraIdentities:['null','']});
+ const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(result.rows.length,1);
+ assert.equal(result.rows[0][0],'TEST-1');
+ const unresolved=api.asgardSearchKeys(inventorySeed(['TEST-1']),result);
+ assert.deepEqual(Array.from(unresolved),[]);
+});
+
+test('unattributed successful scans never turn an old exact-cargo scan into Found',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{
+  extraIdentities:['null',''],baseDate:'2026/09/01 20:35:36'});
+ const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(result.rows.length,1);
+ assert.deepEqual(Array.from(api.asgardSearchKeys(inventorySeed(['TEST-1']),result)),['TEST-1']);
+});
+
+test('foreign nonempty identifiers and all-unattributed histories remain rejected',async()=>{
+ const api=runner();
+ for(const options of [{extraIdentities:['OTHER']},{allUnbound:true,extraIdentities:['null','']},
+  {extraIdentities:['N/A']}]){
+  const f=workplaceFixture('datalens',options);
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
+   error=>error.step==='scan_table_identity_mismatch');
  }
 });
