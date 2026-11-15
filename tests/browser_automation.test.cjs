@@ -618,7 +618,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false,loadingControl=false,neverReadyControl=false,foreignReadyOwner=false,stickyHeader=false,measurementCopy=false,hiddenCopy=false,duplicateScanTable=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false,loadingControl=false,neverReadyControl=false,foreignReadyOwner=false,stickyHeader=false,measurementCopy=false,hiddenCopy=false,duplicateScanTable=false,footer=false,irrelevantColumns=false,duplicateRequired=false,rowCount=1,badWidth=false,requiredLong=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, committedEvents=0, handlerCalls=0, worldUsed, stateValue=initialValue, deadline, now=0, firstEditAt=null;
@@ -686,13 +686,23 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
   if(pinnedControl){input.parentElement=null;input.closest=()=>null;input.disabled=pinnedDisabled;}
   const headers=role==='asgard'?['Статус грузоместа','ID возврата','ID партнера','ID коробки']:
     ['scanned_at','sc_id','result','place_external_id'];
-  const table={querySelectorAll:()=>[
-    {querySelectorAll:()=>headers.map(textContent=>({textContent}))},
-    {querySelectorAll:()=> (role==='asgard'?
+  if(irrelevantColumns)headers.push('description','description');
+  if(duplicateRequired)headers.push('sc_id');
+  const headerRow={querySelectorAll:selector=>selector==='th'?headers.map(textContent=>({textContent})):[]};
+  const dataRow={querySelectorAll:selector=>{
+    if(selector!=='td')return [];
+    const values=role==='asgard'?
       [updated?'Выдан':'В пути','1','2',updated?'NEW-BOX':'OLD-BOX']:
-      ['2026/10/05 20:35:36','101 366','OK',wrongCode?'OTHER':updated?'TEST-1':'OLD'])
-      .map(textContent=>({textContent}))}
-  ]};
+      ['2026/10/05 20:35:36',requiredLong?'X'.repeat(257):'101 366','OK',wrongCode?'OTHER':updated?'TEST-1':'OLD'];
+    if(irrelevantColumns)values.push('UNUSED'.repeat(1000),'OTHER'.repeat(1000));
+    if(duplicateRequired)values.push('101366');
+    if(badWidth)values.pop();
+    return values.map(textContent=>({textContent}));
+  }};
+  const bodyRows=Array.from({length:rowCount},()=>dataRow);
+  const footerRow={querySelectorAll:selector=>selector==='td'?[{textContent:'Summary',colSpan:headers.length}]:[]};
+  const table={querySelectorAll:()=>[headerRow,...bodyRows,...(footer?[footerRow]:[])],
+    tBodies:[{rows:bodyRows}]};
   const tables=[
     ...(stickyHeader?[{querySelectorAll:()=>[table.querySelectorAll()[0]]}]:[]),
     table,
@@ -1167,5 +1177,43 @@ test('two real scan tables remain ambiguous and a wrong cargo remains rejected',
   const f=workplaceFixture('datalens',options);
   await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
    error=>error.step===step);
+ }
+});
+
+
+test('scan reader excludes footer summaries and projects only required columns',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{footer:true,irrelevantColumns:true});
+ const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(result.rows.length,1);
+ assert.equal(result.rows[0][1],'101366');
+ assert.ok(!JSON.stringify(result).includes('UNUSED'));
+});
+
+test('scan structure failures report separate causes with numeric-only evidence',async()=>{
+ const api=runner();
+ for(const [options,step] of [[{rowCount:101},'scan_row_limit'],
+  [{duplicateRequired:true},'scan_header_ambiguous'],[{badWidth:true},'scan_row_width'],
+  [{requiredLong:true},'scan_cell_limit']]){
+  const f=workplaceFixture('datalens',options);
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),error=>{
+   assert.equal(error.step,step);
+   assert.deepEqual(Object.keys(error.scanShape).sort(),
+    ['rows','columns','min_cells','max_cells','duplicate_required_headers','max_required_chars'].sort());
+   assert.ok(Object.values(error.scanShape).every(Number.isInteger));
+   return true;
+  });
+ }
+});
+
+test('audit progress accepts only numeric scan shape, excluding unknown/private fields',async()=>{
+ const api=runner(),chrome=fakeBrowser();
+ const shape={rows:23,columns:11,min_cells:10,max_cells:11,duplicate_required_headers:0,max_required_chars:24};
+ for(const [value,allowed] of [[shape,true],[{...shape,private:'SECRET'},false]]){
+  chrome.scripting.executeScript=async()=>[{result:{error:'search_results_unconfirmed',step:'scan_row_width',scan_shape:value}}];
+  const result=await api.run(chrome,workTargets,async()=>{},async()=>{},
+   {exactGetSearch:true,seedInventory:inventorySeed(['TEST-PRIVATE'])});
+  assert.equal(Boolean(result.results.at(-1).scan_shape),allowed);
+  assert.ok(!JSON.stringify(result).includes('SECRET'));
+  assert.ok(!JSON.stringify(result).includes('TEST-PRIVATE'));
  }
 });

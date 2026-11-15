@@ -48,12 +48,22 @@
     input_handler_failed:"Обработчик ввода страницы завершился ошибкой",
     input_handler_unavailable:"Номер не принят; обработчик ввода страницы недоступен",
     input_replaced_before_submit:"Страница заменила поле во время ввода; поиск не отправлен",
+    scan_row_limit:"В истории больше 100 строк — превышен лимит чтения",
+    scan_header_ambiguous:"Обязательная колонка истории встречается несколько раз",
+    scan_row_width:"Число ячеек строки не совпало с числом колонок",
+    scan_cell_limit:"Значение обязательного поля истории длиннее 256 символов",
     scan_table_missing:"Не найдена таблица с колонками истории сканов",
     scan_table_ambiguous:"Найдено несколько основных таблиц истории сканов",
     scan_table_incomplete:"История сканов превышает лимит или имеет неполные строки",
     scan_table_identity_mismatch:"Грузоместо в истории сканов не совпало с запросом",
     result_wait_timeout:"Ожидание обновлённой таблицы завершилось без подтверждённого результата",
   };
+  function scanShapeLabel(shape){
+    const fields=['rows','columns','min_cells','max_cells','duplicate_required_headers','max_required_chars'];
+    if(!shape || Object.keys(shape).length!==fields.length || !fields.every(key=>
+      Number.isInteger(shape[key]) && shape[key]>=0 && shape[key]<=1000000))return '';
+    return ` [История: строк ${shape.rows}, колонок ${shape.columns}, ячеек в строке ${shape.min_cells}–${shape.max_cells}, повторов обязательных колонок ${shape.duplicate_required_headers}, длина обязательного поля до ${shape.max_required_chars}]`;
+  }
   function renderAudit(audit) {
     if (!orderStatus || !audit || !Array.isArray(audit.results)) return;
     const labels = {inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"};
@@ -63,7 +73,7 @@
       return item.status === "needs_attention" ?
         source+": "+(item.step?.startsWith("input_")?"Не подтверждено значение поля поиска":
           reasons[item.reason] || "Требуется проверка совместимости")+
-          (steps[item.step]?" · "+steps[item.step]:"")+
+          (steps[item.step]?" · "+steps[item.step]:"")+scanShapeLabel(item.scan_shape)+
           (item.review_available===true?" · Страница ошибки оставлена открытой в браузере":"")+
           (item.surface && ['visible_inputs','editable_inputs','bound_inputs','matched_inputs'].every(key=>
             Number.isInteger(item.surface[key]) && item.surface[key]>=0 && item.surface[key]<=10000)?

@@ -18,7 +18,7 @@ const {flushSync}=require('react-dom');
 window.eval(fs.readFileSync(path.join(__dirname,'../browser-extension/automation.js'),'utf8'));
 const api=window.eval('MaleniaAutomation');
 const root=createRoot(window.document.getElementById('root'));
-async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false,tableDecorations=false}){
+async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false,tableDecorations=false,tableStructure=false}){
  let changes=0,submits=0,blurSubmits=0;
  function Dashboard(){
   const [value,setValue]=React.useState('DEFAULT-EXAMPLE');
@@ -48,6 +48,13 @@ async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false
  }
  flushSync(()=>root.render(React.createElement(Dashboard)));
  const extras=[];
+ if(tableStructure){
+  const table=window.document.querySelector('table');
+  const footer=window.document.createElement('tfoot');
+  footer.innerHTML='<tr><td colspan="4">Summary</td></tr>';
+  table.append(footer);extras.push(footer);
+ }
+
  if(tableDecorations){
   const main=window.document.querySelector('table');
   const header=main.cloneNode(true);
@@ -133,6 +140,7 @@ async function checkLoadingStub(){
 }
 (async()=>{
  try{
+  if(process.argv.includes('--table-structure-only')){await check({tableStructure:true});console.log('PASS: footer summary is not interpreted as a scan row.');return;}
   if(process.argv.includes('--table-layout-only')){await check({tableDecorations:true});console.log('PASS: sticky header and offscreen measurement copy do not invalidate the scan table.');return;}
   if(process.argv.includes('--loading-stub-only')){await checkLoadingStub();return;}
   await check({});
@@ -141,6 +149,7 @@ async function checkLoadingStub(){
   await check({reload:true});
   await check({blurOnly:true});
   await check({tableDecorations:true});
+  await check({tableStructure:true});
   await checkLoadingStub();
   console.log('PASS: React 18 controlled input: normal events, rejected DOM events, refused state, 2.2s input replacement, blur-only control, no double submit.');
  }finally{root.unmount();window.close();}

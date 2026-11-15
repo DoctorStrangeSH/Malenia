@@ -3,7 +3,13 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
-  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","result_wait_timeout"]);
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout"]);
+  function safeScanShape(value){
+    const fields=['rows','columns','min_cells','max_cells','duplicate_required_headers','max_required_chars'];
+    return value && Object.keys(value).length===fields.length && fields.every(key=>
+      Number.isInteger(value[key]) && value[key]>=0 && value[key]<=1000000)?
+      Object.fromEntries(fields.map(key=>[key,value[key]])):null;
+  }
   function normalizeTargets(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid_targets");
     if (Object.keys(input).sort().join(",") !== [...ROLES].sort().join(",")) throw new Error("invalid_roles");
@@ -460,9 +466,9 @@ var MaleniaAutomation = (() => {
           await new Promise(resolve=>setTimeout(resolve,200));
         } while(true);
         let {input,buttons}=controls;
-        let readFailure='scan_table_missing';
+        let readFailure='scan_table_missing',scanShape=null;
         const read = () => {
-          readFailure='scan_table_missing';
+          readFailure='scan_table_missing';scanShape=null;
           const candidates=[];
           for(const table of document.querySelectorAll('table')) {
             // DataLens renders measurement copies through a portal offscreen.
@@ -475,13 +481,31 @@ var MaleniaAutomation = (() => {
             const required=role==='datalens'?['scanned_at','sc_id','result','place_external_id']:
               ['Статус грузоместа','ID возврата','ID партнера','ID коробки'];
             if(!required.every(name=>heads.includes(name))) continue;
-            // react-data-table uses a separate sticky-head table with the same
-            // headers and no data rows. It is not a second search result.
-            if(trs.length<2)continue;
-            readFailure='scan_table_incomplete';
-            if(trs.length>101 || new Set(heads).size!==heads.length) return null;
-            const rows=trs.slice(1).map(tr=>[...tr.querySelectorAll('td')].map(el=>clean(el.textContent)));
-            if(rows.some(row=>row.length!==heads.length || row.some(v=>v.length>256))) return null;
+            // Read body sections, excluding repeated header/footer/sizing rows.
+            // Some HTML puts a th-only header in tbody; it is not a scan row.
+            const bodyTrs=table.tBodies?Array.from(table.tBodies).flatMap(body=>Array.from(body.rows)):
+              trs.slice(1);
+            const dataTrs=bodyTrs.filter(tr=>!(tr.querySelectorAll('th').length && !tr.querySelectorAll('td').length));
+            if(!dataTrs.length)continue;
+            const duplicateRequired=required.filter(name=>heads.filter(h=>h===name).length!==1).length;
+            scanShape={rows:dataTrs.length,columns:heads.length,min_cells:0,max_cells:0,
+              duplicate_required_headers:duplicateRequired,max_required_chars:0};
+            if(dataTrs.length>100){readFailure='scan_row_limit';return null;}
+            if(duplicateRequired || (role!=='datalens' && new Set(heads).size!==heads.length)){
+              readFailure='scan_header_ambiguous';return null;
+            }
+            const cells=dataTrs.map(tr=>Array.from(tr.querySelectorAll('td')));
+            scanShape.min_cells=Math.min(...cells.map(row=>row.length));
+            scanShape.max_cells=Math.max(...cells.map(row=>row.length));
+            if(cells.some(row=>row.length!==heads.length) || dataTrs.some(tr=>tr.querySelectorAll('th').length)){
+              readFailure='scan_row_width';return null;
+            }
+            // Only the required evidence columns affect reconciliation. Unused
+            // columns can have duplicate labels or large descriptive content.
+            const indexes=role==='datalens'?required.map(name=>heads.indexOf(name)):heads.map((_,i)=>i);
+            const rows=cells.map(row=>row.map((cell,index)=>indexes.includes(index)?clean(cell.textContent):''));
+            scanShape.max_required_chars=Math.max(...rows.flatMap(row=>indexes.map(i=>row[i].length)));
+            if(scanShape.max_required_chars>256){readFailure='scan_cell_limit';return null;}
             if(role==='datalens') {
               const col=name=>heads.indexOf(name);
               if(rows.some(row=>row[col('place_external_id')]!==code)){
@@ -588,7 +612,8 @@ var MaleniaAutomation = (() => {
             if(!submitted)return finish({error:'unmapped_search_results',
               step:typeof currentProps()?.onChange==='function'?'input_value_reset':'input_handler_unavailable'});
             finish({error:'search_results_unconfirmed',
-              step:input.isConnected===false || !accepted()?'input_changed_after_submit':role==='datalens' && readFailure?readFailure:'result_wait_timeout'});
+              step:input.isConnected===false || !accepted()?'input_changed_after_submit':role==='datalens' && readFailure?readFailure:'result_wait_timeout',
+              ...(role==='datalens' && scanShape?{scan_shape:scanShape}:{})});
           },15000);
           input.focus?.();
           setter.call(input,code);
@@ -607,6 +632,8 @@ var MaleniaAutomation = (() => {
     if(table?.error) {
       const error=new Error(table.error);
       if(SEARCH_STEPS.has(table.step))error.step=table.step;
+      const shape=safeScanShape(table.scan_shape);
+      if(shape)error.scanShape=shape;
       const surface=table.surface, fields=['visible_inputs','editable_inputs','bound_inputs','matched_inputs'];
       if(surface && Object.keys(surface).length===fields.length &&
           fields.every(key=>Number.isInteger(surface[key]) && surface[key]>=0 && surface[key]<=10000)) {
@@ -917,6 +944,7 @@ var MaleniaAutomation = (() => {
         results.push({role, status: "needs_attention", reason: reasonCode(error),
           ...(SEARCH_STEPS.has(error?.step)?{step:error.step}:{}),
           ...(error?.reviewAvailable===true?{review_available:true}:{}),
+          ...(safeScanShape(error?.scanShape)?{scan_shape:safeScanShape(error.scanShape)}:{}),
           ...(safe?{surface:Object.fromEntries(fields.map(key=>[key,surface[key]]))}:{})});
       }
       await onProgress({phase: "reading", role, results: [...results]});

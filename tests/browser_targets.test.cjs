@@ -135,3 +135,13 @@ test('loading-filter failure explicitly says no search was sent',async()=>{
  assert.match(ui.nodes.orderAuditStatus.textContent,/Фильтр DataLens не завершил загрузку; поиск не отправлен/);
  assert.doesNotMatch(ui.nodes.orderAuditStatus.textContent,/распознать таблицу/);
 });
+
+
+test('scan-structure diagnostics show bounded counts and the specific reason',async()=>{
+ const ui=screen(true,{phase:'needs_attention',results:[{role:'datalens',status:'needs_attention',
+  reason:'search_results_unconfirmed',step:'scan_row_width',scan_shape:{
+   rows:23,columns:11,min_cells:1,max_cells:11,duplicate_required_headers:0,max_required_chars:24}}]});
+ await flush();
+ assert.match(ui.nodes.orderAuditStatus.textContent,/Число ячеек строки/);
+ assert.match(ui.nodes.orderAuditStatus.textContent,/строк 23, колонок 11, ячеек в строке 1–11/);
+});
