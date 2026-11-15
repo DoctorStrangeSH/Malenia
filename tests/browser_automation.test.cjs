@@ -1294,6 +1294,7 @@ test('marking run verifies the selected Asgard card and acknowledges both write 
  chrome.scripting.executeScript=async({args:[action,key]})=>{
   if(action==='datalens')return [{result:{columns:['main_partner_code_original','sc_id','result','scanned_at'],
    rows:[[key,'101366','OK',key==='FOUND-1'?'2026-10-05 16:00:00':'2026-09-01 16:00:00']]}}];
+  if(action==='cleanup')return [{result:true}];
   if(action==='submit'){submitted=true;return [{result:{submitted:true}}];}
   if(action==='results')return [{result:submitted?{fresh:true,matches:[
    {box:'122',status:'Выдан',destination:'Склад партнера',url:'https://asgard.market.yandex-team.ru/returnBox/122'},

@@ -134,6 +134,14 @@ jobs:
           Compress-Archive -Path "browser-extension/*" -DestinationPath $archive -Force
           if (!(Test-Path $archive)) { throw "Browser extension archive was not created." }
 
+      - name: Upload browser extension preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: malenia-browser-extension
+          path: ${{ runner.temp }}/malenia-browser-extension.zip
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Install frontend dependencies
         working-directory: desktop
         run: npm install
@@ -157,13 +165,5 @@ jobs:
         with:
           name: malenia-windows-installer
           path: desktop/src-tauri/target/release/bundle/nsis/*.exe
-          if-no-files-found: error
-          retention-days: 14
-
-      - name: Upload browser extension preview
-        uses: actions/upload-artifact@v4
-        with:
-          name: malenia-browser-extension
-          path: ${{ runner.temp }}/malenia-browser-extension.zip
           if-no-files-found: error
           retention-days: 14

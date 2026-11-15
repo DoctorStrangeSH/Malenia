@@ -7,21 +7,30 @@ const vm=require('node:vm');
 const source=fs.readFileSync('browser-extension/automation.js','utf8');
 const READY='Готов для отгрузки в заборную логистику';
 async function check({empty=false,foreign=false,mismatch=false,duplicate=false,company=false,
- foreignTransit=false,serviceError=false,ready=false,wasIssued=false,multipleIssued=false,foreignGroup=false}={}){
+ foreignTransit=false,serviceError=false,ready=false,wasIssued=false,multipleIssued=false,foreignGroup=false,initialMissing=false,replaceTable=false,replaceInput=false,wrongInput=false,hiddenBusy=false,cacheBusy=false,unrelated=false,tableAttribute=false}={}){
  const host='https://asgard.market.yandex-team.ru';let dom,clicks=0,visited=[],renderTimer;
  const active=ready?READY:'В пути',dest=company?'Склад ООО "Купишуз"':'Склад партнера';
  function page(html,url){
   dom?.window.close();dom=new JSDOM(html,{url:host+url,runScripts:'outside-only'});
-  dom.window.HTMLElement.prototype.getClientRects=function(){return [{}];};
+  dom.window.HTMLElement.prototype.getClientRects=function(){return this.style.display==='none'?[]:[{}];};
  }
  const headers='<tr><th>Статус грузоместа</th><th>ID возврата</th><th>ID партнера</th><th>ID коробки</th><th>Точка назначения</th></tr>';
- page('<label>Штрихкод коробки<input></label><button>Найти</button><table>'+headers+'</table>','/returnBox/search');
+ page('<label>Штрихкод коробки<input></label><button>Найти</button><div id="results">'+(initialMissing?'':'<table>'+headers+'</table>')+'</div>'+(hiddenBusy?'<div role="progressbar" style="display:none"></div>':''),'/returnBox/search');
  const statuses=foreign&&!foreignGroup?[active]:['Выдан',active,...(duplicate?[active]:multipleIssued?['Выдан']:[])];
+ const rendered=headers+(empty?'<tr><td colspan="5">Ничего не найдено</td></tr>':statuses.map((status,i)=>`<tr><td>${status}</td><td>111</td><td>222</td><td><a href="/returnBox/${100+i}">${100+i}</a></td><td>${dest}</td></tr>`).join(''));
+ if(cacheBusy||unrelated||tableAttribute)dom.window.document.querySelector('#results').innerHTML='<table>'+rendered+'</table>';
  dom.window.document.querySelector('button').onclick=()=>{
   clicks++;
   if(serviceError){const el=dom.window.document.createElement('div');el.setAttribute('role','alert');el.textContent='Ошибка загрузки';dom.window.document.body.append(el);return;}
-  renderTimer=setTimeout(()=>dom.window.document.querySelector('table').innerHTML=headers+(empty?'<tr><td colspan="5">Ничего не найдено</td></tr>':
-   statuses.map((status,i)=>`<tr><td>${status}</td><td>111</td><td>222</td><td><a href="/returnBox/${100+i}">${100+i}</a></td><td>${dest}</td></tr>`).join('')),50);
+  if(cacheBusy)dom.window.document.querySelector('button').disabled=true;
+  renderTimer=setTimeout(()=>{
+   if(cacheBusy){dom.window.document.querySelector('button').disabled=false;return;}
+   if(tableAttribute){dom.window.document.querySelector('table').className='hover';return;}
+   if(unrelated){dom.window.document.body.append(dom.window.document.createElement('aside'));return;}
+   if(initialMissing||replaceTable)dom.window.document.querySelector('#results').innerHTML='<table>'+rendered+'</table>';
+   else dom.window.document.querySelector('table').innerHTML=rendered;
+   if(replaceInput){const old=dom.window.document.querySelector('input'),live=old.cloneNode();live.value=wrongInput?'OTHER':'TEST-1';old.replaceWith(live);}
+  },50);
  };
  const chrome={tabs:{
   async update(id,{url}){
@@ -39,10 +48,11 @@ async function check({empty=false,foreign=false,mismatch=false,duplicate=false,c
   assert.equal(world,'ISOLATED');dom.window.args=args;
   return [{result:await dom.window.eval('('+func.toString()+')(...args)')}];
  }}};
- const ctx={URL,setTimeout,clearTimeout};vm.createContext(ctx);vm.runInContext(source,ctx);
+ const ctx={URL,setTimeout:(fn,ms)=>setTimeout(fn,ms/10),clearTimeout,Date:{now:()=>Date.now()*10}};vm.createContext(ctx);vm.runInContext(source,ctx);
  const search=()=>ctx.MaleniaAutomation.workplaceSearch(chrome,7,'asgard','TEST-1',host,true);
  try{
   if(serviceError)await assert.rejects(search,/search_results_unconfirmed/);
+  else if(wrongInput||unrelated||tableAttribute)await assert.rejects(search,error=>error.message==='search_results_unconfirmed'&&error.step===(wrongInput?'asgard_input_unconfirmed':'asgard_result_not_refreshed'));
   else if((foreign&&!foreignGroup)||mismatch||duplicate)await assert.rejects(search,/unverified_search_result_identity/);
   else{
    const table=await search(),row=table.rows[0];assert.equal(row[0],'TEST-1');
@@ -61,5 +71,7 @@ async function check({empty=false,foreign=false,mismatch=false,duplicate=false,c
 }
 const scenarios=[{},{empty:true},{foreign:true},{mismatch:true},{duplicate:true},{company:true},
  {foreignTransit:true},{serviceError:true},{ready:true},{ready:true,wasIssued:true},
- {wasIssued:true},{foreignTransit:true,multipleIssued:true},{company:true,ready:true},{foreign:true,foreignGroup:true}];
+ {wasIssued:true},{foreignTransit:true,multipleIssued:true},{company:true,ready:true},{foreign:true,foreignGroup:true},
+ {company:true,initialMissing:true},{company:true,replaceTable:true},{company:true,replaceInput:true},
+ {company:true,replaceInput:true,wrongInput:true},{company:true,hiddenBusy:true},{company:true,cacheBusy:true},{company:true,unrelated:true},{company:true,tableAttribute:true}];
 (async()=>{for(const scenario of scenarios)await check(scenario);console.log(`Asgard DOM integration: ${scenarios.length} scenarios passed`);})().catch(error=>{console.error(error);process.exit(1);});

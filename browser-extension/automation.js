@@ -3,7 +3,7 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
-  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout"]);
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout","asgard_wait_loading","asgard_table_missing","asgard_table_ambiguous","asgard_table_incomplete","asgard_input_unconfirmed","asgard_result_not_refreshed"]);
   function safeScanShape(value){
     const fields=['rows','columns','min_cells','max_cells','duplicate_required_headers','max_required_chars'];
     return value && Object.keys(value).length===fields.length && fields.every(key=>
@@ -296,12 +296,25 @@ var MaleniaAutomation = (() => {
     if(origin!=="https://asgard.market.yandex-team.ru"||!/^[A-Za-z0-9_.-]{1,128}$/.test(code))throw new Error("unsupported_dynamic_search");
     const probe=async(action)=>{
       const response=await chromeApi.scripting.executeScript({target:{tabId},world:'ISOLATED',
-        func:(action,code,origin)=>{
+        func:async(action,code,origin)=>{
           if(location.origin!==origin)return {error:'search_origin_mismatch'};
           const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
+          const text=el=>clean(el?.innerText??el?.textContent);
           const visible=el=>el.getClientRects().length>0;
-          const failure=error=>({error});
-          if(action==='submit'){
+          const failure=(error,step)=>({error,...(step?{step}:{})});
+          const required=['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'];
+          const resultTable=table=>table?.matches?.('table')&&required.every(name=>Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(text).includes(name));
+          const withinResults=node=>{
+            const el=node?.nodeType===1?node:node?.parentElement;
+            return !!el&&(resultTable(el)||resultTable(el.closest?.('table')));
+          };
+          const touchesResults=node=>{
+            const el=node?.nodeType===1?node:node?.parentElement;
+            return withinResults(el)||!!el&&[...el.querySelectorAll('table')].some(resultTable);
+          };
+          const loading=()=>[...document.querySelectorAll('[aria-busy="true"],[role="progressbar"],.ant-spin-spinning')].some(visible)||
+            [...document.querySelectorAll('button')].some(el=>visible(el)&&el.disabled&&text(el)==='Найти');
+          const controls=()=>{
             const inputs=[...document.querySelectorAll('input')].filter(el=>visible(el)&&!el.disabled&&!el.readOnly);
             const matches=inputs.filter(el=>{
               const captions=[el.placeholder,el.getAttribute('aria-label'),...Array.from(el.labels||[]).map(x=>x.textContent)];
@@ -314,65 +327,86 @@ var MaleniaAutomation = (() => {
               }
               return captions.some(s=>/^Штрихкод коробки\s*[:*]?$/i.test(clean(s)));
             });
+            return {inputs,matches};
+          };
+          if(action==='cleanup'){globalThis.__maleniaAsgardSearch?.observer?.disconnect();delete globalThis.__maleniaAsgardSearch;return true;}
+          if(action==='submit'){
+            const {inputs,matches}=controls();
             if(matches.length!==1)return failure(matches.length?'search_field_ambiguous':'search_field_missing');
             const input=matches[0];
             if(inputs.some(el=>el!==input&&el.value.trim()))return failure('search_filters_not_empty');
-            const buttons=[...document.querySelectorAll('button')].filter(el=>visible(el)&&!el.disabled&&clean(el.textContent)==='Найти');
+            const buttons=[...document.querySelectorAll('button')].filter(el=>visible(el)&&!el.disabled&&text(el)==='Найти');
             if(buttons.length!==1)return failure('search_button_missing');
             const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
             if(!setter)return failure('unmapped_search_results');
             setter.call(input,code);input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+            // Give React's change event a render turn before the one search click.
+            await new Promise(resolve=>setTimeout(resolve,0));
+            const live=controls();
+            if(live.matches.length!==1||live.matches[0].value!==code)return failure('unmapped_search_results','input_value_reset');
             globalThis.__maleniaAsgardSearch?.observer?.disconnect();
-            const state={code,input,changed:false};
-            state.observer=new MutationObserver(()=>{state.changed=true;state.observer.disconnect();});
-            for(const table of document.querySelectorAll('table'))state.observer.observe(table,{subtree:true,childList:true,characterData:true});
+            const state={code,changed:false,loadingSeen:false};
+            state.observer=new MutationObserver(records=>{
+              if(loading()||records.some(r=>r.type==='attributes'&&r.attributeName==='disabled'&&r.oldValue!==null&&text(r.target)==='Найти'))state.loadingSeen=true;
+              if(records.some(r=>r.type!=='attributes'&&(withinResults(r.target)||[...r.addedNodes,...r.removedNodes].some(touchesResults))))state.changed=true;
+            });
+            // React may replace the whole table, or mount it only after searching.
+            // Observe its stable ancestor, but only result mutations count as fresh.
+            state.observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeOldValue:true,attributeFilter:['disabled','aria-busy','class','style']});
             globalThis.__maleniaAsgardSearch=state;
-            buttons[0].click();return {submitted:true};
+            buttons[0].click();if(loading())state.loadingSeen=true;return {submitted:true};
           }
-          if(document.querySelector('[aria-busy="true"],[role="progressbar"],.ant-spin-spinning'))return null;
-          if([...document.querySelectorAll('[role="alert"],.ant-alert-error,.ant-message-error')].some(el=>visible(el)&&/ошиб|не удалось|недоступ|error|failed/i.test(clean(el.textContent))))return failure('search_results_unconfirmed');
+          if(loading()){
+            if(globalThis.__maleniaAsgardSearch)globalThis.__maleniaAsgardSearch.loadingSeen=true;
+            return {pending:true,step:'asgard_wait_loading'};
+          }
+          if([...document.querySelectorAll('[role="alert"],.ant-alert-error,.ant-message-error')].some(el=>visible(el)&&/ошиб|не удалось|недоступ|error|failed/i.test(text(el))))return failure('search_results_unconfirmed');
           if(action==='results'){
             const tables=[...document.querySelectorAll('table')].filter(visible).map(table=>{
-              const heads=Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(el=>clean(el.textContent));
+              const heads=Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(el=>text(el));
               return {table,heads};
             }).filter(({heads})=>['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'].every(h=>heads.filter(x=>x===h).length===1));
-            if(tables.length!==1)return null;
+            if(tables.length!==1)return {pending:true,step:tables.length?'asgard_table_ambiguous':'asgard_table_missing'};
             const {table,heads}=tables[0];
+            const state=globalThis.__maleniaAsgardSearch,live=controls();
+            const accepted=live.matches.length===1&&live.matches[0].value===code;
+            const fresh=state?.code===code&&accepted&&(state.changed||state.loadingSeen);
+            const freshness={fresh,step:accepted?'asgard_result_not_refreshed':'asgard_input_unconfirmed'};
             const rows=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
             const emptyMessage=s=>/^(Нет данных|Ничего не найдено|Нет результатов|Данные не найдены)$/i.test(clean(s));
             const empty=rows.length===1&&rows[0].querySelectorAll('td').length===1&&emptyMessage(rows[0].textContent) || rows.length===0&&[...table.parentElement.querySelectorAll('div,span,p')].some(el=>visible(el)&&emptyMessage(el.textContent));
-            if(!rows.length&&!empty)return null;
-            if(empty)return {empty:true,fresh:globalThis.__maleniaAsgardSearch?.changed===true&&globalThis.__maleniaAsgardSearch.input.value===code};
+            if(!rows.length&&!empty)return {pending:true,step:'asgard_table_incomplete'};
+            if(empty)return {empty:true,...freshness};
             if(rows.length>100)return failure('unmapped_search_results');
             const result=[];
             for(const tr of rows){
-              const cells=[...tr.querySelectorAll('td')];if(cells.length!==heads.length)return null;
+              const cells=[...tr.querySelectorAll('td')];if(cells.length!==heads.length)return {pending:true,step:'asgard_table_incomplete'};
               const cell=name=>cells[heads.indexOf(name)];
               const links=[...cell('ID коробки').querySelectorAll('a[href]')];
-              const box=clean(cell('ID коробки').textContent),status=clean(cell('Статус грузоместа').textContent),destination=clean(cell('Точка назначения').textContent);
+              const box=text(cell('ID коробки')),status=text(cell('Статус грузоместа')),destination=text(cell('Точка назначения'));
               if(links.length!==1||!/^\d{1,20}$/.test(box)||destination.length>256)return failure('unmapped_search_results');
               const url=new URL(links[0].href,location.href);
               if(url.origin!==origin||url.username||url.password||url.pathname===location.pathname)return failure('search_origin_mismatch');
               result.push({box,status,destination,url:url.href});
             }
-            return {matches:result,fresh:globalThis.__maleniaAsgardSearch?.changed===true&&globalThis.__maleniaAsgardSearch.input.value===code};
+            return {matches:result,...freshness};
           }
           if(action==='card'){
-            const headings=[...document.querySelectorAll('h1,h2,[role="heading"]')].filter(visible).map(el=>clean(el.textContent));
+            const headings=[...document.querySelectorAll('h1,h2,[role="heading"]')].filter(visible).map(el=>text(el));
             const cargo=headings.filter(s=>/^Грузоместо\s+/.test(s));
             if(cargo.length!==1)return null;
             const actual=cargo[0].replace(/^Грузоместо\s+/,'');
             if(actual!==code)return {other:true};
-            const text=clean(document.body.innerText||document.body.textContent);
-            const box=text.match(/ID грузоместа\s+(\d{1,20})(?!\d)/)?.[1];
+            const pageText=clean(document.body.innerText||document.body.textContent);
+            const box=pageText.match(/ID грузоместа\s+(\d{1,20})(?!\d)/)?.[1];
             if(!box)return null;
-            const titles=[...document.querySelectorAll('h1,h2,h3,h4,h5,div,span')].filter(el=>visible(el)&&clean(el.textContent)==='История изменения статусов'&&![...el.children].some(child=>clean(child.textContent)==='История изменения статусов'));
+            const titles=[...document.querySelectorAll('h1,h2,h3,h4,h5,div,span')].filter(el=>visible(el)&&text(el)==='История изменения статусов'&&![...el.children].some(child=>text(child)==='История изменения статусов'));
             const tables=new Set();
             for(const title of titles){
               let scope=title;
               for(let depth=0;scope&&depth<4;depth++,scope=scope.parentElement){
                 const local=[...scope.querySelectorAll('table')].filter(visible).filter(t=>{
-                  const heads=[...t.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]].map(el=>clean(el.textContent));
+                  const heads=[...t.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]].map(el=>text(el));
                   return heads.length===2&&heads.includes('Дата')&&heads.includes('Статус');
                 });
                 if(local.length===1){tables.add(local[0]);break;}
@@ -381,18 +415,20 @@ var MaleniaAutomation = (() => {
               if(next?.matches('table'))tables.add(next);
             }
             if(tables.size!==1)return null;
-            const table=[...tables][0],heads=[...table.querySelectorAll('tr')[0].querySelectorAll('th')].map(el=>clean(el.textContent));
+            const table=[...tables][0],heads=[...table.querySelectorAll('tr')[0].querySelectorAll('th')].map(el=>text(el));
             const data=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
             if(!data.length||data.length>100)return null;
             const history=[];
-            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return null;const status=clean(cells[heads.indexOf('Статус')].textContent);if(!status||status.length>100)return null;history.push(status);}
-            const statuses=[...new Set([...document.querySelectorAll('span,button,div')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'].includes(clean(el.textContent))).map(el=>clean(el.textContent)))];
+            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return null;const status=text(cells[heads.indexOf('Статус')]);if(!status||status.length>100)return null;history.push(status);}
+            const statuses=[...new Set([...document.querySelectorAll('span,button,div')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'].includes(text(el))).map(el=>text(el)))];
             if(statuses.length!==1)return null;
-            return {box,history,status:statuses[0],kupishuz:/купишуз/i.test(text)};
+            return {box,history,status:statuses[0],kupishuz:/купишуз/i.test(pageText)};
           }
           return null;
         },args:[action,code,origin]});
-      const result=response?.[0]?.result;if(result?.error)throw new Error(result.error);return result;
+      const result=response?.[0]?.result;
+      if(result?.error){const error=new Error(result.error);if(SEARCH_STEPS.has(result.step))error.step=result.step;throw error;}
+      return result;
     };
     const before=JSON.stringify(await probe('results'));
     let ack;const readyUntil=Date.now()+10000;
@@ -401,14 +437,17 @@ var MaleniaAutomation = (() => {
       await new Promise(r=>setTimeout(r,250));
     }}while(true);
     if(!ack?.submitted)throw new Error('unmapped_search_results');
-    let result,last='',stable=0;const until=Date.now()+15000;
-    while(Date.now()<until){
-      const now=await probe('results'),serialized=JSON.stringify(now);
-      if(now?.fresh===true&&serialized!==before){if(serialized!==last){last=serialized;stable=Date.now();}else if(Date.now()-stable>=750){result=now;break;}}
-      else stable=0;
-      await new Promise(r=>setTimeout(r,250));
-    }
-    if(!result)throw new Error('search_results_unconfirmed');
+    let result,last='',stable=0,lastStep='asgard_result_not_refreshed';const until=Date.now()+15000;
+    try{
+      while(Date.now()<until){
+        const now=await probe('results'),serialized=JSON.stringify(now);
+        if(SEARCH_STEPS.has(now?.step))lastStep=now.step;
+        if(now?.fresh===true&&!now.pending&&serialized!==before){if(serialized!==last){last=serialized;stable=Date.now();}else if(Date.now()-stable>=750){result=now;break;}}
+        else stable=0;
+        await new Promise(r=>setTimeout(r,250));
+      }
+    }finally{try{await probe('cleanup');}catch{ /* A page redirect must not hide the original error. */ }}
+    if(!result){const error=new Error('search_results_unconfirmed');error.step=lastStep;throw error;}
     const columns=['cargo_place','status','box_id','destination','history_json','verification'];
     if(result.empty)return {columns,rows:[[code,'Не найден','','','[]','not_found']]};
     // The owner authorizes Lamoda directly from a uniformly Купишуз destination

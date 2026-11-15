@@ -63,6 +63,12 @@
     scan_table_ambiguous:"Найдено несколько основных таблиц истории сканов",
     scan_table_incomplete:"История сканов превышает лимит или имеет неполные строки",
     scan_table_identity_mismatch:"Грузоместо в истории сканов не совпало с запросом",
+    asgard_wait_loading:"Asgard не завершил загрузку результата",
+    asgard_table_missing:"Не найдена таблица результатов обратного потока",
+    asgard_table_ambiguous:"Найдено несколько таблиц результатов обратного потока",
+    asgard_table_incomplete:"Таблица обратного потока ещё пуста или имеет неполные строки",
+    asgard_input_unconfirmed:"После поиска текущее поле Asgard не содержит искомый ШК",
+    asgard_result_not_refreshed:"Не подтверждено обновление результата Asgard после поиска",
     result_wait_timeout:"Ожидание обновлённой таблицы завершилось без подтверждённого результата",
   };
   function scanShapeLabel(shape){
