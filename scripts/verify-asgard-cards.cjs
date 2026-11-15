@@ -25,7 +25,7 @@ async function check({empty=false,foreign=false,mismatch=false,duplicate=false,c
    assert.equal(table.rows[0][0],'TEST-1');assert.equal(table.rows[0][5],empty?'not_found':'card');
    if(!empty){assert.equal(table.rows[0][2],'101');assert.equal(table.rows[0][1],'В пути');assert.deepEqual(JSON.parse(table.rows[0][4]),['В пути','Принят у отправителя']);}
   }
-  assert.equal(clicks,1);assert.ok(visited.every(url=>!url.endsWith('/100')),'Issued neighbour was opened');
+  assert.equal(clicks,1);if(!foreign)assert.ok(visited.every(url=>!url.endsWith('/100')),'Issued neighbour was opened');
  }finally{dom.window.close();}
 }
 (async()=>{for(const scenario of [{},{empty:true},{foreign:true},{mismatch:true},{duplicate:true},{company:false}])await check(scenario);console.log('Asgard DOM integration: 6 scenarios passed');})().catch(error=>{console.error(error);process.exit(1);});

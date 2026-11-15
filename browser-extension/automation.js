@@ -412,8 +412,8 @@ var MaleniaAutomation = (() => {
     if(matches.length>20)throw new Error('unmapped_search_results');
     const confirmed=[];
     for(const match of matches){
-      // Once transit candidates exist, issued neighbours must not supply history.
-      if(matches.some(x=>x.status==='В пути')&&match.status!=='В пути')continue;
+      // A verified transit card wins; a foreign transit card must not hide a matching issued card.
+      if(confirmed.some(row=>row[1]==='В пути')&&match.status!=='В пути')continue;
       await chromeApi.tabs.update(tabId,{url:match.url});await waitLoaded(chromeApi,tabId);
       let card=null;const deadline=Date.now()+15000;
       while(Date.now()<deadline){card=await probe('card');if(card)break;await new Promise(r=>setTimeout(r,250));}
