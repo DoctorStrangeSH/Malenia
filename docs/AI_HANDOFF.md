@@ -1,3 +1,13 @@
+## Current handoff — 2026-11-15 — INVenta Found marking
+
+This section supersedes historical status below. Repository main is actively updated under user authorization. User confirmed DataLens works on Bridge 1.6.15 and explicitly requested automatic edits in the chosen INVenta worksheet: status «Найден» and green row fill like their example.
+
+Implemented release: desktop/agent **0.6.8**, Bridge **1.6.16**, code commit `41c81ce4160095af81572a6909316e6006435b43`. Details and limitations: start with `docs/ASGARD_DIAGNOSTICS.md` current section and `agent/malenia/inventa_writeback.py`. Specialized writeback is now implemented; older notes saying all writeback is absent are historical. Generic Sheets edit approval remains separate.
+
+Local validation: 154 Node tests; 250 Python tests (1 platform skip); frontend build passed. Stateful Google API fixtures verify source worksheet binding, literal status + green background, preserving formulas/helper «впр», source changes/formula protection, lost acknowledgements/replay, and cursor advancement only after verified marking. Google real-account write is NOT yet verified. Do not claim the user's sheet has already changed.
+
+Windows installer run: `43697163099`; Python CI: `43697163161`; Desktop checks: `43697163141`. Windows installer run 43697163099 and Python CI passed. Installer download: https://github.com/DoctorStrangeSH/WorkPilot/actions/runs/43697163099 . Desktop checks run 43697163141 also passed. Installer artifact ID 14154936977; extension artifact ID 14155061694. User must update BOTH app installer and extension. Source-only documentation changes after the code commit do not change release binaries. First marking run should select the intended sheet and can use «Начать заново» to cancel an older in-flight job; the new marking cursor also starts independently of prior read-only audit positions.
+
 Warning: truncated output (original token count: 32711)
 Total output lines: 946
 
