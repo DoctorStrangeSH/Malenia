@@ -80,6 +80,30 @@ class SheetsAPI:
             {'properties': {'sheetId': 7, 'title': '03.10'}, 'data': data}]}})
 
 
+class AsgardSheetsAPI(SheetsAPI):
+    def open(self, request, timeout=0):
+        parsed = urlsplit(request.full_url)
+        if request.get_method() == 'GET' and '/values/' in parsed.path:
+            cell = unquote(parsed.path.split('/values/')[1]).split('!')[1]
+            match = re.fullmatch(r'([A-Z])(\d+)', cell)
+            if match:
+                return Response({'values': [[self.grid[int(match[2])-1][ord(match[1])-65]]]})
+        if request.get_method() == 'POST':
+            body = json.loads(request.data)
+            if all('updateCells' in x for x in body['requests']):
+                self.writes.append(body)
+                data = []
+                for op in body['requests']:
+                    area = op['updateCells']['range']
+                    value = op['updateCells']['rows'][0]['values'][0]['userEnteredValue']['stringValue']
+                    r, c = area['startRowIndex'], area['startColumnIndex']
+                    self.grid[r][c] = value
+                    data.append({'startRow': r, 'startColumn': c, 'rowData': [{'values': [{'userEnteredValue': {'stringValue': 'WRONG' if self.bad_verification else value}}]}]})
+                return Response({'updatedSpreadsheet': {'spreadsheetId': BOOK, 'sheets': [
+                    {'properties': {'sheetId': 7, 'title': '03.10'}, 'data': data}]}})
+        return super().open(request, timeout)
+
+
 class InventaWritebackTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -131,6 +155,8 @@ class InventaWritebackTests(unittest.TestCase):
         self.assertEqual(len(self.api.writes), 1)
         self.assertEqual(self.mark(job)['written'], 2)  # acknowledged replay has no second network write
         self.assertEqual(len(self.api.writes), 1)
+        self.assertTrue(self.store.claim_inventa_writeback(job['job_id'], asgard=True))
+        self.assertTrue(self.store.complete_inventa_writeback(job['job_id'], 0, asgard=True))
         self.assertTrue(self.store.finish_browser_audit(job['job_id'], True))
         self.assertEqual(self.store.latest_browser_audit_job()['status'], 'completed')
         with self.store._session() as db:
@@ -238,6 +264,66 @@ class InventaWritebackTests(unittest.TestCase):
         self.assertFalse(self.mark(job)['ok'])
         self.assertTrue(self.store.complete_inventa_writeback(job['job_id'], None))
         self.assertTrue(self.mark(job)['verified'])
+
+
+class AsgardWritebackTests(unittest.TestCase):
+    tearDown = InventaWritebackTests.tearDown
+    queue = InventaWritebackTests.queue
+    mark = InventaWritebackTests.mark
+    # The end-to-end connector fixture handles both Found and Asgard writes.
+    def setUp(self):
+        InventaWritebackTests.setUp(self)
+        self.api.__class__ = AsgardSheetsAPI
+
+    def mark_asgard(self, job, status='В пути', destination='Склад ООО "Купишуз"', history=None, verification='card'):
+        from malenia.asgard_outcomes import COLUMNS
+        return handle_message({'type': 'mark_inventa_asgard', 'request_id': 'fixture', 'job_id': job['job_id'],
+            'inventory': job['inventory'], 'datalens': {'columns': ['main_partner_code_original', 'sc_id', 'result', 'scanned_at'],
+                'rows': [['BOX-0', '101366', 'OK', '2026-10-05 16:00:00'], ['BOX-2', '101366', 'OK', '2026-10-09 16:00:00']]},
+            'asgard': {'columns': COLUMNS, 'rows': [['BOX-1', status, '' if verification=='not_found' else '123', destination,
+                json.dumps(history if history is not None else ['В пути', 'Создан', 'Принят у отправителя']), verification]]}},
+            self.store, google_sheets=self.sheets)
+
+    def test_verified_kupishuz_card_marks_lamoda_and_comment_preserving_found_and_formulas(self):
+        self.api.grid[2][5] = ''
+        job = self.queue(); self.assertEqual(self.mark(job)['written'], 2)
+        self.assertEqual(self.mark_asgard(job)['written'], 1)
+        self.assertEqual(self.api.grid[2][7], 'Ламода')
+        self.assertEqual(self.api.grid[2][5], 'Взять в работу')
+        self.assertEqual(self.api.grid[1][7], 'Найден')
+        self.assertEqual(self.api.grid[2][4], '=LOOKUP()')
+        self.assertEqual(self.api.grid[2][9], '=1')
+        count = len(self.api.writes)
+        self.assertTrue(self.mark_asgard(job)['verified']); self.assertEqual(len(self.api.writes), count)
+        self.store.finish_browser_audit(job['job_id'], True)
+        self.assertEqual(self.store.latest_browser_audit_job()['status'], 'completed')
+
+    def test_missing_search_and_non_lamoda_without_terminal_history_take_work(self):
+        for missing in (True, False):
+            self.api.grid[2][5] = ''; self.api.grid[2][7] = ''
+            job = self.queue(); self.mark(job)
+            result = self.mark_asgard(job, status='Не найден' if missing else 'В пути', destination='',
+                                      history=[] if missing else ['Создан', 'В пути'], verification='not_found' if missing else 'card')
+            self.assertTrue(result['ok'], result)
+            self.assertEqual(self.api.grid[2][7], 'В работе'); self.assertEqual(self.api.grid[2][5], 'Взять в работу')
+            self.store.finish_browser_audit(job['job_id'], True)
+            with self.store._session() as db: db.execute('DELETE FROM inventa_batch_cursor')
+
+    def test_asgard_cannot_complete_without_verification_or_overwrite_comment(self):
+        job = self.queue(); self.mark(job)
+        self.api.grid[2][5] = 'User edited comment'
+        result = self.mark_asgard(job)
+        self.assertEqual(result['error'], 'inventa_writeback_source_changed')
+        self.assertEqual(self.api.grid[2][5], 'User edited comment')
+        self.store.finish_browser_audit(job['job_id'], True)
+        self.assertEqual(self.store.latest_browser_audit_job()['status'], 'failed')
+
+    def test_unverified_history_never_writes_and_asgard_requires_found_stage(self):
+        job = self.queue()
+        self.assertFalse(self.mark_asgard(job)['ok'])
+        self.mark(job)
+        self.assertFalse(self.mark_asgard(job, verification='generic_table')['ok'])
+        self.assertEqual(self.api.grid[2][7], '')
 
 
 if __name__ == '__main__': unittest.main()

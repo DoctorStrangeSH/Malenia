@@ -1,6 +1,6 @@
 [package]
 name = "malenia-desktop"
-version = "0.6.9"
+version = "0.6.10"
 description = "Malenia local-first desktop assistant"
 authors = ["Malenia contributors"]
 edition = "2021"

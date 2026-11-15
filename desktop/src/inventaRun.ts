@@ -107,7 +107,7 @@ export class InventaRun {
       if(current.status==="completed"){
         const completed=this.job;this.job=null;
         this.update({processed:completed.end});
-        if(!completed.remaining){this.active=false;this.update({phase:"completed",message:"Разбор листа завершён. Подтверждённые заказы отмечены «Найден» и зелёной заливкой."});return;}
+        if(!completed.remaining){this.active=false;this.update({phase:"completed",message:"Разбор листа завершён. По DataLens записаны «Найден» и зелёная заливка; по Asgard — проверенные статусы и комментарии."});return;}
         if(this.active)await this.next();
         else this.update({phase:"paused",message:"Пауза. Проверенная позиция сохранена; продолжение не пропустит строки."});
       }else if(["failed","expired"].includes(current.status)){

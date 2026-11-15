@@ -597,6 +597,45 @@ fetch("/", {method:"POST", headers:{"Content-Type":"application/x-www-form-urlen
             raise GoogleSheetsError("inventa_writeback_verification_failed")
         return len(verified)
 
+    def mark_inventa_asgard(self, spreadsheet_id: str, sheet_id: int, sheet_title: str, updates: list[dict]) -> None:
+        """Atomic literal status/comment writes, confirmed by returned grid data."""
+        if (not _SPREADSHEET_ID_RE.fullmatch(spreadsheet_id) or type(sheet_id) is not int or sheet_id < 0
+                or not 1 <= len(updates) <= 40 or not sheet_title or len(sheet_title) > 200
+                or any(type(x.get("row")) is not int or not 2 <= x["row"] <= 5000
+                       or type(x.get("column")) is not int or not 1 <= x["column"] <= 26
+                       or not isinstance(x.get("value"), str) or not 1 <= len(x["value"]) <= 2000
+                       or x["value"].startswith("=") for x in updates)):
+            raise GoogleSheetsError("invalid_inventa_writeback")
+        title = sheet_title.replace("'", "''")
+        requests, ranges = [], []
+        for item in updates:
+            requests.append({"updateCells": {"range": {"sheetId": sheet_id, "startRowIndex": item["row"]-1,
+                "endRowIndex": item["row"], "startColumnIndex": item["column"]-1, "endColumnIndex": item["column"]},
+                "rows": [{"values": [{"userEnteredValue": {"stringValue": item["value"]}}]}], "fields": "userEnteredValue"}})
+            cell = f"{chr(64+item['column'])}{item['row']}"
+            ranges.append(f"'{title}'!{cell}")
+        body = json.dumps({"requests": requests, "includeSpreadsheetInResponse": True,
+            "responseRanges": ranges, "responseIncludeGridData": True}, ensure_ascii=False).encode()
+        def send(token):
+            return self._request_json(Request(f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}:batchUpdate",
+                data=body, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, method="POST"), _MAX_SHEETS_RESPONSE_BYTES)
+        try:
+            payload = send(self._get_access_token())
+        except GoogleSheetsError as error:
+            if error.status != 401:
+                raise
+            payload = send(self._refresh_access_token())
+        book = payload.get("updatedSpreadsheet", {})
+        sheets = [s for s in book.get("sheets", []) if s.get("properties", {}).get("sheetId") == sheet_id and s.get("properties", {}).get("title") == sheet_title]
+        seen = {}
+        if book.get("spreadsheetId") == spreadsheet_id and len(sheets) == 1:
+            for block in sheets[0].get("data", []):
+                for r, row in enumerate(block.get("rowData", [])):
+                    for c, cell in enumerate(row.get("values", [])):
+                        seen[(block.get("startRow", 0)+r+1, block.get("startColumn", 0)+c+1)] = cell.get("userEnteredValue", {}).get("stringValue")
+        if any(seen.get((x["row"], x["column"])) != x["value"] for x in updates):
+            raise GoogleSheetsError("inventa_writeback_verification_failed")
+
     def write_values(self, spreadsheet_id: str, range_a1: str, values: list[list[Any]]) -> dict[str, Any]:
         """Write literal values to an exact range; callers must enforce approval."""
         if not isinstance(spreadsheet_id, str) or _SPREADSHEET_ID_RE.fullmatch(spreadsheet_id) is None:

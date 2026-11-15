@@ -1288,3 +1288,27 @@ test('inventory write failure stops the batch before Asgard or successful comple
  assert.equal(result.results.at(-1).reason,'inventa_writeback_source_changed');
  assert.equal(result.writeback,undefined);
 });
+
+test('marking run verifies the selected Asgard card and acknowledges both write stages',async()=>{
+ const api=runner(),chrome=fakeBrowser(),messages=[];let submitted=false;
+ chrome.scripting.executeScript=async({args:[action,key]})=>{
+  if(action==='datalens')return [{result:{columns:['main_partner_code_original','sc_id','result','scanned_at'],
+   rows:[[key,'101366','OK',key==='FOUND-1'?'2026-10-05 16:00:00':'2026-09-01 16:00:00']]}}];
+  if(action==='submit'){submitted=true;return [{result:{submitted:true}}];}
+  if(action==='results')return [{result:submitted?{fresh:true,matches:[
+   {box:'122',status:'Выдан',destination:'Купишуз',url:'https://asgard.market.yandex-team.ru/returnBox/122'},
+   {box:'123',status:'В пути',destination:'Купишуз',url:'https://asgard.market.yandex-team.ru/returnBox/123'}]}:{empty:true,fresh:false}}];
+  assert.equal(action,'card');return [{result:{box:'123',history:['В пути'],status:'В пути',kupishuz:true}}];
+ };
+ const result=await api.run(chrome,workTargets,async message=>{
+  messages.push(message.type);
+  if(message.type==='mark_inventa_found')return {ok:true,type:'inventa_found_marked',verified:true,written:1};
+  if(message.type==='mark_inventa_asgard'){
+   assert.equal(message.asgard.rows.length,1);assert.equal(message.asgard.rows[0][2],'123');
+   return {ok:true,type:'inventa_asgard_marked',verified:true,written:1};
+  }
+  return {ok:true,type:'site_tables_reconciled',persisted:false,read_only:true,write_enabled:false,total:2,summary:{found:1,in_progress:1,manual_review:0}};
+ },async()=>{}, {exactGetSearch:true,seedInventory:inventorySeed(['FOUND-1','REVIEW-2']),writebackJobId:'job',asgardWriteback:true});
+ assert.equal(result.phase,'reconciled');assert.equal(result.writeback.asgard_written,1);
+ assert.deepEqual(messages,['mark_inventa_found','mark_inventa_asgard','reconcile_site_tables']);
+});

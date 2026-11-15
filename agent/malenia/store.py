@@ -172,6 +172,9 @@ class TaskStore:
             except sqlite3.OperationalError as error:
                 if "duplicate column name" not in str(error):
                     raise
+            for column, definition in (("asgard_state", "TEXT NOT NULL DEFAULT 'pending'"), ("asgard_written", "INTEGER NOT NULL DEFAULT 0")):
+                if column not in {row[1] for row in db.execute("PRAGMA table_info(inventa_writeback)")}:
+                    db.execute(f"ALTER TABLE inventa_writeback ADD COLUMN {column} {definition}")
 
     def cancel_browser_audit(self, reason: str = "cancelled") -> bool:
         with self._session() as db:
@@ -356,23 +359,25 @@ class TaskStore:
                    "(SELECT job_id FROM browser_audit_job WHERE status IN ('pending','running'))")
 
 
-    def claim_inventa_writeback(self, job_id: str) -> dict[str, Any]:
+    def claim_inventa_writeback(self, job_id: str, *, asgard: bool = False) -> dict[str, Any]:
         with self._session() as db:
             db.execute("BEGIN IMMEDIATE")
             self._expire_browser_audit(db)
-            row = db.execute("SELECT w.context_json,w.state,w.written FROM inventa_writeback w "
+            state_col, count_col = ("asgard_state", "asgard_written") if asgard else ("state", "written")
+            row = db.execute(f"SELECT w.context_json,w.{state_col} AS state,w.{count_col} AS written,w.state AS found_state FROM inventa_writeback w "
                 "JOIN browser_audit_job j ON j.job_id=w.job_id WHERE w.job_id=? AND j.status='running'",
                 (job_id,)).fetchone()
-            if row is None or row["state"] == 'writing':
+            if row is None or row["state"] == 'writing' or (asgard and row["found_state"] != 'applied'):
                 raise ValueError("inventa_writeback_context_unavailable")
             if row["state"] == 'applied':
                 return {"already_applied": True, "written": row["written"]}
-            db.execute("UPDATE inventa_writeback SET state='writing' WHERE job_id=?", (job_id,))
+            db.execute(f"UPDATE inventa_writeback SET {state_col}='writing' WHERE job_id=?", (job_id,))
             return {"context": json.loads(row["context_json"])}
 
-    def complete_inventa_writeback(self, job_id: str, written: int | None) -> bool:
+    def complete_inventa_writeback(self, job_id: str, written: int | None, *, asgard: bool = False) -> bool:
         with self._session() as db:
-            return db.execute("UPDATE inventa_writeback SET state=?,written=? WHERE job_id=? AND state='writing' "
+            state_col, count_col = ("asgard_state", "asgard_written") if asgard else ("state", "written")
+            return db.execute(f"UPDATE inventa_writeback SET {state_col}=?,{count_col}=? WHERE job_id=? AND {state_col}='writing' "
                 "AND job_id IN (SELECT job_id FROM browser_audit_job WHERE status='running')",
                 ('applied' if written is not None else 'pending', written or 0, job_id)).rowcount == 1
 
@@ -546,8 +551,10 @@ class TaskStore:
             db.execute("DELETE FROM browser_audit_seed_items WHERE job_id=?", (row["job_id"],))
         result = {"job_id": row["job_id"], "status": "running"}
         with self._session() as db:
-            if db.execute("SELECT 1 FROM inventa_writeback WHERE job_id=?", (row["job_id"],)).fetchone():
+            context = db.execute("SELECT context_json FROM inventa_writeback WHERE job_id=?", (row["job_id"],)).fetchone()
+            if context:
                 result["writeback_required"] = True
+                result["asgard_writeback_required"] = json.loads(context["context_json"]).get("asgard_required") is True
         if items:
             result["inventory"] = {"columns": ["cargo_place", "inventory_date"],
                                    "rows": [[item["cargo_place"], item["inventory_date"]]
@@ -582,8 +589,8 @@ class TaskStore:
         with self._session() as db:
             db.execute("BEGIN IMMEDIATE")
             self._expire_browser_audit(db)
-            pending_write = db.execute("SELECT state FROM inventa_writeback WHERE job_id=?", (job_id,)).fetchone()
-            if succeeded and pending_write and pending_write["state"] != 'applied':
+            pending_write = db.execute("SELECT state,asgard_state,context_json FROM inventa_writeback WHERE job_id=?", (job_id,)).fetchone()
+            if succeeded and pending_write and (pending_write["state"] != 'applied' or (json.loads(pending_write["context_json"]).get("asgard_required") and pending_write["asgard_state"] != 'applied')):
                 succeeded, failure_reason = False, 'inventa_writeback_required'
             cursor = db.execute(
                 """UPDATE browser_audit_job SET status=?,updated_at=?,failure_reason=?

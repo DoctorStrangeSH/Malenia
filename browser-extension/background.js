@@ -37,7 +37,7 @@ function nativeSession() {
             port.disconnect();
             reject(new Error("host_timeout"));
           }
-        }, message.type==='mark_inventa_found'?120000:5000);
+        }, ['mark_inventa_found','mark_inventa_asgard'].includes(message.type)?120000:5000);
         pending = {id, timer, resolve, reject};
         try { port.postMessage({...message, request_id:id}); }
         catch {
@@ -179,11 +179,15 @@ async function pollDesktopAudit() {
       if(claimed.job.writeback_required && !hello.capabilities.includes('mark_inventa_found')){
         failureReason='inventa_writeback_required';throw new Error(failureReason);
       }
+      if(claimed.job.asgard_writeback_required && !hello.capabilities.includes('mark_inventa_asgard')){
+        failureReason='inventa_writeback_required';throw new Error(failureReason);
+      }
       const result = await MaleniaAutomation.run(chrome,targets,
         message=>session.send(message),report,
         {exactGetSearch:claimed.job.inventory ? true : stored.maleniaExactGetSearch !== false,
          ...(claimed.job.inventory ? {seedInventory:claimed.job.inventory} : {}),
-         ...(claimed.job.writeback_required?{writebackJobId:jobId}:{})});
+         ...(claimed.job.writeback_required?{writebackJobId:jobId}:{}),
+         asgardWriteback:claimed.job.asgard_writeback_required===true});
       succeeded = result.phase === "reconciled" &&
         (!claimed.job.writeback_required || result.writeback?.verified===true);
       if(claimed.job.writeback_required && result.phase==='reconciled' && !succeeded)

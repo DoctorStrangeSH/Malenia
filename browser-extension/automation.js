@@ -290,7 +290,146 @@ var MaleniaAutomation = (() => {
     }
   }
 
-  async function workplaceSearch(chromeApi, tabId, role, code, origin) {
+  // The reverse-flow list describes different boxes, not duplicate evidence.
+  // Reuse the task-owned tab; verify each linked card before using its history.
+  async function asgardWorkplaceSearch(chromeApi, tabId, code, origin) {
+    if(origin!=="https://asgard.market.yandex-team.ru"||!/^[A-Za-z0-9_.-]{1,128}$/.test(code))throw new Error("unsupported_dynamic_search");
+    const probe=async(action)=>{
+      const response=await chromeApi.scripting.executeScript({target:{tabId},world:'ISOLATED',
+        func:(action,code,origin)=>{
+          if(location.origin!==origin)return {error:'search_origin_mismatch'};
+          const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
+          const visible=el=>el.getClientRects().length>0;
+          const failure=error=>({error});
+          if(action==='submit'){
+            const inputs=[...document.querySelectorAll('input')].filter(el=>visible(el)&&!el.disabled&&!el.readOnly);
+            const matches=inputs.filter(el=>{
+              const captions=[el.placeholder,el.getAttribute('aria-label'),...Array.from(el.labels||[]).map(x=>x.textContent)];
+              for(const id of (el.getAttribute('aria-labelledby')||'').split(/\s+/).filter(Boolean))captions.push(document.getElementById(id)?.textContent);
+              let parent=el.parentElement;
+              for(let i=0;parent&&i<6;i++,parent=parent.parentElement){
+                if([...parent.querySelectorAll('input')].filter(x=>visible(x)&&!x.disabled&&!x.readOnly).length!==1)break;
+                captions.push(parent.textContent);
+                for(const label of parent.querySelectorAll('label,span,div'))if(visible(label))captions.push(label.textContent);
+              }
+              return captions.some(s=>/^Штрихкод коробки\s*[:*]?$/i.test(clean(s)));
+            });
+            if(matches.length!==1)return failure(matches.length?'search_field_ambiguous':'search_field_missing');
+            const input=matches[0];
+            if(inputs.some(el=>el!==input&&el.value.trim()))return failure('search_filters_not_empty');
+            const buttons=[...document.querySelectorAll('button')].filter(el=>visible(el)&&!el.disabled&&clean(el.textContent)==='Найти');
+            if(buttons.length!==1)return failure('search_button_missing');
+            const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
+            if(!setter)return failure('unmapped_search_results');
+            setter.call(input,code);input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+            globalThis.__maleniaAsgardSearch?.observer?.disconnect();
+            const state={code,input,changed:false};
+            state.observer=new MutationObserver(()=>{state.changed=true;state.observer.disconnect();});
+            for(const table of document.querySelectorAll('table'))state.observer.observe(table,{subtree:true,childList:true,characterData:true});
+            globalThis.__maleniaAsgardSearch=state;
+            buttons[0].click();return {submitted:true};
+          }
+          if(document.querySelector('[aria-busy="true"],[role="progressbar"],.ant-spin-spinning'))return null;
+          if(action==='results'){
+            const tables=[...document.querySelectorAll('table')].filter(visible).map(table=>{
+              const heads=Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(el=>clean(el.textContent));
+              return {table,heads};
+            }).filter(({heads})=>['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'].every(h=>heads.filter(x=>x===h).length===1));
+            if(tables.length!==1)return null;
+            const {table,heads}=tables[0];
+            const rows=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
+            const empty=rows.length===0||rows.length===1&&rows[0].querySelectorAll('td').length===1&&/^(Нет данных|Ничего не найдено|Нет результатов|Данные не найдены)$/i.test(clean(rows[0].textContent));
+            if(empty)return {empty:true,fresh:globalThis.__maleniaAsgardSearch?.changed===true&&globalThis.__maleniaAsgardSearch.input.value===code};
+            if(rows.length>100)return failure('unmapped_search_results');
+            const result=[];
+            for(const tr of rows){
+              const cells=[...tr.querySelectorAll('td')];if(cells.length!==heads.length)return null;
+              const cell=name=>cells[heads.indexOf(name)];
+              const links=[...cell('ID коробки').querySelectorAll('a[href]')];
+              const box=clean(cell('ID коробки').textContent),status=clean(cell('Статус грузоместа').textContent),destination=clean(cell('Точка назначения').textContent);
+              if(links.length!==1||!/^\d{1,20}$/.test(box)||destination.length>256)return failure('unmapped_search_results');
+              const url=new URL(links[0].href,location.href);
+              if(url.origin!==origin||url.username||url.password||url.pathname===location.pathname)return failure('search_origin_mismatch');
+              result.push({box,status,destination,url:url.href});
+            }
+            return {matches:result,fresh:globalThis.__maleniaAsgardSearch?.changed===true&&globalThis.__maleniaAsgardSearch.input.value===code};
+          }
+          if(action==='card'){
+            const headings=[...document.querySelectorAll('h1,h2,[role="heading"]')].filter(visible).map(el=>clean(el.textContent));
+            const cargo=headings.filter(s=>/^Грузоместо\s+/.test(s));
+            if(cargo.length!==1)return null;
+            const actual=cargo[0].replace(/^Грузоместо\s+/,'');
+            if(actual!==code)return {other:true};
+            const text=clean(document.body.innerText||document.body.textContent);
+            const box=text.match(/ID грузоместа\s+(\d{1,20})(?!\d)/)?.[1];
+            if(!box)return null;
+            const titles=[...document.querySelectorAll('h1,h2,h3,h4,h5,div,span')].filter(el=>visible(el)&&clean(el.textContent)==='История изменения статусов'&&![...el.children].some(child=>clean(child.textContent)==='История изменения статусов'));
+            const tables=new Set();
+            for(const title of titles){
+              let scope=title;
+              for(let depth=0;scope&&depth<4;depth++,scope=scope.parentElement){
+                const local=[...scope.querySelectorAll('table')].filter(visible).filter(t=>{
+                  const heads=[...t.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]].map(el=>clean(el.textContent));
+                  return heads.length===2&&heads.includes('Дата')&&heads.includes('Статус');
+                });
+                if(local.length===1){tables.add(local[0]);break;}
+              }
+              let next=title.nextElementSibling;
+              if(next?.matches('table'))tables.add(next);
+            }
+            if(tables.size!==1)return null;
+            const table=[...tables][0],heads=[...table.querySelectorAll('tr')[0].querySelectorAll('th')].map(el=>clean(el.textContent));
+            const data=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
+            if(!data.length||data.length>100)return null;
+            const history=[];
+            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return null;const status=clean(cells[heads.indexOf('Статус')].textContent);if(!status||status.length>100)return null;history.push(status);}
+            const statuses=[...new Set([...document.querySelectorAll('span,button,div')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Выдан','Принят на ФФ'].includes(clean(el.textContent))).map(el=>clean(el.textContent)))];
+            if(statuses.length!==1)return null;
+            return {box,history,status:statuses[0],kupishuz:/купишуз/i.test(text)};
+          }
+          return null;
+        },args:[action,code,origin]});
+      const result=response?.[0]?.result;if(result?.error)throw new Error(result.error);return result;
+    };
+    const before=JSON.stringify(await probe('results'));
+    let ack;const readyUntil=Date.now()+10000;
+    do{try{ack=await probe('submit');break;}catch(error){
+      if(!['search_field_missing','search_button_missing'].includes(error.message)||Date.now()>=readyUntil)throw error;
+      await new Promise(r=>setTimeout(r,250));
+    }}while(true);
+    if(!ack?.submitted)throw new Error('unmapped_search_results');
+    let result,last='',stable=0;const until=Date.now()+15000;
+    while(Date.now()<until){
+      const now=await probe('results'),serialized=JSON.stringify(now);
+      if(now?.fresh===true&&serialized!==before){if(serialized!==last){last=serialized;stable=Date.now();}else if(Date.now()-stable>=750){result=now;break;}}
+      else stable=0;
+      await new Promise(r=>setTimeout(r,250));
+    }
+    if(!result)throw new Error('search_results_unconfirmed');
+    const columns=['cargo_place','status','box_id','destination','history_json','verification'];
+    if(result.empty)return {columns,rows:[[code,'Не найден','','','[]','not_found']]};
+    const matches=result.matches.sort((a,b)=>(a.status==='В пути'?0:1)-(b.status==='В пути'?0:1));
+    if(matches.length>20)throw new Error('unmapped_search_results');
+    const confirmed=[];
+    for(const match of matches){
+      // Once transit candidates exist, issued neighbours must not supply history.
+      if(matches.some(x=>x.status==='В пути')&&match.status!=='В пути')continue;
+      await chromeApi.tabs.update(tabId,{url:match.url});await waitLoaded(chromeApi,tabId);
+      let card=null;const deadline=Date.now()+15000;
+      while(Date.now()<deadline){card=await probe('card');if(card)break;await new Promise(r=>setTimeout(r,250));}
+      if(card?.other)continue;
+      if(!card||card.box!==match.box)throw new Error('unverified_search_result_identity');
+      if(card.status!==match.status||!card.history.includes(match.status))throw new Error('unverified_search_result_identity');
+      const company=/купишуз/i.test(match.destination);
+      if(company!==card.kupishuz)throw new Error('unverified_search_result_identity');
+      confirmed.push([code,match.status,match.box,match.destination,JSON.stringify(card.history),'card']);
+    }
+    if(confirmed.length!==1)throw new Error('unverified_search_result_identity');
+    return {columns,rows:confirmed};
+  }
+
+  async function workplaceSearch(chromeApi, tabId, role, code, origin, verifyAsgard = false) {
+    if(role==='asgard' && verifyAsgard)return asgardWorkplaceSearch(chromeApi,tabId,code,origin);
     const hosts = {datalens:"https://datalens.yandex-team.ru",asgard:"https://asgard.market.yandex-team.ru"};
     if (origin !== hosts[role] || !/^[A-Za-z0-9_.-]{1,128}$/.test(code)) throw new Error("unsupported_dynamic_search");
     const response = await chromeApi.scripting.executeScript({target:{tabId},world:role==='datalens'?'MAIN':'ISOLATED',
@@ -656,7 +795,7 @@ var MaleniaAutomation = (() => {
     return table;
   }
 
-  async function visit(chromeApi, role, url, sendNative, searchKey = null) {
+  async function visit(chromeApi, role, url, sendNative, searchKey = null, verifyAsgard = false) {
     let tabId, keepForReview=false;
     try {
       const workplace=searchKey!==null && (
@@ -678,7 +817,7 @@ var MaleniaAutomation = (() => {
         }
         if (workplace) {
           try {
-            const table = await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin);
+            const table = await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin, verifyAsgard);
             return {table,characters:0,pages:1};
           } catch(error) {
             // Keep only a failed page on the explicitly authorized service origin.
@@ -903,7 +1042,11 @@ var MaleniaAutomation = (() => {
           throw new Error("invalid_inventory_search_keys");
         }
         if (role === "asgard" && Array.isArray(searchKeys) && !searchKeys.length) {
-          snapshots.asgard = {columns:["cargo_place", "status"],rows:[]};
+          snapshots.asgard = {columns:options.asgardWriteback?['cargo_place','status','box_id','destination','history_json','verification']:["cargo_place", "status"],rows:[]};
+          if(options.asgardWriteback){
+            const marked=await sendNative({type:'mark_inventa_asgard',job_id:options.writebackJobId,inventory:snapshots.inventory,datalens:snapshots.datalens,asgard:snapshots.asgard});
+            if(!marked?.ok||marked.verified!==true||marked.type!=='inventa_asgard_marked'||marked.written!==0)throw new Error('inventa_writeback_failed');
+          }
           results.push({role, status:"read", characters:0, pages:0});
           await onProgress({phase:"reading",role,results:[...results]});
           continue;
@@ -911,7 +1054,7 @@ var MaleniaAutomation = (() => {
         const keys = searchKeys || [null];
         let table = null, characters = 0, pages = 0;
         for (const key of keys) {
-          const visitResult = await visit(chromeApi, role, targets[role], sendNative, key);
+          const visitResult = await visit(chromeApi, role, targets[role], sendNative, key, options.asgardWriteback===true);
           if (options.exactGetSearch && !visitResult.table) {
             throw new Error("unmapped_search_results");
           }
@@ -949,6 +1092,13 @@ var MaleniaAutomation = (() => {
             throw new Error(SAFE_FAILURE_CODES.has(marked?.error)?marked.error:'inventa_writeback_failed');
           }
           writeback={written:marked.written,verified:true};
+        }
+        if(role==='asgard' && options.asgardWriteback){
+          const marked=await sendNative({type:'mark_inventa_asgard',job_id:options.writebackJobId,
+            inventory:snapshots.inventory,datalens:snapshots.datalens,asgard:snapshots.asgard});
+          if(!marked?.ok||marked.type!=='inventa_asgard_marked'||marked.verified!==true||!Number.isInteger(marked.written)||marked.written<0||marked.written>searchKeys.length)
+            throw new Error(SAFE_FAILURE_CODES.has(marked?.error)?marked.error:'inventa_writeback_failed');
+          writeback={...writeback,asgard_written:marked.written};
         }
         if (role === "datalens" && options.exactGetSearch &&
             asgardSearchKeys(snapshots.inventory, snapshots.datalens) === null) {

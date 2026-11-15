@@ -94,7 +94,8 @@
       "Browser Bridge "+audit.bridge_version:null;
     const written=audit.writeback?.verified===true && Number.isInteger(audit.writeback.written) &&
       audit.writeback.written>=0 && audit.writeback.written<=20?`В ИНВенте отмечено зелёным: ${audit.writeback.written}`:null;
-    orderStatus.textContent = [version,...items,written,end].filter(Boolean).join(" · ");
+    const asgardWritten=audit.writeback?.verified===true && Number.isInteger(audit.writeback.asgard_written) && audit.writeback.asgard_written>=0 && audit.writeback.asgard_written<=20?`По Asgard обновлено строк: ${audit.writeback.asgard_written}`:null;
+    orderStatus.textContent = [version,...items,written,asgardWritten,end].filter(Boolean).join(" · ");
     orderStatus.className = "status"+(audit.phase === "reconciled" ? " ok" : "");
   }
   chrome.storage.session?.get("maleniaAudit").then(data => renderAudit(data?.maleniaAudit)).catch(()=>{});

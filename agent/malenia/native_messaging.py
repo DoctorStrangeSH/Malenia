@@ -121,7 +121,7 @@ def handle_message(payload: dict[str, Any], store: TaskStore, *, google_sheets=N
             "version": "0.1.0",
             "capabilities": ["share_active_tab", "inspect_active_page", "inspect_capabilities", "reconcile_site_tables",
                              "claim_browser_audit", "finish_browser_audit",
-                             "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found"],
+                             "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found", "mark_inventa_asgard"],
         }
 
     if message_type == "claim_browser_audit":
@@ -154,30 +154,33 @@ def handle_message(payload: dict[str, Any], store: TaskStore, *, google_sheets=N
             return {**response, "ok": False, "error": "audit_job_unavailable"}
         return {**response, "ok": updated, "type": "browser_audit_finished"}
 
-    if message_type == "mark_inventa_found":
+    if message_type in {"mark_inventa_found", "mark_inventa_asgard"}:
+        asgard = message_type == "mark_inventa_asgard"
+        response_type = "inventa_asgard_marked" if asgard else "inventa_found_marked"
         from .google_sheets import GoogleSheetsConnector, GoogleSheetsError
-        from .inventa_writeback import mark_found
-        if (set(payload) != {"type", "request_id", "job_id", "inventory", "datalens"}
+        from .inventa_writeback import mark_found, mark_asgard
+        if (set(payload) != ({"type", "request_id", "job_id", "inventory", "datalens"} | ({"asgard"} if asgard else set()))
                 or not isinstance(payload.get("job_id"), str) or len(payload["job_id"]) != 36):
             return {**response, "ok": False, "error": "inventa_writeback_failed"}
         job_id = payload["job_id"]
         leased = False
         try:
-            operation = store.claim_inventa_writeback(job_id)
+            operation = store.claim_inventa_writeback(job_id, asgard=asgard)
             if operation.get("already_applied"):
-                return {**response, "ok": True, "type": "inventa_found_marked",
+                return {**response, "ok": True, "type": response_type,
                         "written": operation["written"], "verified": True, "write_enabled": True}
             leased = True
-            written = mark_found(google_sheets if google_sheets is not None else GoogleSheetsConnector(),
-                                 operation["context"], payload["inventory"], payload["datalens"])
-            if not store.complete_inventa_writeback(job_id, written):
+            written = (mark_asgard if asgard else mark_found)(google_sheets if google_sheets is not None else GoogleSheetsConnector(),
+                                 operation["context"], payload["inventory"], payload["datalens"],
+                                 *([payload["asgard"]] if asgard else []))
+            if not store.complete_inventa_writeback(job_id, written, asgard=asgard):
                 raise ValueError("inventa_writeback_failed")
-            return {**response, "ok": True, "type": "inventa_found_marked",
+            return {**response, "ok": True, "type": response_type,
                     "written": written, "verified": True, "write_enabled": True}
         except (GoogleSheetsError, SiteSnapshotError, ValueError, TypeError, KeyError, OSError, sqlite3.Error) as error:
             if leased:
                 try:
-                    store.complete_inventa_writeback(job_id, None)
+                    store.complete_inventa_writeback(job_id, None, asgard=asgard)
                 except sqlite3.Error:
                     pass
             code = str(error)

@@ -131,6 +131,11 @@ def evaluate_order(
             ),
         })
 
+    verified = asgard_record.get("verified_outcome")
+    if isinstance(verified, tuple) and len(verified) == 2:
+        return {"decision": DECISION_ASGARD, "proposed_status": verified[0], "comment": verified[1],
+                "color": "neutral", "reason_code": "asgard_verified_card_outcome", "evidence": {"source": "asgard"}, "write_enabled": False}
+
     asgard_status = asgard_record.get("status")
     base_evidence = {
         "source": "asgard",

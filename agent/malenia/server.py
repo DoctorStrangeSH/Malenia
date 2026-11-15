@@ -333,7 +333,7 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                         fingerprint = analysis["audit_fingerprint"]
                         if payload.get("mark_found") is True:
                             # Read-only cursors cannot skip rows never marked.
-                            fingerprint = hashlib.sha256((fingerprint + "\nmark_found:v1").encode()).hexdigest()
+                            fingerprint = hashlib.sha256((fingerprint + "\nmark_found:v2-asgard").encode()).hexdigest()
                         offset = store.inventa_batch_position(source_hash, fingerprint)
                         if not analysis["eligible_audit_candidates"]:
                             self._send(422, {"error": analysis["first_order_blocker"] or "no_safe_audit_candidates"})

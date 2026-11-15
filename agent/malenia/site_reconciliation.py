@@ -49,8 +49,8 @@ def _table(raw: Any, role: str) -> list[dict[str, str]]:
     output = []
     for values in rows:
         if (not isinstance(values, list) or len(values) != len(columns)
-                or not all(isinstance(v, str) and len(v) <= MAX_CELL
-                           and "\x00" not in v for v in values)):
+                or not all(isinstance(v, str) and len(v) <= (15000 if role == "asgard" and columns[index] == "history_json" else MAX_CELL)
+                           and "\x00" not in v for index, v in enumerate(values))):
             raise SiteSnapshotError("invalid_row")
         output.append(dict(zip(columns, values)))
     return output
@@ -122,8 +122,13 @@ def reconcile_tables(snapshots: Any, *, include_results: bool = False) -> dict[s
         record = None
         if len(matches) == 1:
             match = matches[0]
+            if "verification" in match:
+                from .asgard_outcomes import COLUMNS, outcome
+                decision = outcome([match.get(key, "") for key in COLUMNS])
+                record = {"verified_outcome": decision}
+            else:
+                record = {"status": match["status"].strip()}
             status = match["status"].strip()
-            record = {"status": status}
             if status == "В пути":
                 # The box history must come from a verified dedicated
                 # history adapter, not from a generic cell's free text.
