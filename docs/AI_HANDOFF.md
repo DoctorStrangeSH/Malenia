@@ -4,7 +4,7 @@ Owner screenshot shows «Коробки не найдены» in a standalone in
 
 Use existing canonical not_found evidence with no fabricated card/history. Native 0.6.12 already maps this to status «В работе» and comment «Взять в работу»; batch proceeds to later cargos and source-bound Sheets writeback. DataLens leading-zero recovery remains. App/native stays 0.6.12; update only Bridge to 1.6.23.
 
-Validation: regression failed on 1.6.22, then 32 Asgard DOM scenarios passed (new table-less notice, cached empty + loading, stale empty, wrong input, service error). 174 Node tests include two missing Asgard cargos reaching writeback and continuation; 10 real React DataLens scenarios and 6 native Asgard outcome tests passed locally. Corporate account unverified. Publication pending.
+Validation: regression failed on 1.6.22, then 32 Asgard DOM scenarios passed (new table-less notice, cached empty + loading, stale empty, wrong input, service error). 174 Node tests include two missing Asgard cargos reaching writeback and continuation; 10 real React DataLens scenarios and 6 native Asgard outcome tests passed locally. Corporate account unverified. Code commit a72e79425b31ceffafad8ef70969cef8a7685db9 passed Bridge checks on Windows in Desktop run 43728379252, including all 32 Asgard DOM and 10 React DataLens scenarios. Python CI 43728379284 passed. Extension artifact 14167700819 is ready: https://github.com/DoctorStrangeSH/WorkPilot/actions/runs/43728379423/artifacts/14167700819 . At delivery, unchanged NSIS installer and Tauri/runtime checks were still running; do not claim the complete runs passed.
 
 ## 2026-11-15 — Bridge 1.6.22 — temporary leading-zero recovery
 
