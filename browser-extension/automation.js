@@ -903,6 +903,30 @@ var MaleniaAutomation = (() => {
     return table;
   }
 
+  // Temporary recovery for numeric barcodes whose leading zeros were lost in
+  // the inventory sheet. Retry only a confirmed empty history, never an error.
+  // Keep the inventory key unchanged for native reconciliation/writeback.
+  async function datalensSearchWithPadding(chromeApi,tabId,original,origin) {
+    const columns=['main_partner_code_original','sc_id','result','scanned_at'];
+    let candidate=original;
+    for(let added=0;;added++){
+      const table=await workplaceSearch(chromeApi,tabId,'datalens',candidate,origin);
+      if(!table || JSON.stringify(table.columns)!==JSON.stringify(columns) || !Array.isArray(table.rows))
+        throw new Error('unmapped_search_results');
+      if(table.rows.length>100)throw new Error('too_many_search_rows');
+      if(table.rows.some(row=>!Array.isArray(row) || row.length!==columns.length || row[0]!==candidate)){
+        throw new Error('unverified_search_result_identity');
+      }
+      if(table.rows.length){
+        // workplaceSearch already checked the exact padded identity in the DOM.
+        // Associate that verified answer only with the original requested row.
+        return {columns,rows:table.rows.map(row=>[original,...row.slice(1)])};
+      }
+      if(!/^\d+$/.test(original) || added>=10 || candidate.length>=128)return {columns,rows:[]};
+      candidate='0'+candidate;
+    }
+  }
+
   async function visit(chromeApi, role, url, sendNative, searchKey = null, verifyAsgard = false) {
     let tabId, keepForReview=false;
     try {
@@ -925,7 +949,9 @@ var MaleniaAutomation = (() => {
         }
         if (workplace) {
           try {
-            const table = await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin, verifyAsgard);
+            const table = role==='datalens'
+              ?await datalensSearchWithPadding(chromeApi,tabId,searchKey,new URL(url).origin)
+              :await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin, verifyAsgard);
             return {table,characters:0,pages:1};
           } catch(error) {
             if(error?.message==='audit_cancelled'||error?.message==='audit_progress_unavailable')throw error;

@@ -1365,3 +1365,92 @@ test('cancellation clears page-loading listeners and stops before injecting a sc
   scans.rows.push(['FOUND','101366','OK','2026-10-05T10:00:00']);
   assert.deepEqual(Array.from(api.asgardSearchKeys(inventory,scans)),['EMPTY']);
  });
+
+test('numeric DataLens zeros retry in one tab and bind Found to the original inventory row',async()=>{
+ const api=runner(),chrome=fakeBrowser(),queries=[],messages=[];
+ const original='12345678',padded='0000012345678';
+ chrome.scripting.executeScript=async({args:[role,key]})=>{
+  assert.equal(role,'datalens');queries.push(key);
+  return [{result:{columns:['main_partner_code_original','sc_id','result','scanned_at'],
+   rows:key===padded?[[key,'101366','OK','2026-10-05 10:00:00']]:[]}}];
+ };
+ const result=await api.run(chrome,workTargets,async msg=>{
+  messages.push(msg);
+  if(msg.type==='mark_inventa_found'){
+   assert.equal(msg.inventory.rows[0][0],original);assert.equal(msg.datalens.rows[0][0],original);
+   return {ok:true,type:'inventa_found_marked',verified:true,written:1};
+  }
+  return {ok:true,type:'site_tables_reconciled',read_only:true,write_enabled:false,persisted:false,total:1,summary:{found:1,in_progress:0,manual_review:0}};
+ },async()=>{},{exactGetSearch:true,seedInventory:inventorySeed([original]),writebackJobId:'job'});
+ assert.equal(result.phase,'reconciled');assert.equal(result.writeback.written,1);
+ assert.deepEqual(queries,Array.from({length:6},(_,i)=>'0'.repeat(i)+original));
+ assert.equal(chrome.stats.created,1);assert.equal(chrome.stats.removed,1);
+});
+
+test('numeric zeros stop at the first history even if its scans predate inventory',async()=>{
+ const api=runner(),chrome=fakeBrowser(),queries=[];
+ chrome.scripting.executeScript=async({args:[role,key]})=>{
+  queries.push([role,key]);
+  return [{result:role==='datalens'?{columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:key==='0123'?[[key,'101366','OK','2026-10-01 10:00:00']]:[]}:
+   {columns:['cargo_place','status'],rows:[[key,'В пути']]}}];
+ };
+ const result=await api.run(chrome,workTargets,async()=>({}),async()=>{},
+  {exactGetSearch:true,seedInventory:inventorySeed(['123'])});
+ assert.notEqual(result.phase,'needs_attention');
+ assert.deepEqual(queries,[['datalens','123'],['datalens','0123'],['asgard','123']]);
+});
+
+test('numeric zeros allow more than five attempts and stop safely after ten missing variants',async()=>{
+ for(const hit of [7,null]){
+  const api=runner(),chrome=fakeBrowser(),queries=[];
+  chrome.scripting.executeScript=async({args:[role,key]})=>{
+   queries.push([role,key]);
+   return [{result:role==='datalens'?{columns:['main_partner_code_original','sc_id','result','scanned_at'],
+    rows:hit!==null&&key==='0'.repeat(hit)+'123'?[[key,'101366','OK','2026-10-05 10:00:00']]:[]}:
+    {columns:['cargo_place','status'],rows:[[key,'В пути']]}}];
+  };
+  const result=await api.run(chrome,workTargets,async()=>({}),async()=>{},
+   {exactGetSearch:true,seedInventory:inventorySeed(['123'])});
+  assert.notEqual(result.phase,'needs_attention');
+  assert.equal(queries.filter(([role])=>role==='datalens').length,hit===null?11:hit+1);
+  assert.deepEqual(queries.filter(([role])=>role==='asgard'),hit===null?[['asgard','123']]:[]);
+ }
+});
+
+test('alphanumeric missing DataLens cargo is never padded',async()=>{
+ const api=runner(),chrome=fakeBrowser(),queries=[];
+ chrome.scripting.executeScript=async({args:[role,key]})=>{
+  queries.push([role,key]);return [{result:role==='datalens'?{columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[]}:
+   {columns:['cargo_place','status'],rows:[[key,'В пути']]}}];
+ };
+ await api.run(chrome,workTargets,async()=>({}),async()=>{},
+  {exactGetSearch:true,seedInventory:inventorySeed(['BOX-123'])});
+ assert.deepEqual(queries,[['datalens','BOX-123'],['asgard','BOX-123']]);
+});
+
+test('DataLens errors or foreign padded results stop retries and cannot mark the original',async()=>{
+ for(const mode of ['error','foreign']){
+  const api=runner(),chrome=fakeBrowser(),queries=[],messages=[];
+  chrome.scripting.executeScript=async({args:[role,key]})=>{
+   queries.push([role,key]);return [{result:key==='123'?{columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[]}:
+    mode==='error'?{error:'search_results_unconfirmed',step:'scan_empty_unconfirmed'}:
+    {columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[['FOREIGN','101366','OK','2026-10-05 10:00:00']]}}];
+  };
+  const result=await api.run(chrome,workTargets,async msg=>{messages.push(msg);return {};},async()=>{},
+   {exactGetSearch:true,seedInventory:inventorySeed(['123']),writebackJobId:'job'});
+  assert.equal(result.phase,'needs_attention');assert.deepEqual(queries,[['datalens','123'],['datalens','0123']]);
+  assert.equal(messages.length,0);
+ }
+});
+
+test('pause during a padded query prevents all following queries and writeback',async()=>{
+ const api=runner(),chrome=fakeBrowser(),controller=new AbortController(),queries=[],messages=[];
+ chrome.scripting.executeScript=async({args:[role,key]})=>{
+  queries.push([role,key]);if(key==='0123')controller.abort();
+  return [{result:{columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[]}}];
+ };
+ await assert.rejects(api.run(chrome,workTargets,async msg=>{messages.push(msg);return {};},async()=>{},
+  {exactGetSearch:true,seedInventory:inventorySeed(['123']),writebackJobId:'job',signal:controller.signal}),/audit_cancelled/);
+ await new Promise(resolve=>setTimeout(resolve,0));
+ assert.deepEqual(queries,[['datalens','123'],['datalens','0123']]);assert.equal(messages.length,0);
+});

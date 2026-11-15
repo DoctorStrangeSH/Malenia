@@ -18,16 +18,16 @@ window.eval(fs.readFileSync('browser-extension/automation.js','utf8'));const api
 async function check(options){
  let submits=0,timer;
  function Dashboard(){
-  const [value,setValue]=React.useState('DEFAULT'),[generation,setGeneration]=React.useState(0),[result,setResult]=React.useState(options.initialEmpty?'empty':'old'),[busy,setBusy]=React.useState(false),[other,setOther]=React.useState(0);
+  const [evidence,setEvidence]=React.useState(''),[value,setValue]=React.useState('DEFAULT'),[generation,setGeneration]=React.useState(0),[result,setResult]=React.useState(options.initialEmpty?'empty':'old'),[busy,setBusy]=React.useState(false),[other,setOther]=React.useState(0);
   const submit=()=>{submits++;
    if(options.stale){setOther(x=>x+1);return;}
    setBusy(true);
-   timer=window.setTimeout(()=>{setResult(options.positive?'positive':'empty');setGeneration(x=>x+1);setOther(x=>x+1);if(!options.busyForever)setBusy(false);if(options.wrongInput)setValue('OTHER');},200);
+   timer=window.setTimeout(()=>{setResult(options.positive||(options.padding&&value==='0000012345678')?'positive':'empty');setEvidence(value);setGeneration(x=>x+1);setOther(x=>x+1);if(!options.busyForever)setBusy(false);if(options.wrongInput)setValue('OTHER');},200);
   };
   const empty=React.createElement('div',{key:generation},React.createElement('span',null,'Нет данных'));
   const table=React.createElement('table',null,React.createElement('tbody',null,
    React.createElement('tr',null,...['scanned_at','sc_id','result','place_external_id'].map(s=>React.createElement('th',{key:s},s))),
-   React.createElement('tr',null,...['2026/10/05 16:51:32','101366','OK',result==='positive'?'TEST-1':'OLD'].map((s,i)=>React.createElement('td',{key:i},s)))));
+   React.createElement('tr',null,...['2026/10/05 16:51:32','101366','OK',result==='positive'?(options.padding?evidence:'TEST-1'):'OLD'].map((s,i)=>React.createElement('td',{key:i},s)))));
   return React.createElement(React.Fragment,null,
    React.createElement('div',{'data-qa':'dashkit-grid-item','data-dashkit-grid-id':'13'},React.createElement('span',{'data-qa':'chartkit-control-input'},React.createElement('input',{className:'g-text-input__control',type:'text',value,onChange:e=>setValue(e.target.value),onKeyPress:e=>{if(e.charCode===13)submit();}}))),
    React.createElement('div',{'data-qa':'dashkit-grid-item',key:options.replaceWidget?generation:'history'},
@@ -38,9 +38,21 @@ async function check(options){
    React.createElement('div',{'data-qa':'dashkit-grid-item'},React.createElement('h3',null,'Инфо (Шард 1)'),React.createElement('span',null,'Нет данных'),React.createElement('span',null,other)));
  }
  flushSync(()=>root.render(React.createElement(Dashboard,{key:JSON.stringify(options)})));
- const chrome={scripting:{async executeScript({world,func,args}){assert.equal(world,'MAIN');window.args=args;return [{result:await window.eval('('+func.toString()+')(...args)')}];}}};
+ const chrome={tabs:{onUpdated:{addListener(){},removeListener(){}},async create({url}){return {id:7,url,status:'complete'};},async get(){return {id:7,url:window.location.href,status:'complete'};},async remove(){}},scripting:{async executeScript({world,func,args}){assert.equal(world,'MAIN');window.args=args;return [{result:await window.eval('('+func.toString()+')(...args)')}];}}};
  try{
   const search=()=>api.workplaceSearch(chrome,7,'datalens','TEST-1',window.location.origin);
+  if(options.padding){
+   const targets={inventory:'https://docs.google.com/spreadsheets/d/example/edit',datalens:window.location.href,asgard:'https://asgard.market.yandex-team.ru/returnBox/search'};
+   let marked=false;
+   const result=await api.run(chrome,targets,async msg=>{
+    if(msg.type==='mark_inventa_found'){
+     assert.equal(msg.inventory.rows[0][0],'12345678');assert.equal(msg.datalens.rows[0][0],'12345678');marked=true;
+     return {ok:true,type:'inventa_found_marked',verified:true,written:1};
+    }
+    return {ok:true,type:'site_tables_reconciled',read_only:true,write_enabled:false,persisted:false,total:1,summary:{found:1,in_progress:0,manual_review:0}};
+   },async()=>{},{exactGetSearch:true,seedInventory:{columns:['cargo_place','inventory_date'],rows:[['12345678','2026-10-03']]},writebackJobId:'job'});
+   assert.equal(result.phase,'reconciled');assert.ok(marked);assert.equal(submits,6);assert.equal(window.document.querySelector('input').value,'0000012345678');return;
+  }
   if(options.stale||options.error||options.busyForever||options.wrongInput||options.noTitle)await assert.rejects(search,/search_results_unconfirmed|unmapped_search_results/);
   else{
    const result=await search();assert.equal(result.rows.length,options.positive?1:0);
@@ -50,5 +62,5 @@ async function check(options){
  }finally{window.clearTimeout(timer);flushSync(()=>root.render(null));}
 }
 const cases=[{}, {initialEmpty:true},{initialEmpty:true,replaceWidget:true},{initialEmpty:true,stale:true},
- {initialEmpty:true,error:true},{initialEmpty:true,busyForever:true},{initialEmpty:true,wrongInput:true},{noTitle:true},{positive:true}];
+ {initialEmpty:true,error:true},{initialEmpty:true,busyForever:true},{initialEmpty:true,wrongInput:true},{noTitle:true},{positive:true},{initialEmpty:true,padding:true}];
 (async()=>{try{for(const c of cases)await check(c);console.log(`DataLens empty React integration: ${cases.length} scenarios passed`);}finally{root.unmount();window.close();}})().catch(error=>{console.error(error);process.exitCode=1;});

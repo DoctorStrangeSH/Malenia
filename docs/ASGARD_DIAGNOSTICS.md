@@ -1,3 +1,11 @@
+## 2026-11-15 — Bridge 1.6.22 — temporary leading-zero recovery
+
+Owner requests recovery of numeric inventory barcodes missing leading zeros. On the corporate DataLens Orders search only, try the original exact key, then prepend one zero per confirmed empty scan history, up to ten added zeros (and the existing 128-character key limit). Stop on the first nonempty verified history even if its scans do not meet Found criteria; existing SC 101366 / OK / after-inventory-date rules remain. Errors, stale/foreign results or unconfirmed empties stop rather than triggering another candidate. Alphanumeric keys are unchanged. All attempts reuse the same owned tab and cancellable executeScript path.
+
+Each candidate must pass live input, widget freshness and exact DOM cargo identity checks. Only then map that answer to the original inventory key for native reconciliation and row-bound writeback. Do not modify sheet identifiers or cursor fingerprints. Asgard receives the original key when DataLens still does not establish Found. No global zero-stripping identity rule is introduced. This is temporary until the inventory source is corrected. App/native stays 0.6.12; update only Bridge to 1.6.22.
+
+Local validation: 173 Node tests, 10 real React DataLens scenarios (including original + five padded searches, one controlled input, canonical writeback association), 27 Asgard DOM scenarios. Coverage includes seven added zeros, ten-empty-attempt bound, old scans, alphanumeric keys, foreign evidence, errors and cancellation during retry. Corporate account verification pending. Publication pending.
+
 ## 2026-11-15 — Bridge 1.6.21 — DataLens «Нет данных»
 
 Explicit «Нет данных» inside the uniquely titled «История сканов по заказу» widget now returns canonical empty scan rows and routes that cargo to Asgard without stopping the batch. Requires live controlled-input acknowledgement, post-submit child/text refresh within that widget (or its loading cycle), and stable output. Unrelated empty widgets, unchanged empty results, loaders, alerts and input resets do not authorize an empty answer. No synthetic scan evidence, native business rules or Sheets writes changed. App/native remains 0.6.12.
