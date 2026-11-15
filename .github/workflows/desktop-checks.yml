@@ -32,6 +32,8 @@ jobs:
         run: node --test tests/browser_targets.test.cjs
       - name: Test autonomous browser traversal
         run: node --test tests/browser_automation.test.cjs
+      - name: Test normalized DataLens history title binding
+        run: node scripts/check-history-title.cjs
       - name: Test Asgard card identity and history in a real DOM
         shell: pwsh
         run: |

@@ -307,16 +307,16 @@ var MaleniaAutomation = (() => {
           const text=el=>clean(el?.innerText??el?.textContent);
           const visible=el=>el.getClientRects().length>0;
           const failure=(error,step)=>({error,...(step?{step}:{})});
-          const required=['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'];
+          const required=['����� ��㧮����','ID ������','ID ���⭥�','ID ��஡��','��窠 �����祭��'];
           const resultTable=table=>table?.matches?.('table')&&required.every(name=>Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(text).includes(name));
-          const emptyMessage=s=>/^(Нет данных|Ничего не найдено|Нет результатов|Данные не найдены|Коробки не найдены)$/i.test(clean(s));
+          const emptyMessage=s=>/^(��� ������|��祣� �� �������|��� १���⮢|����� �� �������|��஡�� �� �������)$/i.test(clean(s));
           // The corporate page uses custom message wrappers, not necessarily
           // Ant classes/ARIA roles. Its exact reverse-flow empty message is
           // sufficient markup evidence; freshness and live query still apply.
           const noticeNodes='div,span,p,strong,b,h1,h2,h3,h4,h5,h6,section,output';
           const emptyNotice=el=>el?.nodeType===1 && visible(el) &&
             !el.closest('table,nav,header,footer,[role="dialog"],[role="tooltip"],[aria-hidden="true"]') &&
-            (/^Коробки не найдены$/i.test(text(el)) ||
+            (/^��஡�� �� �������$/i.test(text(el)) ||
               !!el.closest('.ant-alert,[role="alert"],[role="status"]') && emptyMessage(text(el))) &&
             ![...el.children].some(child=>emptyMessage(text(child)));
           const containsEmptyNotice=el=>!!el && (emptyNotice(el)||[...el.querySelectorAll(noticeNodes)].some(emptyNotice));
@@ -329,7 +329,7 @@ var MaleniaAutomation = (() => {
             return withinResults(el)||!!el&&([...el.querySelectorAll('table')].some(resultTable)||containsEmptyNotice(el));
           };
           const loading=()=>[...document.querySelectorAll('[aria-busy="true"],[role="progressbar"],.ant-spin-spinning')].some(visible)||
-            [...document.querySelectorAll('button')].some(el=>visible(el)&&el.disabled&&text(el)==='Найти');
+            [...document.querySelectorAll('button')].some(el=>visible(el)&&el.disabled&&text(el)==='����');
           const controls=()=>{
             const inputs=[...document.querySelectorAll('input')].filter(el=>visible(el)&&!el.disabled&&!el.readOnly);
             const matches=inputs.filter(el=>{
@@ -341,7 +341,7 @@ var MaleniaAutomation = (() => {
                 captions.push(parent.textContent);
                 for(const label of parent.querySelectorAll('label,span,div'))if(visible(label))captions.push(label.textContent);
               }
-              return captions.some(s=>/^Штрихкод коробки\s*[:*]?$/i.test(clean(s)));
+              return captions.some(s=>/^���媮� ��஡��\s*[:*]?$/i.test(clean(s)));
             });
             return {inputs,matches};
           };
@@ -351,7 +351,7 @@ var MaleniaAutomation = (() => {
             if(matches.length!==1)return failure(matches.length?'search_field_ambiguous':'search_field_missing');
             const input=matches[0];
             if(inputs.some(el=>el!==input&&el.value.trim()))return failure('search_filters_not_empty');
-            const buttons=[...document.querySelectorAll('button')].filter(el=>visible(el)&&!el.disabled&&text(el)==='Найти');
+            const buttons=[...document.querySelectorAll('button')].filter(el=>visible(el)&&!el.disabled&&text(el)==='����');
             if(buttons.length!==1)return failure('search_button_missing');
             const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
             if(!setter)return failure('unmapped_search_results');
@@ -363,7 +363,7 @@ var MaleniaAutomation = (() => {
             globalThis.__maleniaAsgardSearch?.observer?.disconnect();
             const state={code,changed:false,loadingSeen:false};
             state.observer=new MutationObserver(records=>{
-              if(loading()||records.some(r=>r.type==='attributes'&&r.attributeName==='disabled'&&r.oldValue!==null&&text(r.target)==='Найти'))state.loadingSeen=true;
+              if(loading()||records.some(r=>r.type==='attributes'&&r.attributeName==='disabled'&&r.oldValue!==null&&text(r.target)==='����'))state.loadingSeen=true;
               if(records.some(r=>r.type!=='attributes'&&(withinResults(r.target)||[...r.addedNodes,...r.removedNodes].some(touchesResults))))state.changed=true;
             });
             // React may replace the whole table, or mount it only after searching.
@@ -376,12 +376,12 @@ var MaleniaAutomation = (() => {
             if(globalThis.__maleniaAsgardSearch)globalThis.__maleniaAsgardSearch.loadingSeen=true;
             return {pending:true,step:'asgard_wait_loading'};
           }
-          if([...document.querySelectorAll('[role="alert"],.ant-alert-error,.ant-message-error')].some(el=>visible(el)&&/ошиб|не удалось|недоступ|error|failed/i.test(text(el))))return failure('search_results_unconfirmed');
+          if([...document.querySelectorAll('[role="alert"],.ant-alert-error,.ant-message-error')].some(el=>visible(el)&&/�訡|�� 㤠����|�������|error|failed/i.test(text(el))))return failure('search_results_unconfirmed');
           if(action==='results'){
             const tables=[...document.querySelectorAll('table')].filter(visible).map(table=>{
               const heads=Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(el=>text(el));
               return {table,heads};
-            }).filter(({heads})=>['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'].every(h=>heads.filter(x=>x===h).length===1));
+            }).filter(({heads})=>['����� ��㧮����','ID ������','ID ���⭥�','ID ��஡��','��窠 �����祭��'].every(h=>heads.filter(x=>x===h).length===1));
             const state=globalThis.__maleniaAsgardSearch,live=controls();
             const accepted=live.matches.length===1&&live.matches[0].value===code;
             const fresh=state?.code===code&&accepted&&(state.changed||state.loadingSeen);
@@ -400,8 +400,8 @@ var MaleniaAutomation = (() => {
             for(const tr of rows){
               const cells=[...tr.querySelectorAll('td')];if(cells.length!==heads.length)return {pending:true,step:'asgard_table_incomplete'};
               const cell=name=>cells[heads.indexOf(name)];
-              const links=[...cell('ID коробки').querySelectorAll('a[href]')];
-              const box=text(cell('ID коробки')),status=text(cell('Статус грузоместа')),destination=text(cell('Точка назначения'));
+              const links=[...cell('ID ��஡��').querySelectorAll('a[href]')];
+              const box=text(cell('ID ��஡��')),status=text(cell('����� ��㧮����')),destination=text(cell('��窠 �����祭��'));
               if(links.length!==1||!/^\d{1,20}$/.test(box)||destination.length>256)return failure('unmapped_search_results');
               const url=new URL(links[0].href,location.href);
               if(url.origin!==origin||url.username||url.password||url.pathname===location.pathname)return failure('search_origin_mismatch');
@@ -410,32 +410,32 @@ var MaleniaAutomation = (() => {
             return {matches:result,...freshness};
           }
           if(action==='card'){
-            const cargoText=el=>text(el).match(/^Грузоместо\s*([A-Za-z0-9_.-]{1,128})$/)?.[1];
+            const cargoText=el=>text(el).match(/^��㧮����\s*([A-Za-z0-9_.-]{1,128})$/)?.[1];
             let headings=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]')].filter(el=>visible(el)&&cargoText(el));
             if(!headings.length)headings=[...document.querySelectorAll('div,span,p,strong,b')].filter(el=>visible(el)&&!el.closest('table')&&cargoText(el)&&![...el.children].some(child=>cargoText(child)));
             const cargo=[...new Set(headings.map(cargoText))];
             if(cargo.length!==1)return {pending:true,step:'asgard_card_heading'};
             if(cargo[0]!==code)return {other:true};
             const pageText=clean(document.body.innerText||document.body.textContent);
-            const ids=[...new Set([...pageText.matchAll(/ID\s*грузоместа\s*(\d{1,20})(?!\d)/g)].map(match=>match[1]))];
+            const ids=[...new Set([...pageText.matchAll(/ID\s*��㧮����\s*(\d{1,20})(?!\d)/g)].map(match=>match[1]))];
             if(ids.length!==1)return {pending:true,step:'asgard_card_box'};
             const box=ids[0];
-            const titles=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,div,span,p,strong,b')].filter(el=>visible(el)&&text(el)==='История изменения статусов'&&![...el.children].some(child=>text(child)==='История изменения статусов'));
+            const titles=[...document.querySelectorAll('h1,h2,h3,h4,h5,h6,div,span,p,strong,b')].filter(el=>visible(el)&&text(el)==='����� ��������� ����ᮢ'&&![...el.children].some(child=>text(child)==='����� ��������� ����ᮢ'));
             // Header and table may be in deeply nested sibling wrappers. Require
             // a unique titled history table following its visible section title.
             const tables=[...document.querySelectorAll('table')].filter(table=>{
               const heads=[...table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]].map(text);
-              return visible(table)&&heads.length===2&&heads.includes('Дата')&&heads.includes('Статус')&&titles.some(title=>title.compareDocumentPosition(table)&4);
+              return visible(table)&&heads.length===2&&heads.includes('���')&&heads.includes('�����')&&titles.some(title=>title.compareDocumentPosition(table)&4);
             });
             if(tables.length!==1)return {pending:true,step:'asgard_card_history'};
             const table=tables[0],heads=[...table.querySelectorAll('tr')[0].querySelectorAll('th')].map(text);
             const data=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
             if(!data.length||data.length>100)return {pending:true,step:'asgard_card_history'};
             const history=[];
-            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return {pending:true,step:'asgard_card_history'};const status=text(cells[heads.indexOf('Статус')]);if(!status||status.length>100)return {pending:true,step:'asgard_card_history'};history.push(status);}
-            const statuses=[...new Set([...document.querySelectorAll('span,button,div,p,strong,b,a,[role="status"]')].filter(el=>visible(el)&&!el.closest('table')&&['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'].includes(text(el))).map(text))];
+            for(const tr of data){const cells=[...tr.querySelectorAll('td')];if(cells.length!==2)return {pending:true,step:'asgard_card_history'};const status=text(cells[heads.indexOf('�����')]);if(!status||status.length>100)return {pending:true,step:'asgard_card_history'};history.push(status);}
+            const statuses=[...new Set([...document.querySelectorAll('span,button,div,p,strong,b,a,[role="status"]')].filter(el=>visible(el)&&!el.closest('table')&&['� ���','��⮢ ��� ���㧪� � ������� �����⨪�','�뤠�','�ਭ�� �� ��'].includes(text(el))).map(text))];
             if(statuses.length!==1)return {pending:true,step:'asgard_card_status'};
-            return {box,history,status:statuses[0],kupishuz:/купишуз/i.test(pageText)};
+            return {box,history,status:statuses[0],kupishuz:/�㯨��/i.test(pageText)};
           }
           return null;
         },args:[action,code,origin]});
@@ -462,13 +462,13 @@ var MaleniaAutomation = (() => {
     }finally{try{await probe('cleanup');}catch{ /* A page redirect must not hide the original error. */ }}
     if(!result){const error=new Error('search_results_unconfirmed');error.step=lastStep;throw error;}
     const columns=['cargo_place','status','box_id','destination','history_json','verification'];
-    if(result.empty)return {columns,rows:[[code,'Не найден','','','[]','not_found']]};
-    // The owner authorizes Lamoda directly from a uniformly Купишуз destination
+    if(result.empty)return {columns,rows:[[code,'�� ������','','','[]','not_found']]};
+    // The owner authorizes Lamoda directly from a uniformly �㯨�� destination
     // in the fresh, exact-barcode result. Do not infer a company in a mixed list.
-    if(result.matches.length && result.matches.every(row=>/купишуз/i.test(row.destination)))
-      return {columns,rows:[[code,'Купишуз','',result.matches[0].destination,'[]','search_destination']]};
-    const active=['В пути','Готов для отгрузки в заборную логистику'];
-    const rank=status=>status==='В пути'?0:status===active[1]?1:status==='Выдан'?2:3;
+    if(result.matches.length && result.matches.every(row=>/�㯨��/i.test(row.destination)))
+      return {columns,rows:[[code,'�㯨��','',result.matches[0].destination,'[]','search_destination']]};
+    const active=['� ���','��⮢ ��� ���㧪� � ������� �����⨪�'];
+    const rank=status=>status==='� ���'?0:status===active[1]?1:status==='�뤠�'?2:3;
     const matches=result.matches.sort((a,b)=>rank(a.status)-rank(b.status));
     if(matches.length>20)throw new Error('unmapped_search_results');
     const confirmed=[];let foreignActive=0;
@@ -487,19 +487,19 @@ var MaleniaAutomation = (() => {
       if(card?.other){if(active.includes(match.status))foreignActive++;continue;}
       if(!card||card.box!==match.box)throw new Error('unverified_search_result_identity');
       if(card.status!==match.status||!card.history.includes(match.status))throw new Error('unverified_search_result_identity');
-      const company=/купишуз/i.test(match.destination);
+      const company=/�㯨��/i.test(match.destination);
       if(company!==card.kupishuz)throw new Error('unverified_search_result_identity');
       confirmed.push([code,match.status,match.box,match.destination,JSON.stringify(card.history),'card']);
     }
     // Several exact-cargo issued cards all support the same issued decision.
     // No history from a foreign active card contributes to this outcome.
-    if(confirmed.length>1 && confirmed.every(row=>row[1]==='Выдан'))return {columns,rows:[confirmed[0]]};
+    if(confirmed.length>1 && confirmed.every(row=>row[1]==='�뤠�'))return {columns,rows:[confirmed[0]]};
     // Explicit owner rule: active boxes have different cargo headings, and
     // every remaining result is issued. Preserve this as group evidence,
     // not a fabricated matching card or fabricated status history.
     if(!confirmed.length && foreignActive>0 && foreignActive===matches.filter(row=>active.includes(row.status)).length &&
-        matches.some(row=>row.status==='Выдан') && matches.every(row=>active.includes(row.status)||row.status==='Выдан'))
-      return {columns,rows:[[code,'Выдан','', '',JSON.stringify(matches.map(row=>row.status)),'issued_group']]};
+        matches.some(row=>row.status==='�뤠�') && matches.every(row=>active.includes(row.status)||row.status==='�뤠�'))
+      return {columns,rows:[[code,'�뤠�','', '',JSON.stringify(matches.map(row=>row.status)),'issued_group']]};
     if(confirmed.length!==1)throw new Error('unverified_search_result_identity');
     return {columns,rows:confirmed};
   }
@@ -515,8 +515,8 @@ var MaleniaAutomation = (() => {
         const visible = el => el.getClientRects().length > 0;
         const eligible = el => ['text','search'].includes(String(el.type).toLowerCase()) &&
           visible(el) && !el.disabled && !el.readOnly;
-        const wanted = role === 'asgard' ? /^Штрихкод коробки$/i : /^ID заказа\s*\/\s*ЛОТа\s*\/\s*ТОТа\s*\/\s*Тележки$/i;
-        const labelMatches = text => wanted.test(clean(text).replace(/[\s:*＊]+$/g,''));
+        const wanted = role === 'asgard' ? /^���媮� ��஡��$/i : /^ID ������\s*\/\s*����\s*\/\s*����\s*\/\s*�������$/i;
+        const labelMatches = text => wanted.test(clean(text).replace(/[\s:**]+$/g,''));
         const findControls = () => {
           const visibleInputs=[...document.querySelectorAll('input')].filter(visible);
           const inputs=visibleInputs.filter(eligible);
@@ -568,7 +568,7 @@ var MaleniaAutomation = (() => {
           const input=matches[0];
           if(role==='asgard' && inputs.some(el=>el!==input && el.value.trim())) return {error:'search_filters_not_empty'};
           const buttons=role==='asgard' ? [...document.querySelectorAll('button')]
-            .filter(el=>visible(el) && !el.disabled && clean(el.textContent)==='Найти') : [];
+            .filter(el=>visible(el) && !el.disabled && clean(el.textContent)==='����') : [];
           if(role==='asgard' && buttons.length!==1) return {error:buttons.length?'search_button_ambiguous':'search_button_missing'};
           return {input,buttons};
         };
@@ -608,7 +608,7 @@ var MaleniaAutomation = (() => {
         const ordersTabs = () => {
           // Prefer semantic controls. Some dashboard tab captions are plain spans
           // whose click bubbles to a React handler on the surrounding strip.
-          const caption=el=>visible(el) && !el.disabled && clean(el.textContent)==='Заказы';
+          const caption=el=>visible(el) && !el.disabled && clean(el.textContent)==='������';
           const outer=nodes=>nodes.filter(el=>!nodes.some(other=>other!==el && other.contains?.(el)));
           const roles=[...document.querySelectorAll('[role="tab"]')].filter(caption);
           if(roles.length) return outer(roles);
@@ -617,7 +617,7 @@ var MaleniaAutomation = (() => {
             for(let i=0;parent && i<4;i++,parent=parent.parentElement) {
               const text=clean(parent.textContent);
               if(text.length>1500) break;
-              if(['Статистика','Массовые сканы','Многоместка'].filter(label=>text.includes(label)).length>=2) return true;
+              if(['����⨪�','���ᮢ� ᪠��','��������⪠'].filter(label=>text.includes(label)).length>=2) return true;
             }
             return false;
           };
@@ -625,7 +625,7 @@ var MaleniaAutomation = (() => {
             .filter(el=>caption(el) && inStrip(el));
           if(semantic.length) return outer(semantic);
           return [...document.querySelectorAll('span,div')].filter(el=>caption(el) && inStrip(el) &&
-            ![...(el.children || [])].some(child=>clean(child.textContent)==='Заказы'));
+            ![...(el.children || [])].some(child=>clean(child.textContent)==='������'));
         };
         do {
           if(location.origin!==expectedOrigin) return {error:'search_origin_mismatch'};
@@ -655,7 +655,7 @@ var MaleniaAutomation = (() => {
           }
           if(role==='asgard' && !reverseSelected) {
             const reverseTabs=[...document.querySelectorAll('a,button,[role="tab"]')]
-              .filter(el=>visible(el) && clean(el.textContent)==='Обратный поток');
+              .filter(el=>visible(el) && clean(el.textContent)==='����� ��⮪');
             if(reverseTabs.length>1) return {error:'search_navigation_ambiguous'};
             if(reverseTabs.length===1) {
               reverseSelected=true;
@@ -686,16 +686,24 @@ var MaleniaAutomation = (() => {
         let {input,buttons}=controls;
         // Empty results are meaningful only inside the named scan widget.
         // Other dashboard widgets routinely show No Data for a found cargo.
-        const caption='История сканов по заказу';
-        const labelText=el=>clean(el?.innerText??el?.textContent).replace(/[\u200B-\u200D\uFEFF\u00AD]/g,'');
-        const leafLabel=(el,label)=>visible(el) && labelText(el)===label &&
-          !Array.from(el.children||[]).some(child=>visible(child)&&labelText(child)===label);
+        const caption='����� ᪠��� �� ������';
+        const labelText=el=>clean(String(el?.innerText??el?.textContent??'').replace(/[\u200B-\u200D\uFEFF\u00AD]/g,''));
+        const historyVisible=el=>{
+          if(!visible(el) || el.closest?.('[aria-hidden="true"], [hidden], .dl-table__background-table'))return false;
+          for(let node=el;node;node=node.parentElement){
+            const style=getComputedStyle(node);
+            if(style.display==='none' || style.visibility==='hidden' || style.visibility==='collapse')return false;
+          }
+          return true;
+        };
+        const leafLabel=(el,label)=>historyVisible(el) && labelText(el)===label &&
+          !Array.from(el.children||[]).some(child=>historyVisible(child)&&labelText(child)===label);
         const historyWidget=()=>{
           if(role!=='datalens')return null;
           // Titles and empty cells can be links, paragraphs or custom typography.
           // Use rendered labels rather than a guessed set of element tags.
           const titles=[...document.querySelectorAll('*')].filter(el=>
-            String(el.textContent||'').replace(/[\u200B-\u200D\uFEFF\u00AD]/g,'').includes(caption) && leafLabel(el,caption));
+            labelText(el)===caption && leafLabel(el,caption));
           if(titles.length!==1)return null;
           const title=titles[0];
           const known=title.closest?.('[data-qa="dashkit-grid-item"], .dashkit-grid-item, .react-grid-item, [data-dashkit-grid-id]');
@@ -706,9 +714,9 @@ var MaleniaAutomation = (() => {
           let root=title.parentElement;
           for(let i=0;root&&i<8;i++,root=root.parentElement){
             if(root===document.body || root===document.documentElement || root.querySelector('input'))break;
-            const rest=clean(labelText(root).replace(caption,'').replace(/Нет данных|Загрузка/gi,''));
+            const rest=clean(labelText(root).replace(caption,'').replace(/��� ������|����㧪�/gi,''));
             if(!rest && (root.querySelector('[aria-busy="true"],[role="progressbar"],.g-loader,.g-spin') ||
-                [...root.querySelectorAll('*')].some(el=>leafLabel(el,'Нет данных'))))return root;
+                [...root.querySelectorAll('*')].some(el=>leafLabel(el,'��� ������'))))return root;
           }
           return null;
         };
@@ -717,8 +725,8 @@ var MaleniaAutomation = (() => {
         const explicitEmpty=root=>{
           if(!root || historyBusy(root))return false;
           if([...root.querySelectorAll('[role="alert"], .chartkit-error, .chartkit-widget-error')].some(visible))return false;
-          if([...root.querySelectorAll('td')].some(el=>visible(el) && labelText(el) && labelText(el)!=='Нет данных'))return false;
-          return [...root.querySelectorAll('*')].some(el=>leafLabel(el,'Нет данных'));
+          if([...root.querySelectorAll('td')].some(el=>visible(el) && labelText(el) && labelText(el)!=='��� ������'))return false;
+          return [...root.querySelectorAll('*')].some(el=>leafLabel(el,'��� ������'));
         };
         let historyRoot=historyWidget(),emptyRefreshed=false,sawHistoryBusy=false;
         let readFailure='scan_table_missing',scanShape=null;
@@ -740,7 +748,7 @@ var MaleniaAutomation = (() => {
             const trs=[...table.querySelectorAll('tr')];
             const heads=trs[0]?[...trs[0].querySelectorAll('th')].map(el=>clean(el.textContent)):[];
             const required=role==='datalens'?['scanned_at','sc_id','result','place_external_id']:
-              ['Статус грузоместа','ID возврата','ID партнера','ID коробки'];
+              ['����� ��㧮����','ID ������','ID ���⭥�','ID ��஡��'];
             if(!required.every(name=>heads.includes(name))) continue;
             // Read body sections, excluding repeated header/footer/sizing rows.
             // Some HTML puts a th-only header in tbody; it is not a scan row.
@@ -786,7 +794,7 @@ var MaleniaAutomation = (() => {
               // A result is bound only to the exact barcode search completed below.
               if(rows.length!==1) return null;
               candidates.push({columns:['cargo_place','status','box_id'],
-                rows:[[code,rows[0][heads.indexOf('Статус грузоместа')],rows[0][heads.indexOf('ID коробки')]]]});
+                rows:[[code,rows[0][heads.indexOf('����� ��㧮����')],rows[0][heads.indexOf('ID ��஡��')]]]});
             }
           }
           if(candidates.length>1)readFailure='scan_table_ambiguous';
