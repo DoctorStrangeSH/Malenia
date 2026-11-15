@@ -18,7 +18,7 @@ const {flushSync}=require('react-dom');
 window.eval(fs.readFileSync(path.join(__dirname,'../browser-extension/automation.js'),'utf8'));
 const api=window.eval('MaleniaAutomation');
 const root=createRoot(window.document.getElementById('root'));
-async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false}){
+async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false,tableDecorations=false}){
  let changes=0,submits=0,blurSubmits=0;
  function Dashboard(){
   const [value,setValue]=React.useState('DEFAULT-EXAMPLE');
@@ -47,6 +47,21 @@ async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false
    )));
  }
  flushSync(()=>root.render(React.createElement(Dashboard)));
+ const extras=[];
+ if(tableDecorations){
+  const main=window.document.querySelector('table');
+  const header=main.cloneNode(true);
+  header.querySelector('tbody').remove();
+  // gravity-ui/react-data-table also renders a separate sticky-head table.
+  const head=window.document.createElement('thead');
+  head.append(header.querySelector('tr') || main.querySelector('tr').cloneNode(true));
+  header.append(head);extras.push(header);window.document.body.prepend(header);
+  // Modern DataLens uses a portal measurement table far outside the viewport.
+  const measure=window.document.createElement('div');
+  measure.className='dl-table__background-table';
+  measure.style.cssText='position:absolute;top:-100000px;left:-100000px';
+  measure.append(main.cloneNode(true));extras.push(measure);window.document.body.append(measure);
+ }
  const block=event=>event.stopImmediatePropagation();
  if(blockEvents)for(const type of ['input','change'])window.document.addEventListener(type,block,true);
  const chrome={scripting:{executeScript:async({world,func,args})=>{
@@ -68,6 +83,7 @@ async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false
   assert.equal(blurSubmits,blurOnly?1:0);
  }finally{
   if(blockEvents)for(const type of ['input','change'])window.document.removeEventListener(type,block,true);
+  for(const extra of extras)extra.remove();
  }
 }
 // Mirrors DataLens's published loading stub: the text input accepts local
@@ -117,12 +133,14 @@ async function checkLoadingStub(){
 }
 (async()=>{
  try{
+  if(process.argv.includes('--table-layout-only')){await check({tableDecorations:true});console.log('PASS: sticky header and offscreen measurement copy do not invalidate the scan table.');return;}
   if(process.argv.includes('--loading-stub-only')){await checkLoadingStub();return;}
   await check({});
   await check({blockEvents:true});
   await check({blockEvents:true,refuse:true});
   await check({reload:true});
   await check({blurOnly:true});
+  await check({tableDecorations:true});
   await checkLoadingStub();
   console.log('PASS: React 18 controlled input: normal events, rejected DOM events, refused state, 2.2s input replacement, blur-only control, no double submit.');
  }finally{root.unmount();window.close();}

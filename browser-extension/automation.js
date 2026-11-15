@@ -3,7 +3,7 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
-  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","result_wait_timeout"]);
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","result_wait_timeout"]);
   function normalizeTargets(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid_targets");
     if (Object.keys(input).sort().join(",") !== [...ROLES].sort().join(",")) throw new Error("invalid_roles");
@@ -460,20 +460,33 @@ var MaleniaAutomation = (() => {
           await new Promise(resolve=>setTimeout(resolve,200));
         } while(true);
         let {input,buttons}=controls;
+        let readFailure='scan_table_missing';
         const read = () => {
+          readFailure='scan_table_missing';
           const candidates=[];
           for(const table of document.querySelectorAll('table')) {
+            // DataLens renders measurement copies through a portal offscreen.
+            // They have dimensions, so getClientRects alone cannot exclude them.
+            if(table.closest?.('.dl-table__background-table') ||
+                table.getAttribute?.('aria-hidden')==='true' ||
+                (typeof table.getClientRects==='function' && !visible(table)))continue;
             const trs=[...table.querySelectorAll('tr')];
             const heads=trs[0]?[...trs[0].querySelectorAll('th')].map(el=>clean(el.textContent)):[];
             const required=role==='datalens'?['scanned_at','sc_id','result','place_external_id']:
               ['Статус грузоместа','ID возврата','ID партнера','ID коробки'];
             if(!required.every(name=>heads.includes(name))) continue;
-            if(trs.length<2 || trs.length>101 || new Set(heads).size!==heads.length) return null;
+            // react-data-table uses a separate sticky-head table with the same
+            // headers and no data rows. It is not a second search result.
+            if(trs.length<2)continue;
+            readFailure='scan_table_incomplete';
+            if(trs.length>101 || new Set(heads).size!==heads.length) return null;
             const rows=trs.slice(1).map(tr=>[...tr.querySelectorAll('td')].map(el=>clean(el.textContent)));
             if(rows.some(row=>row.length!==heads.length || row.some(v=>v.length>256))) return null;
             if(role==='datalens') {
               const col=name=>heads.indexOf(name);
-              if(rows.some(row=>row[col('place_external_id')]!==code)) return null;
+              if(rows.some(row=>row[col('place_external_id')]!==code)){
+                readFailure='scan_table_identity_mismatch';return null;
+              }
               candidates.push({columns:['main_partner_code_original','sc_id','result','scanned_at'],
                 rows:rows.map(row=>[code,row[col('sc_id')].replace(/\s/g,''),row[col('result')],row[col('scanned_at')].replace(/\//g,'-')])});
             } else {
@@ -483,6 +496,8 @@ var MaleniaAutomation = (() => {
                 rows:[[code,rows[0][heads.indexOf('Статус грузоместа')],rows[0][heads.indexOf('ID коробки')]]]});
             }
           }
+          if(candidates.length>1)readFailure='scan_table_ambiguous';
+          if(candidates.length===1)readFailure=null;
           return candidates.length===1?candidates[0]:null;
         };
         const before=JSON.stringify(read());
@@ -573,7 +588,7 @@ var MaleniaAutomation = (() => {
             if(!submitted)return finish({error:'unmapped_search_results',
               step:typeof currentProps()?.onChange==='function'?'input_value_reset':'input_handler_unavailable'});
             finish({error:'search_results_unconfirmed',
-              step:input.isConnected===false || !accepted()?'input_changed_after_submit':'result_wait_timeout'});
+              step:input.isConnected===false || !accepted()?'input_changed_after_submit':role==='datalens' && readFailure?readFailure:'result_wait_timeout'});
           },15000);
           input.focus?.();
           setter.call(input,code);

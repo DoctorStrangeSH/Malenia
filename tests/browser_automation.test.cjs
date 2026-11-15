@@ -618,7 +618,7 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false,loadingControl=false,neverReadyControl=false,foreignReadyOwner=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false,loadingControl=false,neverReadyControl=false,foreignReadyOwner=false,stickyHeader=false,measurementCopy=false,hiddenCopy=false,duplicateScanTable=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, committedEvents=0, handlerCalls=0, worldUsed, stateValue=initialValue, deadline, now=0, firstEditAt=null;
@@ -693,13 +693,20 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
       ['2026/10/05 20:35:36','101 366','OK',wrongCode?'OTHER':updated?'TEST-1':'OLD'])
       .map(textContent=>({textContent}))}
   ]};
+  const tables=[
+    ...(stickyHeader?[{querySelectorAll:()=>[table.querySelectorAll()[0]]}]:[]),
+    table,
+    ...(measurementCopy?[{...table,closest:selector=>selector==='.dl-table__background-table'?{}:null}]:[]),
+    ...(hiddenCopy?[{...table,getClientRects:()=>[]}]:[]),
+    ...(duplicateScanTable?[{...table}]:[])
+  ];
   const button={textContent:'Найти',disabled:false,getClientRects:()=>[{}],click(){clicks++;updated=!unchanged;}};
   const ordersTab={textContent:'Заказы',closest:()=>foreignOrders?{href:'https://other.example/orders'}:null,children:[],parentElement:{textContent:unrelatedOrders?'Ссылки на Заказы':'СЦ Статистика Заказы Массовые сканы Многоместка',parentElement:null},getClientRects:()=>[{}],getAttribute:()=>null,click(){navigationClicks++;}};
   const heading={...ordersTab,parentElement:{textContent:'Заказы. Описание дашборда',parentElement:null}};
   const reverseTab={textContent:'Обратный поток',getClientRects:()=>[{}],getAttribute:()=>null,click(){navigationClicks++;}};
   const document={body:{},getElementById:id=>id==='barcode-caption'?{textContent:label}:null,querySelectorAll:selector=>selector==='input'?((missing || (reverse && !navigationClicks) || (orders && !ordersAlreadyOpen && !navigationClicks && !(deepOrders && now>=800)) || (delayed && now<800))?[]:nativeControl?nativeInputs:ambiguous?[input,new Input()]:filters?[input,Object.assign(new Input(),{_value:'OTHER',parentElement:null})]:[input]):
     selector==='[data-qa="dashkit-grid-item"][data-dashkit-grid-id="13"] [data-qa="chartkit-control-input"] input.g-text-input__control' && pinnedControl?(pinnedCollision?[input,new Input()]:[input]):
-    selector==='button'?(noButton?[]:[button]):selector==='table'?[table]:
+    selector==='button'?(noButton?[]:[button]):selector==='table'?tables:
     selector==='a,button,[role="tab"]' && reverse?[reverseTab]:
     selector==='a,button,[role="tab"],[tabindex]' && orders && !plainOrders && !(delayedOrders && now<800)?(duplicateOrders?[ordersTab,{...ordersTab}]:ordersHeading?[ordersTab,heading]:[ordersTab]):
     selector==='span,div' && orders && plainOrders?[ordersTab]:[]};
@@ -1137,5 +1144,28 @@ test('a never-ready DataLens stub is neither edited nor submitted; other widgets
   assert.equal(f.firstEditAt(),null);
   assert.equal(f.currentValue(),'DEFAULT-EXAMPLE');
   assert.equal(f.committedEvents(),0);
+ }
+});
+
+
+test('DataLens ignores a sticky header, offscreen measurement copy, and hidden table copies',async()=>{
+ const api=runner();
+ for(const options of [{stickyHeader:true},{measurementCopy:true},{hiddenCopy:true},
+  {stickyHeader:true,measurementCopy:true,hiddenCopy:true}]){
+  const f=workplaceFixture('datalens',options);
+  const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+  assert.equal(result.rows.length,1);
+  assert.equal(result.rows[0][0],'TEST-1');
+  assert.equal(result.rows[0][1],'101366');
+ }
+});
+
+test('two real scan tables remain ambiguous and a wrong cargo remains rejected',async()=>{
+ const api=runner();
+ for(const [options,step] of [[{duplicateScanTable:true},'scan_table_ambiguous'],
+  [{wrongCode:true},'scan_table_identity_mismatch']]){
+  const f=workplaceFixture('datalens',options);
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
+   error=>error.step===step);
  }
 });
