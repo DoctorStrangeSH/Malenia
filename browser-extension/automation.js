@@ -689,7 +689,7 @@ var MaleniaAutomation = (() => {
         const caption='История сканов по заказу';
         const labelText=el=>clean(String(el?.innerText??el?.textContent??'').replace(/[\u200B-\u200D\uFEFF\u00AD]/g,''));
         const historyVisible=el=>{
-          if(!visible(el) || el.closest?.('[aria-hidden="true"], [hidden], .dl-table__background-table'))return false;
+          if(!visible(el) || el.closest?.('[aria-hidden="true"], [hidden], .dl-table__background-table, .gc-adaptive-tabs__select-switcher'))return false;
           for(let node=el;node;node=node.parentElement){
             const style=getComputedStyle(node);
             if(style.display==='none' || style.visibility==='hidden' || style.visibility==='collapse')return false;
@@ -700,6 +700,14 @@ var MaleniaAutomation = (() => {
           !Array.from(el.children||[]).some(child=>historyVisible(child)&&labelText(child)===label);
         const historyWidget=()=>{
           if(role!=='datalens')return null;
+          // Owner DOM: chart titles live here; AdaptiveTabs also mounts an
+          // offscreen select-switcher with measurable duplicate title text.
+          // Bind the named chart to its own grid item, never to those copies.
+          const chartTitles=[...document.querySelectorAll('.dl-widget__chart-title-text')]
+            .filter(el=>historyVisible(el) && labelText(el)===caption);
+          const chartRoots=[...new Set(chartTitles.map(el=>el.closest(
+            '[data-qa="dashkit-grid-item"], .dashkit-grid-item')).filter(Boolean))];
+          if(chartRoots.length)return chartRoots.length===1?chartRoots[0]:null;
           // Titles and empty cells can be links, paragraphs or custom typography.
           // Use rendered labels rather than a guessed set of element tags.
           const titles=[...document.querySelectorAll('*')].filter(el=>

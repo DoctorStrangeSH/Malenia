@@ -31,13 +31,14 @@ async function check(options){
   return React.createElement(React.Fragment,null,
    React.createElement('div',{'data-qa':'dashkit-grid-item','data-dashkit-grid-id':'13'},React.createElement('span',{'data-qa':'chartkit-control-input'},React.createElement('input',{className:'g-text-input__control',type:'text',value,onChange:e=>setValue(e.target.value),onKeyPress:e=>{if(e.charCode===13)submit();}}))),
    React.createElement('section',{'data-qa':options.noWidgetAttributes?undefined:'dashkit-grid-item',key:options.replaceWidget?generation:'history'},
-    React.createElement(options.titleTag||'h3',null,options.noTitle?'Другой виджет':options.spacedTitle?'История\u00a0сканов\nпо\u00a0заказу':'История сканов по заказу'),
+    React.createElement(options.nativeHeader?'span':options.titleTag||'h3',{className:options.nativeHeader?'dl-widget__chart-title-text':undefined},options.noTitle?'Другой виджет':options.spacedTitle?'История\u00a0сканов\nпо\u00a0заказу':'История сканов по заказу'),
+    options.measurementCaption?React.createElement('div',{className:'gc-adaptive-tabs__select-switcher',style:{position:'absolute',insetInlineStart:'-99999px'}},React.createElement('span',{className:'dl-widget__chart-title-text'},'История сканов по заказу')):null,
     busy?React.createElement('div',{role:'progressbar'},'Загрузка'):null,
     options.error&&generation?React.createElement('div',{role:'alert'},'Ошибка загрузки'):null,
     result==='empty'?empty:table),
    React.createElement('div',{'data-qa':'dashkit-grid-item'},React.createElement('h3',null,'Инфо (Шард 1)'),React.createElement(options.emptyTag||'span',null,'Нет данных'),React.createElement('span',null,other)),
    options.hiddenCaption?React.createElement('section',{'aria-hidden':'true'},React.createElement('p',null,'История сканов по заказу'),React.createElement('em',null,'Нет данных')):null,
-   options.duplicateCaption?React.createElement('section',null,React.createElement('p',null,'История сканов по заказу'),React.createElement('em',null,'Нет данных')):null);
+   options.duplicateCaption?React.createElement('section',{'data-qa':options.nativeHeader?'dashkit-grid-item':undefined},React.createElement('p',{className:options.nativeHeader?'dl-widget__chart-title-text':undefined},'История сканов по заказу'),React.createElement('em',null,'Нет данных')):null);
  }
  flushSync(()=>root.render(React.createElement(Dashboard,{key:JSON.stringify(options)})));
  const chrome={tabs:{onUpdated:{addListener(){},removeListener(){}},async create({url}){return {id:7,url,status:'complete'};},async get(){return {id:7,url:window.location.href,status:'complete'};},async remove(){}},scripting:{async executeScript({world,func,args}){assert.equal(world,'MAIN');window.args=args;return [{result:await window.eval('('+func.toString()+')(...args)')}];}}};
@@ -65,7 +66,14 @@ async function check(options){
 }
 const cases=[{initialEmpty:true,spacedTitle:true,padding:true},{initialEmpty:true,noWidgetAttributes:true,titleTag:'a',emptyTag:'em',padding:true},{initialEmpty:true,noWidgetAttributes:true,stale:true},{initialEmpty:true,noWidgetAttributes:true,busyForever:true},{initialEmpty:true,noWidgetAttributes:true,error:true},{initialEmpty:true,noWidgetAttributes:true,wrongInput:true},{noWidgetAttributes:true,noTitle:true},{initialEmpty:true,noWidgetAttributes:true,replaceWidget:true},{initialEmpty:true,noWidgetAttributes:true,duplicateCaption:true},{initialEmpty:true,titleTag:'a',emptyTag:'em'},{initialEmpty:true,noWidgetAttributes:true,titleTag:'p'},{}, {initialEmpty:true},{initialEmpty:true,replaceWidget:true},{initialEmpty:true,stale:true},
  {initialEmpty:true,error:true},{initialEmpty:true,busyForever:true},{initialEmpty:true,wrongInput:true},{noTitle:true},{positive:true},{initialEmpty:true,padding:true}];
-cases.push({initialEmpty:true,spacedTitle:true,noWidgetAttributes:true,padding:true},
+cases.push({initialEmpty:true,nativeHeader:true,measurementCaption:true,padding:true},
+ {initialEmpty:true,nativeHeader:true,measurementCaption:true,stale:true},
+ {initialEmpty:true,nativeHeader:true,measurementCaption:true,busyForever:true},
+ {initialEmpty:true,nativeHeader:true,measurementCaption:true,error:true},
+ {initialEmpty:true,nativeHeader:true,measurementCaption:true,wrongInput:true},
+ {initialEmpty:true,nativeHeader:true,measurementCaption:true,replaceWidget:true},
+ {initialEmpty:true,nativeHeader:true,measurementCaption:true,duplicateCaption:true},
+ {initialEmpty:true,spacedTitle:true,noWidgetAttributes:true,padding:true},
  {initialEmpty:true,hiddenCaption:true,padding:true},
  {initialEmpty:true,spacedTitle:true,stale:true},
  {initialEmpty:true,spacedTitle:true,busyForever:true},
