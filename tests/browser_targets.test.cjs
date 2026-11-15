@@ -111,3 +111,9 @@ test('failed-search popup explains a reset cargo value and retained review tab',
  await flush();assert.match(ui.nodes.orderAuditStatus.textContent,/сбросила введённый номер/);
  assert.match(ui.nodes.orderAuditStatus.textContent,/Страница ошибки оставлена открытой/);
 });
+
+
+test('audit status identifies the extension version that actually executed the job',async()=>{
+ const ui=screen(true,{bridge_version:'1.6.9',phase:'needs_attention',results:[]});
+ await flush();assert.match(ui.nodes.orderAuditStatus.textContent,/Browser Bridge 1\.6\.9/);
+});

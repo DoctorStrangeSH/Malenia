@@ -63,7 +63,9 @@ function nativeSession() {
 
 async function progress(snapshot) {
   // Never store page text, cargo codes, login data, or raw browser errors.
-  await chrome.storage.session.set({maleniaAudit:snapshot});
+  const version=chrome.runtime.getManifest?.()?.version;
+  await chrome.storage.session.set({maleniaAudit:{...snapshot,
+    ...(typeof version==='string' && /^\d+\.\d+\.\d+$/.test(version)?{bridge_version:version}:{})}});
 }
 let targetWrites = Promise.resolve();
 async function configureActiveSource(message) {

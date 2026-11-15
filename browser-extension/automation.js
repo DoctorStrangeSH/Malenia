@@ -506,17 +506,24 @@ var MaleniaAutomation = (() => {
   async function visit(chromeApi, role, url, sendNative, searchKey = null) {
     let tabId, keepForReview=false;
     try {
-      const tab = await chromeApi.tabs.create({url, active: false});
+      const workplace=searchKey!==null && (
+        (role==='datalens' && new URL(url).origin==='https://datalens.yandex-team.ru') ||
+        (role==='asgard' && new URL(url).origin==='https://asgard.market.yandex-team.ru'));
+      // SPA controls may hydrate only in a selected tab. Activate before reading,
+      // not just after a failure when the untouched dashboard defaults become visible.
+      const tab = await chromeApi.tabs.create({url, active: workplace});
       if (!Number.isInteger(tab.id)) throw new Error("invalid_tab");
       tabId = tab.id;
+      if(workplace && Number.isInteger(tab.windowId) && tab.windowId>=0 && chromeApi.windows?.update) {
+        try { await chromeApi.windows.update(tab.windowId,{focused:true}); } catch { /* Tab activation remains effective if window focus is denied. */ }
+      }
       if (searchKey !== null) {
         await waitLoaded(chromeApi, tabId);
         const current = await chromeApi.tabs.get(tabId);
         if (new URL(current.url || "").origin !== new URL(url).origin) {
           throw new Error("search_origin_mismatch");
         }
-        if ((role === "datalens" && new URL(url).origin === "https://datalens.yandex-team.ru") ||
-            (role === "asgard" && new URL(url).origin === "https://asgard.market.yandex-team.ru")) {
+        if (workplace) {
           try {
             const table = await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin);
             return {table,characters:0,pages:1};

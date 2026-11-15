@@ -63,7 +63,9 @@
     const end = audit.phase === "reconciled" ? "Сверка выполнена без изменений сайтов." :
       audit.phase === "read_only" ? (reasons[audit.reason] || "Только чтение: сверка не подтверждена") :
       audit.phase === "needs_attention" ? "Автоматическая проверка не завершена." : "Проверка выполняется…";
-    orderStatus.textContent = [...items,end].join(" · ");
+    const version=typeof audit.bridge_version==='string' && /^\d+\.\d+\.\d+$/.test(audit.bridge_version)?
+      "Browser Bridge "+audit.bridge_version:null;
+    orderStatus.textContent = [version,...items,end].filter(Boolean).join(" · ");
     orderStatus.className = "status"+(audit.phase === "reconciled" ? " ok" : "");
   }
   chrome.storage.session?.get("maleniaAudit").then(data => renderAudit(data?.maleniaAudit)).catch(()=>{});

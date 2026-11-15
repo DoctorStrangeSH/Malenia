@@ -174,3 +174,13 @@ test('background serializes partial source saves so concurrent bindings preserve
       detailed?'search_filters_not_empty':'execution_failed');
   }
 });
+
+
+test('session diagnostic includes the running manifest version without changing native messages',async()=>{
+ const worker=workerHarness(),saved=[];
+ worker.context.chrome.runtime.getManifest=()=>({version:'1.6.9'});
+ worker.context.chrome.storage.session.set=async data=>saved.push(data);
+ await worker.poll();assert.ok(saved.length>0);
+ assert.ok(saved.every(data=>data.maleniaAudit.bridge_version==='1.6.9'));
+ assert.ok(worker.messages.every(message=>!Object.hasOwn(message,'bridge_version')));
+});

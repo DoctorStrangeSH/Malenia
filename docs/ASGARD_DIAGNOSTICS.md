@@ -1,3 +1,13 @@
+## 2026-11-15 — Bridge 1.6.9 — activate workplace before inspecting controls
+
+- User clarifies that a number already appears when a fresh dashboard opens, but it is the dashboard's example/default; the job still reports missing search field. Its presence must not be treated as proof that Malenia read an inventory order or submitted it.
+- Code previously created each workplace tab with active=false, then activated it only after a failed search. This can expose a default-filled form after the job has already stopped. Foreground hydration is a hypothesis, not yet established on the live site.
+- Exact approved DataLens/Asgard searches now create an active tab and focus its own browser window before waiting for controls. Generic page inspections remain background operations. Failure-page retention and exact identity/freshness checks are unchanged.
+- Regression covers a SPA that exposes controls only after tab activation/window focus, plus replacement of a prefilled example with the exact inventory cargo before Enter. No dashboard default is accepted as a task seed.
+- Session diagnostics now include the running manifest's bridge_version, displayed by the popup. Native job protocol and installed desktop version are unchanged.
+- Validation: 132 Node tests passed. The real user's DataLens search still requires confirmation; automatic writeback remains unimplemented.
+- Deliver Bridge 1.6.9 ZIP. During checking the browser comes to the foreground. For another failure use the visible retained page and popup version/step/counters, not another guessed selector change.
+
 ## 2026-11-15 — Bridge 1.6.8 — retain failed workplace page
 
 - User now reports DataLens unmapped_search_results and says the extension opens then closes the page. This is a different failure from missing-field discovery; it does not by itself prove a search was submitted.

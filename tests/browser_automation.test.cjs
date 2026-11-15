@@ -13,10 +13,10 @@ function runner() {
 function fakeBrowser(finalUrl = null) {
   let current = null;
   const events = {listener:null,addListener(fn){this.listener=fn;},removeListener(){this.listener=null;}};
-  const stats = {created:0,removed:0,executed:0,activated:0};
+  const stats = {created:0,removed:0,executed:0,activated:0,opened:[]};
   return {stats, tabs:{
     onUpdated:events,
-    async create({url,active}) {assert.equal(active,false); stats.created++; current={id:7,url:finalUrl || url,status:'complete'};return current;},
+    async create({url,active}) {assert.equal(typeof active,'boolean');stats.opened.push({url,active}); stats.created++; current={id:7,url:finalUrl || url,status:'complete'};return current;},
     async get(id){assert.equal(id,7);return current;},
     async remove(id){assert.equal(id,7);stats.removed++;},
     async update(id,patch){assert.equal(id,7);if(patch.active)stats.activated++;return {...current,...patch};}
@@ -58,6 +58,7 @@ test('automated traversal opens and closes separate background tabs without writ
   assert.equal(chrome.stats.created,3);
   assert.equal(chrome.stats.removed,3);
   assert.equal(sent.length,3);
+  assert.ok(chrome.stats.opened.every(tab=>tab.active===false));
   assert.ok(sent.every(msg=>msg.type==='inspect_active_page'));
   assert.ok(reports.every(report=>!JSON.stringify(report).includes('Тестовая строка')));
 });
@@ -617,12 +618,12 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue=''}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
   let updated=false, clicks=0, navigationClicks=0, committedEvents=0, stateValue, deadline, now=0;
   class Input {
-    constructor(){this.type='text';this._value='';this.disabled=false;this.readOnly=false;
+    constructor(){this.type='text';this._value=initialValue;this.disabled=false;this.readOnly=false;
       this.parentElement={textContent:label,querySelectorAll:selector=>selector==='input'?[this]:[],parentElement:null};}
     get value(){return this._value;} set value(v){this._value=v;}
     getAttribute(){return null;} getClientRects(){return [{}];}
@@ -680,7 +681,7 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
       setInterval:fn=>{queueMicrotask(()=>{for(let i=0;i<6;i++){now+=250;fn();}deadline();});return 2;}
     })}];
   }}};
-  return {chrome,host,clicks:()=>clicks,navigationClicks:()=>navigationClicks,committedEvents:()=>committedEvents};
+  return {chrome,host,clicks:()=>clicks,navigationClicks:()=>navigationClicks,committedEvents:()=>committedEvents,currentValue:()=>input.value};
 }
 
 test('workplace adapters bind search results using observed labels and normalize source schemas',async()=>{
@@ -1010,4 +1011,27 @@ test('failed search redirected away from the authorized origin is cleaned up rat
    {exactGetSearch:true,seedInventory:inventorySeed(['TEST'])});
  assert.equal(result.phase,'needs_attention');assert.equal(chrome.stats.removed,1);
  assert.equal(result.results.at(-1).review_available,undefined);
+});
+
+
+test('workplace SPA is selected before its search controls are inspected',async()=>{
+ const api=runner(),chrome=fakeBrowser();let active=false,focused=false;
+ const create=chrome.tabs.create;
+ chrome.tabs.create=async args=>{active=args.active;return {...await create(args),windowId:5};};
+ chrome.windows={async update(id,patch){assert.equal(id,5);focused=patch.focused;}};
+ chrome.scripting.executeScript=async({args:[role,key]})=>{
+   if(!active || !focused)return [{result:{error:'search_field_missing'}}];
+   assert.equal(role,'datalens');assert.equal(key,'FROM-INVENTORY');
+   return [{result:scanBatch([key])}];
+ };
+ const result=await api.run(chrome,workTargets,async()=>({ok:true,type:'site_tables_reconciled',persisted:false,
+   read_only:true,write_enabled:false,total:1,summary:{found:1,in_progress:0,manual_review:0}}),async()=>{},
+   {exactGetSearch:true,seedInventory:inventorySeed(['FROM-INVENTORY'])});
+ assert.equal(result.phase,'reconciled');assert.equal(chrome.stats.opened[0].active,true);
+});
+
+test('dashboard default cargo is replaced by the requested inventory cargo before Enter',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{initialValue:'DEFAULT-EXAMPLE',keypressOnly:true});
+ const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(f.currentValue(),'TEST-1');assert.equal(f.committedEvents(),1);assert.equal(result.rows[0][0],'TEST-1');
 });
