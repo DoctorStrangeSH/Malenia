@@ -4,7 +4,7 @@ User confirms 1.6.23 still times out with asgard_table_missing while «Коро�
 
 Retains existing not_found evidence → native status «В работе», comment «Взять в работу», then next cargo. App/native stays 0.6.12; Bridge becomes 1.6.24. DataLens zero recovery, Found skip and targeted cancellation unchanged.
 
-Local validation: 174 Node tests, 42 real DOM Asgard scenarios (ten new classless/nested/cached/stale/input/error/hidden/ambiguous/loading/generic-notice checks), 10 real React DataLens scenarios. Corporate DOM/account execution remains unverified. Publication pending.
+Local validation: 174 Node tests, 42 real DOM Asgard scenarios (ten new classless/nested/cached/stale/input/error/hidden/ambiguous/loading/generic-notice checks), 10 real React DataLens scenarios. Corporate DOM/account execution remains unverified. Code commit 67089dcc735f3155851e62e2b8d4bd44de6422de passed Windows Bridge checks in Desktop run 43729595113 (42 Asgard DOM and 10 React DataLens scenarios included). Python CI 43729595119 passed. Extension artifact 14167069407 is ready: https://github.com/DoctorStrangeSH/WorkPilot/actions/runs/43729595108/artifacts/14167069407 . At delivery, unchanged NSIS build and Tauri/runtime checks were still running; do not claim their complete runs passed.
 
 ## 2026-11-15 — Bridge 1.6.23 — Asgard standalone empty-result notice
 
