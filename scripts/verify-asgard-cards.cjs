@@ -6,8 +6,9 @@ const fs=require('node:fs');
 const vm=require('node:vm');
 const source=fs.readFileSync('browser-extension/automation.js','utf8');
 const READY='Готов для отгрузки в заборную логистику';
-async function check({empty=false,foreign=false,mismatch=false,duplicate=false,company=false,
+async function check({noticeEmpty=false,empty=false,foreign=false,mismatch=false,duplicate=false,company=false,
  foreignTransit=false,serviceError=false,ready=false,wasIssued=false,multipleIssued=false,foreignGroup=false,initialMissing=false,replaceTable=false,replaceInput=false,wrongInput=false,hiddenBusy=false,cacheBusy=false,unrelated=false,tableAttribute=false,headingLevel=1,compactCard=false,deepTitle=0,statusTag="span",fourHistory=false}={}){
+ empty=empty||noticeEmpty;
  const host='https://asgard.market.yandex-team.ru';let dom,clicks=0,visited=[],renderTimer;
  const active=ready?READY:'В пути',dest=company?'Склад ООО "Купишуз"':'Склад партнера';
  function page(html,url){
@@ -18,7 +19,8 @@ async function check({empty=false,foreign=false,mismatch=false,duplicate=false,c
  page('<label>Штрихкод коробки<input></label><button>Найти</button><div id="results">'+(initialMissing?'':'<table>'+headers+'</table>')+'</div>'+(hiddenBusy?'<div role="progressbar" style="display:none"></div>':''),'/returnBox/search');
  const statuses=foreign&&!foreignGroup?[active]:['Выдан',active,...(duplicate?[active]:multipleIssued?['Выдан']:[])];
  const rendered=headers+(empty?'<tr><td colspan="5">Ничего не найдено</td></tr>':statuses.map((status,i)=>`<tr><td>${status}</td><td>111</td><td>222</td><td><a href="/returnBox/${100+i}">${100+i}</a></td><td>${dest}</td></tr>`).join(''));
- if(cacheBusy||unrelated||tableAttribute)dom.window.document.querySelector('#results').innerHTML='<table>'+rendered+'</table>';
+ const resultHTML=noticeEmpty?'<div class="ant-alert ant-alert-info"><span class="ant-alert-message">Коробки не найдены</span></div>':'<table>'+rendered+'</table>';
+ if(cacheBusy||unrelated||tableAttribute)dom.window.document.querySelector('#results').innerHTML=resultHTML;
  dom.window.document.querySelector('button').onclick=()=>{
   clicks++;
   if(serviceError){const el=dom.window.document.createElement('div');el.setAttribute('role','alert');el.textContent='Ошибка загрузки';dom.window.document.body.append(el);return;}
@@ -27,7 +29,7 @@ async function check({empty=false,foreign=false,mismatch=false,duplicate=false,c
    if(cacheBusy){dom.window.document.querySelector('button').disabled=false;return;}
    if(tableAttribute){dom.window.document.querySelector('table').className='hover';return;}
    if(unrelated){dom.window.document.body.append(dom.window.document.createElement('aside'));return;}
-   if(initialMissing||replaceTable)dom.window.document.querySelector('#results').innerHTML='<table>'+rendered+'</table>';
+   if(initialMissing||replaceTable||noticeEmpty)dom.window.document.querySelector('#results').innerHTML=resultHTML;
    else dom.window.document.querySelector('table').innerHTML=rendered;
    if(replaceInput){const old=dom.window.document.querySelector('input'),live=old.cloneNode();live.value=wrongInput?'OTHER':'TEST-1';old.replaceWith(live);}
   },50);
@@ -70,7 +72,7 @@ async function check({empty=false,foreign=false,mismatch=false,duplicate=false,c
   if(!foreign&&!foreignTransit)assert.ok(visited.every(url=>!url.endsWith('/100')),'Issued neighbour was opened');
  }finally{clearTimeout(renderTimer);dom.window.close();}
 }
-const scenarios=[{},{empty:true},{foreign:true},{mismatch:true},{duplicate:true},{company:true},
+const scenarios=[{noticeEmpty:true,initialMissing:true},{noticeEmpty:true,cacheBusy:true},{noticeEmpty:true,unrelated:true},{noticeEmpty:true,replaceInput:true,wrongInput:true},{noticeEmpty:true,serviceError:true},{},{empty:true},{foreign:true},{mismatch:true},{duplicate:true},{company:true},
  {foreignTransit:true},{serviceError:true},{ready:true},{ready:true,wasIssued:true},
  {wasIssued:true},{foreignTransit:true,multipleIssued:true},{company:true,ready:true},{foreign:true,foreignGroup:true},
  {company:true,initialMissing:true},{company:true,replaceTable:true},{company:true,replaceInput:true},

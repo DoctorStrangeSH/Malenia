@@ -1,3 +1,11 @@
+## 2026-11-15 — Bridge 1.6.23 — Asgard standalone empty-result notice
+
+Owner screenshot shows «Коробки не найдены» in a standalone informational alert on reverse-flow search, with no results table. Bridge 1.6.22 times out at asgard_table_missing on the reproduced DOM. Recognize exact empty text inside a visible informational/status alert, including table-less results. Observe additions/removals/text updates of recognized result notices alongside recognized tables. Require the live exact barcode field and post-submit result change or loading completion; stale notices after unrelated changes, wrong input, loaders and service errors remain unconfirmed. Ambiguous/mixed table-and-notice results reject.
+
+Use existing canonical not_found evidence with no fabricated card/history. Native 0.6.12 already maps this to status «В работе» and comment «Взять в работу»; batch proceeds to later cargos and source-bound Sheets writeback. DataLens leading-zero recovery remains. App/native stays 0.6.12; update only Bridge to 1.6.23.
+
+Validation: regression failed on 1.6.22, then 32 Asgard DOM scenarios passed (new table-less notice, cached empty + loading, stale empty, wrong input, service error). 174 Node tests include two missing Asgard cargos reaching writeback and continuation; 10 real React DataLens scenarios and 6 native Asgard outcome tests passed locally. Corporate account unverified. Publication pending.
+
 ## 2026-11-15 — Bridge 1.6.22 — temporary leading-zero recovery
 
 Owner requests recovery of numeric inventory barcodes missing leading zeros. On the corporate DataLens Orders search only, try the original exact key, then prepend one zero per confirmed empty scan history, up to ten added zeros (and the existing 128-character key limit). Stop on the first nonempty verified history even if its scans do not meet Found criteria; existing SC 101366 / OK / after-inventory-date rules remain. Errors, stale/foreign results or unconfirmed empties stop rather than triggering another candidate. Alphanumeric keys are unchanged. All attempts reuse the same owned tab and cancellable executeScript path.

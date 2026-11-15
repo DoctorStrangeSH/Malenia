@@ -309,13 +309,20 @@ var MaleniaAutomation = (() => {
           const failure=(error,step)=>({error,...(step?{step}:{})});
           const required=['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'];
           const resultTable=table=>table?.matches?.('table')&&required.every(name=>Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(text).includes(name));
+          const emptyMessage=s=>/^(Нет данных|Ничего не найдено|Нет результатов|Данные не найдены|Коробки не найдены)$/i.test(clean(s));
+          // Asgard replaces the entire table with an informational alert for an
+          // empty reverse-flow search. Recognize the exact message, not errors.
+          const emptyNotice=el=>el?.nodeType===1 && visible(el) &&
+            !el.closest('table') && !!el.closest('.ant-alert,[role="alert"],[role="status"]') &&
+            emptyMessage(text(el)) && ![...el.children].some(child=>emptyMessage(text(child)));
+          const containsEmptyNotice=el=>!!el && (emptyNotice(el)||[...el.querySelectorAll('div,span,p')].some(emptyNotice));
           const withinResults=node=>{
             const el=node?.nodeType===1?node:node?.parentElement;
-            return !!el&&(resultTable(el)||resultTable(el.closest?.('table')));
+            return !!el&&(resultTable(el)||resultTable(el.closest?.('table'))||emptyNotice(el)||emptyNotice(el.closest?.('.ant-alert-message')));
           };
           const touchesResults=node=>{
             const el=node?.nodeType===1?node:node?.parentElement;
-            return withinResults(el)||!!el&&[...el.querySelectorAll('table')].some(resultTable);
+            return withinResults(el)||!!el&&([...el.querySelectorAll('table')].some(resultTable)||containsEmptyNotice(el));
           };
           const loading=()=>[...document.querySelectorAll('[aria-busy="true"],[role="progressbar"],.ant-spin-spinning')].some(visible)||
             [...document.querySelectorAll('button')].some(el=>visible(el)&&el.disabled&&text(el)==='Найти');
@@ -371,14 +378,16 @@ var MaleniaAutomation = (() => {
               const heads=Array.from(table.querySelectorAll('tr')[0]?.querySelectorAll('th')||[]).map(el=>text(el));
               return {table,heads};
             }).filter(({heads})=>['Статус грузоместа','ID возврата','ID партнера','ID коробки','Точка назначения'].every(h=>heads.filter(x=>x===h).length===1));
-            if(tables.length!==1)return {pending:true,step:tables.length?'asgard_table_ambiguous':'asgard_table_missing'};
-            const {table,heads}=tables[0];
             const state=globalThis.__maleniaAsgardSearch,live=controls();
             const accepted=live.matches.length===1&&live.matches[0].value===code;
             const fresh=state?.code===code&&accepted&&(state.changed||state.loadingSeen);
             const freshness={fresh,step:accepted?'asgard_result_not_refreshed':'asgard_input_unconfirmed'};
+            const notices=[...document.querySelectorAll('div,span,p')].filter(emptyNotice);
+            if(!tables.length && notices.length===1)return {empty:true,...freshness};
+            if(tables.length!==1 || notices.length>1)return {pending:true,step:tables.length||notices.length>1?'asgard_table_ambiguous':'asgard_table_missing'};
+            const {table,heads}=tables[0];
             const rows=[...table.querySelectorAll('tr')].filter(tr=>tr.querySelectorAll('td').length);
-            const emptyMessage=s=>/^(Нет данных|Ничего не найдено|Нет результатов|Данные не найдены)$/i.test(clean(s));
+            if(notices.length && rows.length)return {pending:true,step:'asgard_table_ambiguous'};
             const empty=rows.length===1&&rows[0].querySelectorAll('td').length===1&&emptyMessage(rows[0].textContent) || rows.length===0&&[...table.parentElement.querySelectorAll('div,span,p')].some(el=>visible(el)&&emptyMessage(el.textContent));
             if(!rows.length&&!empty)return {pending:true,step:'asgard_table_incomplete'};
             if(empty)return {empty:true,...freshness};

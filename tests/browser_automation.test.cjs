@@ -1454,3 +1454,26 @@ test('pause during a padded query prevents all following queries and writeback',
  await new Promise(resolve=>setTimeout(resolve,0));
  assert.deepEqual(queries,[['datalens','123'],['datalens','0123']]);assert.equal(messages.length,0);
 });
+
+test('confirmed empty Asgard searches reach writeback and continue to later orders',async()=>{
+ const api=runner(),chrome=fakeBrowser(),submitted=new Set(),messages=[];
+ chrome.scripting.executeScript=async({args:[action,key]})=>{
+  if(action==='datalens')return [{result:{columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[]}}];
+  if(action==='submit'){submitted.add(key);return [{result:{submitted:true}}];}
+  if(action==='cleanup')return [{result:true}];
+  assert.equal(action,'results');return [{result:{empty:true,fresh:submitted.has(key)}}];
+ };
+ const result=await api.run(chrome,workTargets,async message=>{
+  messages.push(message.type);
+  if(message.type==='mark_inventa_found')return {ok:true,type:'inventa_found_marked',verified:true,written:0};
+  if(message.type==='mark_inventa_asgard'){
+   assert.deepEqual(JSON.parse(JSON.stringify(message.asgard.rows)),[
+    ['MISSING-A','Не найден','','','[]','not_found'],['MISSING-B','Не найден','','','[]','not_found']]);
+   return {ok:true,type:'inventa_asgard_marked',verified:true,written:2};
+  }
+  return {ok:true,type:'site_tables_reconciled',persisted:false,read_only:true,write_enabled:false,total:2,summary:{found:0,in_progress:2,manual_review:0}};
+ },async()=>{}, {exactGetSearch:true,seedInventory:inventorySeed(['MISSING-A','MISSING-B']),writebackJobId:'job',asgardWriteback:true});
+ assert.equal(result.phase,'reconciled');assert.equal(result.writeback.asgard_written,2);
+ assert.deepEqual([...submitted],['MISSING-A','MISSING-B']);
+ assert.deepEqual(messages,['mark_inventa_found','mark_inventa_asgard','reconcile_site_tables']);
+});
