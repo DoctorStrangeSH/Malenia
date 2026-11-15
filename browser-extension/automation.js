@@ -3,7 +3,7 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
-  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","result_wait_timeout"]);
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","result_wait_timeout"]);
   function normalizeTargets(input) {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("invalid_targets");
     if (Object.keys(input).sort().join(",") !== [...ROLES].sort().join(",")) throw new Error("invalid_roles");
@@ -348,8 +348,36 @@ var MaleniaAutomation = (() => {
           if(role==='asgard' && buttons.length!==1) return {error:buttons.length?'search_button_ambiguous':'search_button_missing'};
           return {input,buttons};
         };
+        // DataLens renders BaseControlInput even before /api/run supplies its
+        // parameter. That stub accepts local text but its commit is a no-op.
+        // Inspect only bounded owner ancestry of this already-bound input; never
+        // enumerate other fibers, hooks, state, or dashboard contents.
+        const controlLoadState=el=>{
+          if(role!=='datalens')return 'unknown';
+          const keys=Object.getOwnPropertyNames(el).filter(key=>key.startsWith('__reactFiber$'));
+          if(keys.length!==1)return 'unknown';
+          const start=Object.getOwnPropertyDescriptor(el,keys[0])?.value;
+          let loading=false;
+          for(const branch of [start,start?.alternate]){
+            let fiber=branch;
+            const seen=new Set();
+            for(let depth=0;fiber && depth<16 && !seen.has(fiber);depth++,fiber=fiber.return){
+              seen.add(fiber);
+              const props=fiber.memoizedProps;
+              if(props && props.type==='input' && typeof props.param==='string' &&
+                  typeof props.onChange==='function' && Object.hasOwn(props,'value')){
+                loading=true;
+                if(props.param.trim() && String(props.value ?? '')===String(el.value))return 'ready';
+              }
+              // The nearest widget is the limit of the selected control's scope.
+              if(fiber!==branch && fiber.stateNode?.getAttribute?.('data-qa')==='dashkit-grid-item')break;
+            }
+          }
+          return loading?'loading':'unknown';
+        };
         // tabs.status=complete does not mean an SPA has rendered its search form.
         const readyUntil=Date.now()+12000;
+        let readyInput=null,readyValue=null,readyAt=0;
         let controls, reverseSelected=false,
           ordersSelected=role==='datalens' && location.pathname==='/94srinatuhls4-sc' &&
             new URL(location.href).searchParams.get('tab')==='qmM';
@@ -415,7 +443,18 @@ var MaleniaAutomation = (() => {
             }
           }
           controls=findControls();
-          if(!controls.error) break;
+          if(!controls.error){
+            const state=controlLoadState(controls.input);
+            if(state==='unknown')break;
+            if(state==='ready'){
+              if(readyInput!==controls.input || readyValue!==controls.input.value){
+                readyInput=controls.input;readyValue=controls.input.value;readyAt=Date.now();
+              }else if(Date.now()-readyAt>=400)break;
+            }else {readyInput=null;readyValue=null;}
+            if(Date.now()>=readyUntil)return {error:'unmapped_search_results',step:'input_loading_timeout'};
+            await new Promise(resolve=>setTimeout(resolve,200));
+            continue;
+          }
           if(!['search_field_missing','search_button_missing'].includes(controls.error)) return controls;
           if(Date.now()>=readyUntil) return controls;
           await new Promise(resolve=>setTimeout(resolve,200));

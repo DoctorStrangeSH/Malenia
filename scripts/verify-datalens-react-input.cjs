@@ -70,13 +70,60 @@ async function check({blockEvents=false,refuse=false,reload=false,blurOnly=false
   if(blockEvents)for(const type of ['input','change'])window.document.removeEventListener(type,block,true);
  }
 }
+// Mirrors DataLens's published loading stub: the text input accepts local
+// edits, but param is empty and onChange is a no-op until /api/run finishes.
+async function checkLoadingStub(){
+ let realSubmits=0,stubSubmits=0,editsBeforeReady=0,loadedAt=0;
+ function BaseControlInput({value,onChange,param,type}){
+  const [text,setText]=React.useState(value || '');
+  React.useEffect(()=>setText(value),[value]);
+  return React.createElement('span',{'data-qa':'chartkit-control-input'},
+   React.createElement('input',{type:'text',className:'g-text-input__control',value:text,
+    onChange:event=>{if(!param)editsBeforeReady++;setText(event.target.value);},
+    onKeyPress:event=>{if(event.charCode===13)onChange(text);},
+    onBlur:()=>setTimeout(()=>onChange(text),0)
+   }));
+ }
+ function Dashboard(){
+  const [loaded,setLoaded]=React.useState(false);
+  const [value,setValue]=React.useState('134305382');
+  const [result,setResult]=React.useState('OLD');
+  React.useEffect(()=>{
+   const timer=setTimeout(()=>{loadedAt=Date.now();setLoaded(true);},2200);
+   return ()=>clearTimeout(timer);
+  },[]);
+  return React.createElement(React.Fragment,null,
+   React.createElement('div',{'data-qa':'dashkit-grid-item','data-dashkit-grid-id':'13'},
+    React.createElement(BaseControlInput,{type:'input',param:loaded?'barcode':'',
+     value:loaded?value:'',onChange:loaded?code=>{
+      realSubmits++;assert.ok(Date.now()>=loadedAt);setValue(code);setResult(code);
+     }:()=>{stubSubmits++;}})),
+   React.createElement('table',null,React.createElement('tbody',null,
+    React.createElement('tr',null,...['scanned_at','sc_id','result','place_external_id'].map(x=>React.createElement('th',{key:x},x))),
+    React.createElement('tr',null,...['2026/10/05 16:51:32','101 366','OK',result].map((x,i)=>React.createElement('td',{key:i},x)))
+   )));
+ }
+ flushSync(()=>root.render(React.createElement(Dashboard)));
+ const chrome={scripting:{executeScript:async({func,args})=>[
+  {result:await window.eval('('+func.toString()+')(...'+JSON.stringify(args)+')')}
+ ]}};
+ const result=await api.workplaceSearch(chrome,1,'datalens','TEST-1',window.location.origin);
+ assert.equal(result.rows[0][0],'TEST-1');
+ assert.equal(stubSubmits,0);
+ assert.equal(editsBeforeReady,0);
+ assert.equal(realSubmits,1);
+ assert.equal(window.document.querySelector('input').value,'TEST-1');
+ console.log('PASS: delayed DataLens loading stub receives no edits/submits; real loaded control submits once.');
+}
 (async()=>{
  try{
+  if(process.argv.includes('--loading-stub-only')){await checkLoadingStub();return;}
   await check({});
   await check({blockEvents:true});
   await check({blockEvents:true,refuse:true});
   await check({reload:true});
   await check({blurOnly:true});
+  await checkLoadingStub();
   console.log('PASS: React 18 controlled input: normal events, rejected DOM events, refused state, 2.2s input replacement, blur-only control, no double submit.');
  }finally{root.unmount();window.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

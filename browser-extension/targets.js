@@ -42,6 +42,7 @@
   const steps={
     page_changed:"Страница перешла на другой адрес",
     input_setter_unavailable:"Не удалось установить значение поля",
+    input_loading_timeout:"Фильтр DataLens не завершил загрузку; поиск не отправлен",
     input_value_reset:"Поле не приняло номер до отправки поиска",
     input_changed_after_submit:"После отправки поиска поле не восстановило искомый номер за время ожидания",
     input_handler_failed:"Обработчик ввода страницы завершился ошибкой",

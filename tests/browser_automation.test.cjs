@@ -618,10 +618,10 @@ test('unrelated result-table mutations do not count as successful reactive searc
     'https://asgard.example'),/dynamic_search_unchanged_table/);
 });
 
-function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false}={}) {
+function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=false, missing=false, filters=false, noButton=false, delayed=false, caption=false, aria=false, hidden=false, multiField=false, reverse=false, orders=false, plainOrders=false, duplicateOrders=false, ordersAlreadyOpen=false, delayedOrders=false, unrelatedOrders=false, foreignOrders=false, ordersHeading=false, deepOrders=false, nativeControl=false, keypressOnly=false, duplicateNative=false, pinnedControl=false, pinnedCollision=false, pinnedDisabled=false, resetValue=false, initialValue='', controlled=false, refuseChange=false, domOnlyChange=false, normalReactEvents=false,handlerThrows=false,noReactHandler=false,detachedBeforeSubmit=false,loadingControl=false,neverReadyControl=false,foreignReadyOwner=false}={}) {
   const host=role==='asgard'?'https://asgard.market.yandex-team.ru':'https://datalens.yandex-team.ru';
   const label=role==='asgard'?'Штрихкод коробки':'ID заказа / ЛОТа / ТОТа / Тележки';
-  let updated=false, clicks=0, navigationClicks=0, committedEvents=0, handlerCalls=0, worldUsed, stateValue=initialValue, deadline, now=0;
+  let updated=false, clicks=0, navigationClicks=0, committedEvents=0, handlerCalls=0, worldUsed, stateValue=initialValue, deadline, now=0, firstEditAt=null;
   class Input {
     constructor(){this.type='text';this._value=initialValue;this.disabled=false;this.readOnly=false;
       this.parentElement={textContent:label,querySelectorAll:selector=>selector==='input'?[this]:[],parentElement:null};}
@@ -629,6 +629,7 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
     getAttribute(){return null;} getClientRects(){return [{}];}
     dispatchEvent(event){
       if(event.type==='input'){
+        if(firstEditAt===null)firstEditAt=now;
         if(controlled){
           if(normalReactEvents)this.__reactProps$fixture.onChange({target:this});
           else queueMicrotask(()=>{this._value=stateValue;});
@@ -653,6 +654,15 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
         stateValue=value;
         input.__reactProps$fixture={...input.__reactProps$fixture,value};
       });
+    }};
+  }
+  if(loadingControl){
+    const owner={};
+    Object.defineProperty(owner,'memoizedProps',{get:()=>({type:'input',
+      param:!neverReadyControl && now>=2200?'barcode':'',value:input.value,onChange(){}})});
+    input.__reactFiber$fixture={return:owner};
+    if(foreignReadyOwner)owner.return={stateNode:{getAttribute:()=> 'dashkit-grid-item'},return:{
+      memoizedProps:{type:'input',param:'unrelated',value:input.value,onChange(){}}
     }};
   }
   if(noReactHandler && controlled)input.__reactProps$fixture.onChange=undefined;
@@ -703,7 +713,7 @@ function workplaceFixture(role, {ambiguous=false, unchanged=false, wrongCode=fal
       setInterval:fn=>{queueMicrotask(async()=>{for(let i=0;i<6;i++){now+=250;fn();await Promise.resolve();}deadline();});return 2;}
     })}];
   }}};
-  return {chrome,host,clicks:()=>clicks,navigationClicks:()=>navigationClicks,committedEvents:()=>committedEvents,currentValue:()=>input.value,handlerCalls:()=>handlerCalls,world:()=>worldUsed};
+  return {chrome,host,clicks:()=>clicks,navigationClicks:()=>navigationClicks,committedEvents:()=>committedEvents,currentValue:()=>input.value,handlerCalls:()=>handlerCalls,world:()=>worldUsed,firstEditAt:()=>firstEditAt};
 }
 
 test('workplace adapters bind search results using observed labels and normalize source schemas',async()=>{
@@ -1104,6 +1114,28 @@ test('DataLens distinguishes an absent handler, a throwing handler and pre-submi
   const f=workplaceFixture('datalens',{keypressOnly:true,...options});
   await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
    error=>error.step===step && !error.message.includes('PRIVATE-PAGE-ERROR'));
+  assert.equal(f.committedEvents(),0);
+ }
+});
+
+
+test('DataLens waits for the loaded parameter before editing a locally editable loading stub',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{loadingControl:true,keypressOnly:true});
+ const result=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(result.rows[0][0],'TEST-1');
+ assert.ok(f.firstEditAt()>=2600);
+ assert.equal(f.committedEvents(),1);
+});
+
+test('a never-ready DataLens stub is neither edited nor submitted; other widgets cannot make it ready',async()=>{
+ const api=runner();
+ for(const foreignReadyOwner of [false,true]){
+  const f=workplaceFixture('datalens',{loadingControl:true,neverReadyControl:true,foreignReadyOwner,
+   initialValue:'DEFAULT-EXAMPLE',keypressOnly:true});
+  await assert.rejects(()=>api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host),
+   error=>error.step==='input_loading_timeout');
+  assert.equal(f.firstEditAt(),null);
+  assert.equal(f.currentValue(),'DEFAULT-EXAMPLE');
   assert.equal(f.committedEvents(),0);
  }
 });

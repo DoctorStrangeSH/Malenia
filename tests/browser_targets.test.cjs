@@ -126,3 +126,12 @@ test('popup distinguishes post-submit input reset from a failure to type or pars
  assert.match(ui.nodes.orderAuditStatus.textContent,/После отправки поиска/);
  assert.doesNotMatch(ui.nodes.orderAuditStatus.textContent,/до отправки|распознать таблицу/);
 });
+
+
+test('loading-filter failure explicitly says no search was sent',async()=>{
+ const ui=screen(true,{phase:'needs_attention',results:[{role:'datalens',status:'needs_attention',
+  reason:'unmapped_search_results',step:'input_loading_timeout'}]});
+ await flush();
+ assert.match(ui.nodes.orderAuditStatus.textContent,/Фильтр DataLens не завершил загрузку; поиск не отправлен/);
+ assert.doesNotMatch(ui.nodes.orderAuditStatus.textContent,/распознать таблицу/);
+});
