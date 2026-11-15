@@ -3,7 +3,7 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
-  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_empty_unconfirmed","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout","asgard_wait_loading","asgard_table_missing","asgard_table_ambiguous","asgard_table_incomplete","asgard_input_unconfirmed","asgard_result_not_refreshed","asgard_card_heading","asgard_card_box","asgard_card_history","asgard_card_status"]);
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_history_widget_missing","scan_empty_unconfirmed","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout","asgard_wait_loading","asgard_table_missing","asgard_table_ambiguous","asgard_table_incomplete","asgard_input_unconfirmed","asgard_result_not_refreshed","asgard_card_heading","asgard_card_box","asgard_card_history","asgard_card_status"]);
   function safeScanShape(value){
     const fields=['rows','columns','min_cells','max_cells','duplicate_required_headers','max_required_chars'];
     return value && Object.keys(value).length===fields.length && fields.every(key=>
@@ -686,30 +686,46 @@ var MaleniaAutomation = (() => {
         let {input,buttons}=controls;
         // Empty results are meaningful only inside the named scan widget.
         // Other dashboard widgets routinely show No Data for a found cargo.
+        const caption='История сканов по заказу';
+        const labelText=el=>clean(el?.innerText??el?.textContent).replace(/[\u200B-\u200D\uFEFF\u00AD]/g,'');
+        const leafLabel=(el,label)=>visible(el) && labelText(el)===label &&
+          !Array.from(el.children||[]).some(child=>visible(child)&&labelText(child)===label);
         const historyWidget=()=>{
           if(role!=='datalens')return null;
-          const roots=new Set();
-          for(const el of document.querySelectorAll('h1,h2,h3,h4,h5,h6,span,div')){
-            if(!visible(el) || clean(el.textContent)!=='История сканов по заказу' ||
-                [...el.children].some(child=>clean(child.textContent)==='История сканов по заказу'))continue;
-            const root=el.closest('[data-qa="dashkit-grid-item"], .dashkit-grid-item');
-            if(root)roots.add(root);
+          // Titles and empty cells can be links, paragraphs or custom typography.
+          // Use rendered labels rather than a guessed set of element tags.
+          const titles=[...document.querySelectorAll('*')].filter(el=>
+            String(el.textContent||'').replace(/[\u200B-\u200D\uFEFF\u00AD]/g,'').includes(caption) && leafLabel(el,caption));
+          if(titles.length!==1)return null;
+          const title=titles[0];
+          const known=title.closest?.('[data-qa="dashkit-grid-item"], .dashkit-grid-item, .react-grid-item, [data-dashkit-grid-id]');
+          if(known)return known;
+          // Legacy layouts need no CSS-specific wrapper. Only a compact section
+          // containing this caption and its empty/loading content can qualify;
+          // never adopt an ancestor containing other widgets or search controls.
+          let root=title.parentElement;
+          for(let i=0;root&&i<8;i++,root=root.parentElement){
+            if(root===document.body || root===document.documentElement || root.querySelector('input'))break;
+            const rest=clean(labelText(root).replace(caption,'').replace(/Нет данных|Загрузка/gi,''));
+            if(!rest && (root.querySelector('[aria-busy="true"],[role="progressbar"],.g-loader,.g-spin') ||
+                [...root.querySelectorAll('*')].some(el=>leafLabel(el,'Нет данных'))))return root;
           }
-          return roots.size===1?[...roots][0]:null;
+          return null;
         };
-        const historyBusy=root=>root && [...root.querySelectorAll('[aria-busy="true"], [role="progressbar"], .g-loader, .g-spin')].some(visible);
+        const historyBusy=root=>root && (root.getAttribute('aria-busy')==='true' ||
+          [...root.querySelectorAll('[aria-busy="true"], [role="progressbar"], .g-loader, .g-spin')].some(visible));
         const explicitEmpty=root=>{
           if(!root || historyBusy(root))return false;
           if([...root.querySelectorAll('[role="alert"], .chartkit-error, .chartkit-widget-error')].some(visible))return false;
-          if([...root.querySelectorAll('td')].some(el=>visible(el) && clean(el.textContent) && clean(el.textContent)!=='Нет данных'))return false;
-          return [...root.querySelectorAll('span,div,td,p')].some(el=>visible(el) && clean(el.textContent)==='Нет данных' &&
-            ![...el.children].some(child=>clean(child.textContent)==='Нет данных'));
+          if([...root.querySelectorAll('td')].some(el=>visible(el) && labelText(el) && labelText(el)!=='Нет данных'))return false;
+          return [...root.querySelectorAll('*')].some(el=>leafLabel(el,'Нет данных'));
         };
         let historyRoot=historyWidget(),emptyRefreshed=false,sawHistoryBusy=false;
         let readFailure='scan_table_missing',scanShape=null;
         const read = () => {
           readFailure='scan_table_missing';scanShape=null;
           const root=historyWidget();
+          if(role==='datalens' && !root)readFailure='scan_history_widget_missing';
           if(explicitEmpty(root)){
             readFailure='scan_empty_unconfirmed';
             return {columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[]};
