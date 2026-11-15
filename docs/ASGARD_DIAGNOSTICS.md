@@ -1,3 +1,9 @@
+## 2026-11-15 — Bridge 1.6.21 — DataLens «Нет данных»
+
+Explicit «Нет данных» inside the uniquely titled «История сканов по заказу» widget now returns canonical empty scan rows and routes that cargo to Asgard without stopping the batch. Requires live controlled-input acknowledgement, post-submit child/text refresh within that widget (or its loading cycle), and stable output. Unrelated empty widgets, unchanged empty results, loaders, alerts and input resets do not authorize an empty answer. No synthetic scan evidence, native business rules or Sheets writes changed. App/native remains 0.6.12.
+
+Regression reproduced on 1.6.20. Local checks: 167 Node tests, 9 real React empty-result scenarios, 27 Asgard DOM scenarios; corporate account behavior unverified. New React checks run in Desktop CI. Publication pending.
+
 ## 2026-11-15 — Desktop 0.6.12 / Bridge 1.6.20 — Found skip, cancellation and card layout
 
 - User reports an Asgard card stalled after opening, existing Found rows are searched again, and Pause/Restart continue navigating old orders. For the supplied card the history contains only transit/created statuses, so the existing rule should propose В работе / Взять в работу. The screenshot does not expose actual HTML; do not claim the exact live parser cause is confirmed. Old source regression rejects otherwise valid h3 card headings; new fixtures cover h3, tightly joined ID label/value, deep title wrappers, p status badges and a four-row transit/created history.

@@ -1356,3 +1356,12 @@ test('cancellation clears page-loading listeners and stops before injecting a sc
  controller.abort('audit_cancelled');await assert.rejects(run,/audit_cancelled/);
  assert.equal(chrome.tabs.onUpdated.listener,null);assert.equal(scripts,0);assert.equal(chrome.stats.removed,1);
 });
+
+ test('empty DataLens histories route only unresolved cargo to Asgard in mixed batches',()=>{
+  const api=runner();
+  const inventory={columns:['cargo_place','inventory_date'],rows:[['EMPTY','2026-10-03'],['FOUND','2026-10-03']]};
+  const scans={columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[]};
+  assert.deepEqual(Array.from(api.asgardSearchKeys(inventory,scans)),['EMPTY','FOUND']);
+  scans.rows.push(['FOUND','101366','OK','2026-10-05T10:00:00']);
+  assert.deepEqual(Array.from(api.asgardSearchKeys(inventory,scans)),['EMPTY']);
+ });

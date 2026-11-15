@@ -3,7 +3,7 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
-  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout","asgard_wait_loading","asgard_table_missing","asgard_table_ambiguous","asgard_table_incomplete","asgard_input_unconfirmed","asgard_result_not_refreshed","asgard_card_heading","asgard_card_box","asgard_card_history","asgard_card_status"]);
+  const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_empty_unconfirmed","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout","asgard_wait_loading","asgard_table_missing","asgard_table_ambiguous","asgard_table_incomplete","asgard_input_unconfirmed","asgard_result_not_refreshed","asgard_card_heading","asgard_card_box","asgard_card_history","asgard_card_status"]);
   function safeScanShape(value){
     const fields=['rows','columns','min_cells','max_cells','duplicate_required_headers','max_required_chars'];
     return value && Object.keys(value).length===fields.length && fields.every(key=>
@@ -671,9 +671,36 @@ var MaleniaAutomation = (() => {
           await new Promise(resolve=>setTimeout(resolve,200));
         } while(true);
         let {input,buttons}=controls;
+        // Empty results are meaningful only inside the named scan widget.
+        // Other dashboard widgets routinely show No Data for a found cargo.
+        const historyWidget=()=>{
+          if(role!=='datalens')return null;
+          const roots=new Set();
+          for(const el of document.querySelectorAll('h1,h2,h3,h4,h5,h6,span,div')){
+            if(!visible(el) || clean(el.textContent)!=='История сканов по заказу' ||
+                [...el.children].some(child=>clean(child.textContent)==='История сканов по заказу'))continue;
+            const root=el.closest('[data-qa="dashkit-grid-item"], .dashkit-grid-item');
+            if(root)roots.add(root);
+          }
+          return roots.size===1?[...roots][0]:null;
+        };
+        const historyBusy=root=>root && [...root.querySelectorAll('[aria-busy="true"], [role="progressbar"], .g-loader, .g-spin')].some(visible);
+        const explicitEmpty=root=>{
+          if(!root || historyBusy(root))return false;
+          if([...root.querySelectorAll('[role="alert"], .chartkit-error, .chartkit-widget-error')].some(visible))return false;
+          if([...root.querySelectorAll('td')].some(el=>visible(el) && clean(el.textContent) && clean(el.textContent)!=='Нет данных'))return false;
+          return [...root.querySelectorAll('span,div,td,p')].some(el=>visible(el) && clean(el.textContent)==='Нет данных' &&
+            ![...el.children].some(child=>clean(child.textContent)==='Нет данных'));
+        };
+        let historyRoot=historyWidget(),emptyRefreshed=false,sawHistoryBusy=false;
         let readFailure='scan_table_missing',scanShape=null;
         const read = () => {
           readFailure='scan_table_missing';scanShape=null;
+          const root=historyWidget();
+          if(explicitEmpty(root)){
+            readFailure='scan_empty_unconfirmed';
+            return {columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[]};
+          }
           const candidates=[];
           for(const table of document.querySelectorAll('table')) {
             // DataLens renders measurement copies through a portal offscreen.
@@ -814,13 +841,31 @@ var MaleniaAutomation = (() => {
               // Keep focus: calling blur here can submit twice with stale props.
               return;
             }
+            const liveRoot=historyWidget();
+            if(historyBusy(liveRoot))sawHistoryBusy=true;
+            if(sawHistoryBusy && explicitEmpty(liveRoot))emptyRefreshed=true;
             const table=read(), serialized=JSON.stringify(table);
-            if(!table || serialized===before){stableAt=0;return;}
+            const empty=table && role==='datalens' && table.rows.length===0;
+            if(!table || (empty?!emptyRefreshed:serialized===before)){stableAt=0;return;}
             if(serialized!==last){last=serialized;stableAt=Date.now();return;}
             if(stableAt && Date.now()-stableAt>=750) finish(table);
           };
-          observer=new MutationObserver(check);
-          observer.observe(document.body,{subtree:true,childList:true,characterData:true});
+          observer=new MutationObserver(records=>{
+            if(submitted && role==='datalens'){
+              const liveRoot=historyWidget();
+              const roots=[historyRoot,liveRoot].filter(Boolean);
+              // Only child/text changes in this widget prove a refreshed empty
+              // result. Input renders and unrelated widgets cannot authorize it.
+              if(records.some(record=>record.type!=='attributes' && (
+                roots.some(root=>root===record.target || root.contains(record.target)) ||
+                [...record.addedNodes,...record.removedNodes].some(node=>roots.some(root=>node===root || node.contains?.(root)))
+              )))emptyRefreshed=true;
+              if(historyBusy(liveRoot))sawHistoryBusy=true;
+              historyRoot=liveRoot;
+            }
+            check();
+          });
+          observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-busy']});
           deadline=setTimeout(()=>{
             if(!submitted)return finish({error:'unmapped_search_results',
               step:typeof currentProps()?.onChange==='function'?'input_value_reset':'input_handler_unavailable'});
