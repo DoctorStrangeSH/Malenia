@@ -1,3 +1,11 @@
+## 2026-11-15 — Desktop 0.6.9 — business headers vs lookup aliases
+
+- User reports Google Sheets: inventa_writeback_ambiguous_columns on 0.6.8. This is a pre-queue write-context check, not a DataLens failure. The precise duplicate header has not been reported. Source review reproduces two causes: helper columns after the owner-shown «впр» header contain aliases such as «Статус», and a generic «Партнер» coexists with explicit main_partner.
+- Shared header_matches now defines the business-header block as columns before the exact normalized «впр» marker (no viewport inference or hardcoded H/I). Explicit cargo keys rank main_partner_code_original, main_partner, грузоместо, then generic partner. Explicit ID aliases rank above generic «Заказ». detect_header and writeback validation use the same resolver; two same-priority matches inside the business block still reject writes. Status aliases remain equal priority and must be unique there.
+- Fresh-source validation repeats the uniqueness check, including an ambiguous column added during the audit. Helper aliases cannot extend the green range or become a write destination. Rust messages now name order ID/cargo/status ambiguity instead of exposing an opaque code. Existing formula/source identity protections remain.
+- New stateful regressions fail on 0.6.8 and pass after the change: duplicated aliases after «впр» preserve helper values; canonical cargo column after a generic seller column supplies the right search key; duplicate business statuses stop before creating a job; ambiguity introduced during an audit stops before remote writes.
+- Installer update only: desktop/agent 0.6.9. Browser Bridge remains 1.6.16. Frontend build passed; Python suite before the final extra regression: 253 tests (1 platform skip), and all 13 writeback integrations pass with the final guard. Windows CI must pass before delivery. Live Google write is still not confirmed.
+
 ## 2026-11-15 — Desktop 0.6.8 / Bridge 1.6.16 — Found writeback
 
 - User explicitly confirms DataLens now works and requests automatic status «Найден» plus green fill in the selected INVenta tab, matching the screenshot. This authorizes the specialized marking workflow; no new approval dialog is needed. Existing generic edit-preview/edit-approve flow remains separate.

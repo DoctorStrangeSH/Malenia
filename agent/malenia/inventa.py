@@ -38,17 +38,38 @@ def _norm(value: Any) -> str:
     return re.sub(r"\s+", " ", ("" if value is None else str(value)).strip().casefold().replace("ё", "е"))
 
 
+# Prefer the export's explicit cargo key over a generic seller/partner label.
+# Columns starting at the owner-shown «впр» header are lookup helpers, not the
+# inventory's business schema. Never infer a destination from helper aliases.
+HEADER_PRIORITIES = {
+    "order_id": (("id заказа", "order_id", "order id"), ("номер заказа",), ("заказ",)),
+    "partner": (("main_partner_code_original",), ("main_partner",),
+                ("грузоместо", "грузо место"), ("партнер", "партнёр")),
+}
+
+
+def header_matches(row: list[Any], field: str) -> list[int]:
+    labels = [_norm(value) for value in row]
+    end = labels.index("впр") if "впр" in labels else len(labels)
+    labels = labels[:end]
+    for tier in HEADER_PRIORITIES.get(field, (tuple(ALIASES[field]),)):
+        names = {_norm(alias) for alias in tier}
+        matches = [index for index, label in enumerate(labels) if label in names]
+        if matches:
+            return matches
+    return []
+
+
 def detect_header(rows: list[list[Any]], scan_rows: int = 12) -> tuple[int, dict[str, int]]:
     if not isinstance(rows, list) or not rows:
         raise ValueError("empty_sheet")
     best: tuple[int, dict[str, int]] | None = None
     for row_index, row in enumerate(rows[:scan_rows]):
         mapping: dict[str, int] = {}
-        for col_index, value in enumerate(row):
-            label = _norm(value)
-            for field, aliases in ALIASES.items():
-                if label in {_norm(alias) for alias in aliases} and field not in mapping:
-                    mapping[field] = col_index
+        for field in ALIASES:
+            matches = header_matches(row, field)
+            if matches:
+                mapping[field] = matches[0]
         score = len(mapping)
         if score >= 4 and (best is None or score > len(best[1])):
             best = (row_index, mapping)

@@ -5,7 +5,7 @@ import hashlib
 import json
 from typing import Any
 
-from .inventa import ALIASES, _norm, analyze_inventa
+from .inventa import analyze_inventa, header_matches
 from .site_reconciliation import reconcile_tables
 
 
@@ -36,8 +36,9 @@ def build_context(source: dict, analysis: dict) -> dict:
         raise ValueError("inventa_writeback_select_sheet")
     header = source["values"][analysis["header_row"] - 1]
     for key in ("order_id", "partner", "status"):
-        if sum(_norm(value) in {_norm(alias) for alias in ALIASES[key]} for value in header) != 1:
-            raise ValueError("inventa_writeback_ambiguous_columns")
+        matches = header_matches(header, key)
+        if len(matches) != 1 or matches[0] + 1 != columns[key]:
+            raise ValueError("inventa_writeback_ambiguous_columns_" + key)
     return {"spreadsheet_id": source["spreadsheet_id"], "sheet_id": source["sheet_id"],
             "sheet_title": source["sheet_title"], "columns": columns,
             "header_row": analysis["header_row"], "fingerprint": analysis["audit_fingerprint"],
@@ -61,6 +62,9 @@ def mark_found(sheets, context: dict, inventory: dict, datalens: dict) -> int:
     source = sheets.read_active_sheet(url, str(context["sheet_id"]))
     analysis = analyze_inventa(source["values"], source["sheet_title"], audit_batch_limit=20,
                               inventory_date=context["inventory_date"])
+    header = source["values"][analysis["header_row"] - 1]
+    if any(len(header_matches(header, key)) != 1 for key in ("order_id", "partner", "status")):
+        raise ValueError("inventa_writeback_source_changed")
     if (source["spreadsheet_id"] != context["spreadsheet_id"]
             or source["sheet_id"] != context["sheet_id"] or source["sheet_title"] != context["sheet_title"]
             or analysis["audit_fingerprint"] != context["fingerprint"]

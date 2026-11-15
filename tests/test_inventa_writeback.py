@@ -137,6 +137,41 @@ class InventaWritebackTests(unittest.TestCase):
             self.assertEqual(db.execute('SELECT next_offset FROM inventa_batch_cursor').fetchone()[0], 3)
             self.assertEqual(db.execute('SELECT COUNT(*) FROM inventa_writeback').fetchone()[0], 0)
 
+    def test_helper_lookup_columns_do_not_make_business_headers_ambiguous(self):
+        self.api.grid[0].extend(['Статус', 'Партнер', 'Id заказа'])
+        for row in self.api.grid[1:]: row.extend(['Helper status', 'Helper partner', 'Helper order'])
+        original = copy.deepcopy(self.api.grid)
+        job = self.queue()
+        self.assertEqual(self.mark(job)['written'], 2)
+        for index in range(1, 4): self.assertEqual(self.api.grid[index][9:], original[index][9:])
+
+    def test_explicit_main_partner_wins_over_generic_partner(self):
+        self.api.grid[0][2] = 'Партнер'
+        self.api.grid[0][5] = 'main_partner'
+        for index, row in enumerate(self.api.grid[1:]):
+            row[5] = row[2]
+            row[2] = f'SELLER-{index}'
+        job = self.queue()
+        self.assertEqual(job['inventory']['rows'][0][0], 'BOX-0')
+        self.assertEqual(self.mark(job)['written'], 2)
+        self.assertEqual(self.api.grid[1][2], 'SELLER-0')
+
+    def test_two_status_columns_inside_business_block_still_stop_before_writes(self):
+        from urllib.error import HTTPError
+        self.api.grid[0][6] = 'Статус'
+        with self.assertRaises(HTTPError) as caught: self.queue()
+        response = json.load(caught.exception)
+        self.assertEqual(response['error'], 'inventa_writeback_ambiguous_columns_status')
+        self.assertEqual(self.api.writes, [])
+        self.assertIsNone(self.store.latest_browser_audit_job())
+
+    def test_new_ambiguous_header_added_during_audit_prevents_write(self):
+        self.api.grid[0][8] = 'Unmapped column'
+        job = self.queue()
+        self.api.grid[0][8] = 'Статус'
+        self.assertEqual(self.mark(job)['error'], 'inventa_writeback_source_changed')
+        self.assertEqual(self.api.writes, [])
+
     def test_previous_read_only_cursor_does_not_skip_unmarked_rows(self):
         old = self.queue(mark_found=False)
         self.assertNotIn('writeback_required', old)

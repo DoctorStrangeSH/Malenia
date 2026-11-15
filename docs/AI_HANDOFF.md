@@ -1,3 +1,7 @@
+## Current correction — 2026-11-15 — 0.6.9 header resolution
+
+This supersedes the release version immediately below. User hit inventa_writeback_ambiguous_columns before queueing. Agent/desktop **0.6.9** fixes helper/canonical header resolution; Bridge stays **1.6.16**. Read the current section in docs/ASGARD_DIAGNOSTICS.md. Tests cover helper aliases after «впр», explicit main_partner overriding generic partner, and true ambiguity remaining fail-closed. Do not rename or edit the user's headers automatically. Installer CI still needs verification for 0.6.9; 0.6.8 artifact below does not contain this correction. No live Google write confirmed yet.
+
 ## Current handoff — 2026-11-15 — INVenta Found marking
 
 This section supersedes historical status below. Repository main is actively updated under user authorization. User confirmed DataLens works on Bridge 1.6.15 and explicitly requested automatic edits in the chosen INVenta worksheet: status «Найден» and green row fill like their example.
