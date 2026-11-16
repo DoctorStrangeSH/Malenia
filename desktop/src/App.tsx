@@ -180,7 +180,7 @@ function BrowserPage({tabs,audit,job,connected,onRequested,onOpenSources}:{tabs:
           <Play size={15}/>{sending?"Отправляем…":"Запустить проверку"}</button>
       </div>
       <p role="status">{statusLabel}</p>
-      <p>Настройка в Яндекс Браузере: открой расширение Browser Bridge 1.6.31 или новее → «Найти открытые вкладки» → выбери ИНВенту, DataLens «Заказы» и Asgard «Обратный поток» → «Сохранить и разрешить чтение». Для Google Sheets запускай «Проверить первый заказ» в разделе «Источники»: таблица будет прочитана через Google API.</p>
+      <p>Настройка в Яндекс Браузере: открой расширение Browser Bridge 1.6.31 или новее → «Найти открытые вкладки» → выбери ИНВенту, DataLens «Заказы» и Asgard «Обратный поток» → «Сохранить и разрешить чтение». Для проверки всей ИНВенты открой «Проверка ИНВенты» → выбери лист → «Начать проверку».</p>
       {job?.status==="running" || job?.status==="completed" || job?.status==="failed" ?
         <div className="batch-summary" data-testid="browser-audit-progress">
           <span>Обработано источников: <b>{job.completed_sources}/3</b></span>
