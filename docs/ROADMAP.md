@@ -1,3 +1,25 @@
+# Product direction — 2026-11-16
+
+Current user priority: make Маления understandable for colleagues. The user confirmed the inventory automation works with Browser Bridge 1.6.31.
+
+## Desktop 0.7.0
+
+- Default: inventory review, one whole-sheet action, visible progress and pause.
+- Separate connections; preserve selected sheet across navigation.
+- Hide manual checks, saved queue and diagnostics from daily navigation.
+- Clear first launch, short in-app help, readable responsive dark theme.
+- Keep automation rules unchanged; validate UI with real Chromium and mocked native API.
+
+## Next
+
+1. Validate the new workspace with the user on their workday; improve concrete friction.
+2. Colleague installation: reduce OAuth setup, determine approved extension distribution and update channel. Current installer is per-user; corporate permissions still apply.
+3. Instructions, examples and reviewed knowledge/skills. Saved notes do not silently change deterministic inventory rules. Model self-training is not implemented.
+
+---
+
+## Earlier planning (historical)
+
 # Malenia — дорожная карта
 
 Статус на 2026-11-12: реализация Malenia 0.6.0 находится в `feat/desktop-shell`; PR #2 остаётся draft и не слит. PR #1 — фундамент Runtime — также открыт. `main` намеренно не изменяется. Этапы отмечаются выполненными только после реализации и проверок. Python CI для кода `05c65c3` прошёл 162 теста на Python 3.11/3.12/3.13, включая compileall, OAuth query/fragment bridge, optional Client Secret, disconnect race и invalid_grant reauthorization (run `43239645452`). Desktop run `43239645705` прошёл frontend build и Node regression tests; Tauri host/Rust check ещё выполняется. Windows installer run `43239645740` прошёл PyInstaller packaging и bundled-agent smoke/duplicate-start checks; сейчас собирает Native Messaging host, затем пойдут NSIS/install/upgrade checks. Не объявлять весь PR зелёным до завершения Desktop и installer.

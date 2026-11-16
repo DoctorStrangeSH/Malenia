@@ -126,19 +126,18 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
     }catch{setFeedbackNotice("Не удалось сохранить оценку навыка.");}
   };
   return <section className="page ai-page" aria-labelledby="ai-title">
-    <div className="page-head"><div><div className="eyebrow">ВАШ ИИ-ПОМОЩНИК</div><h1 id="ai-title">Маления · Шерлок</h1><p>Расскажите, что хотите сделать. Подключение к рабочим сайтам настраивается отдельно.</p></div></div>
+    <div className="page-head"><div><div className="eyebrow">ВАШ ИИ-ПОМОЩНИК</div><h1 id="ai-title">Ассистент</h1><p>Диалог с Шерлоком: вопросы, тексты и планы. Для проверки ИНВенты модель не требуется.</p></div></div>
 
     <div className="assistant-status-card">
       <div className="assistant-avatar"><BrainCircuit size={23}/></div>
       <div className="assistant-status-copy"><b>{!connected?"Локальное ядро остановлено":!status?"Проверяем подключение":!status.available?"Шерлок пока недоступен":status.models.length?"Шерлок готов к работе":"Нужно установить модель"}</b>
-        <p>{!connected?"Откройте настройки и запустите локальный агент.":!status?"Проверяем локальный движок…":!status.available?"Локальный агент работает, но движок Ollama не отвечает. Нажмите «Запустить Шерлока» ниже.":status.models.length?"Модель доступна для диалога. Доступ к рабочим сайтам подключается отдельно.":"Движок работает, но модель ещё не установлена. Скачайте её ниже."}</p>
+        <p>{!connected?"Нажмите «Запустить Малению» вверху экрана.":!status?"Проверяем локальный движок…":!status.available?"Локальный агент работает, но движок Ollama не отвечает. Нажмите «Запустить Шерлока» ниже.":status.models.length?"Модель доступна для диалога. Доступ к рабочим сайтам подключается отдельно.":"Движок работает, но модель ещё не установлена. Скачайте её ниже."}</p>
       </div>
       <span className={connected&&status?.available&&status.models.length?"assistant-status-dot ready":"assistant-status-dot"} aria-hidden="true"/>
     </div>
 
     {connected&&(!status?.available||!status.models.length)?<div className="ai-controls" role="group" aria-label="Восстановление Шерлока">
-      <button className="primary" disabled={busy} onClick={()=>void startModel()}>Запустить Шерлока</button>
-      <button className="secondary" disabled={busy} onClick={()=>void installSherlock()}>Установить модель Шерлока</button>
+      {!status?.available?<button className="primary" disabled={busy} onClick={()=>void startModel()}>Подключить движок Шерлока</button>:<button className="primary" disabled={busy} onClick={()=>void installSherlock()}>Установить модель Шерлока</button>}
       <button className="secondary" disabled={busy} onClick={()=>void refresh()}>Проверить ещё раз</button>
       <small>Установка скачивает выбранную модель ({modelLabel(installModel)}); нужен интернет и свободное место.</small>
     </div>:null}
@@ -152,7 +151,7 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
       <summary><span><Settings2 size={16}/> Настройки ассистента</span><small>Модель · память · интернет-поиск</small></summary>
       <div className="assistant-settings-body">
         <div className="ai-controls">
-          <button className="secondary" disabled={busy || !connected} onClick={()=>void startModel()}>Запустить Шерлока</button>
+          
           <label>Модель <select value={model} disabled={busy || !status?.models.length} onChange={e=>setModel(e.target.value)}>{status?.models.length ? status.models.map(name=><option key={name} value={name}>{modelLabel(name)}</option>) : <option value={model}>{modelLabel(model)}</option>}</select></label>
           <button className="secondary" disabled={!connected || busy} onClick={()=>void refresh()}>Проверить подключение</button>
           <button className="secondary" disabled={busy || !messages.length} onClick={()=>{setMessages([]);setError("");}}>Очистить чат</button>
@@ -183,8 +182,8 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
     <div className="prompt-suggestions" aria-label="Примеры запросов">
       <span>Быстрый старт</span>
       <button type="button" onClick={()=>setDraft("Помоги мне организовать рабочий день и расставить приоритеты.")}>Спланировать день</button>
-      <button type="button" onClick={()=>setDraft("Какие действия ты сейчас можешь выполнить сама и какие подключения для этого нужны?")}>Что ты умеешь?</button>
-      <button type="button" onClick={()=>setDraft("Составь план автоматизации моих повторяющихся задач.")}>Автоматизировать рутину</button>
+      <button type="button" onClick={()=>setDraft("Помоги разобраться в рабочем вопросе. Сначала уточни необходимые данные.")}>Разобрать вопрос</button>
+      <button type="button" onClick={()=>setDraft("Помоги составить понятную инструкцию по описанию процесса.")}>Составить инструкцию</button>
     </div>
 
     <div className="panel ai-messages" role="log" aria-live="polite" aria-label="Переписка с Шерлоком">

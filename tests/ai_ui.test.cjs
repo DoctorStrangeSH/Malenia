@@ -173,11 +173,11 @@ test('quick-start prompts populate the composer without sending a request',async
     throw Error(command);
   });
   h.render();await tick();
-  const prompt=h.find('button',p=>p.children==='Что ты умеешь?')[0];
+  const prompt=h.find('button',p=>p.children==='Разобрать вопрос')[0];
   assert.ok(prompt);
   prompt.props.onClick();
   assert.equal(h.find('textarea',p=>p.id==='ai-draft')[0].props.value,
-    'Какие действия ты сейчас можешь выполнить сама и какие подключения для этого нужны?');
+    'Помоги разобраться в рабочем вопросе. Сначала уточни необходимые данные.');
   assert.equal(calls.filter(call=>call.command==='chat_ai').length,0);
   const settings=h.find('details',p=>(p.className||'').includes('assistant-settings'))[0];
   assert.ok(settings);

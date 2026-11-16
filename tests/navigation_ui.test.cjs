@@ -5,10 +5,10 @@ const path = require('node:path');
 
 const app = fs.readFileSync(path.resolve(__dirname, '../desktop/src/App.tsx'), 'utf8');
 
-test('assistant is a first-class workspace destination', () => {
+test('inventory review is the default workspace destination', () => {
   assert.match(app, /label="Ассистент" active=\{page==="ai"\}/);
-  assert.match(app, /useState<Page>\("ai"\)/);
-  assert.match(app, /label="Моя рабочая среда" active=\{page==="browser"\}/);
+  assert.match(app, /useState<Page>\("sources"\)/);
+  assert.match(app, /label="Подключения" active=\{page==="connections"\}/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Проверка заказа"/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Список заказов"/);
   assert.match(app, /Открыть ассистента/);
@@ -20,15 +20,15 @@ test('queued tasks are never presented as automatically executed', () => {
   assert.match(app, /не запускаются автоматически/);
 });
 
-test('the navigation groups work, knowledge, safety and system areas', () => {
-  assert.match(app, /РАБОЧЕЕ ПРОСТРАНСТВО/);
-  assert.match(app, /ЗНАНИЯ И БЕЗОПАСНОСТЬ/);
-  assert.match(app, /СИСТЕМА/);
+test('daily navigation hides saved tasks and groups knowledge inside the assistant', () => {
+  assert.doesNotMatch(app, /<Nav[^\n]*label="Задания"/);
+  assert.doesNotMatch(app, /<Nav[^\n]*label="Навыки"/);
+  assert.match(app, /aria-label="Ассистент и знания"/);
+  assert.match(app, /Дополнительные инструменты/);
 });
 
-
 test('sources page is reachable and shows truthful connection state', () => {
-  assert.match(app, /<Nav[^\n]*label="Источники"/);
+  assert.match(app, /<Nav[^\n]*label="Подключения"/);
   assert.match(app, /Google Sheets · ИНВента/);
   assert.match(app, /ChatGPT не передаёт свои подключения Malenia/);
   assert.match(app, /Вкладка передана · требуется тест/);
@@ -47,12 +47,10 @@ test('Google Sheets onboarding explains editor access and calls the native conne
   assert.match(app, /get_google_sheets_status/);
   assert.doesNotMatch(app, /invoke[^\n]*read_google_sheet/);
   assert.match(app, /disconnect_google_sheets/);
-  assert.match(app, /После обновления подключи Google заново/);
+  assert.match(app, /При запросе подтвердите доступ на редактирование/);
   assert.doesNotMatch(app, /write_google_sheet|update_google_sheet/);
   assert.match(app, /Не найдена переданная вкладка Google Sheets/);
-  assert.match(app, /inventa-first-order/);
-  assert.match(app, /Проверить первый заказ/);
-  assert.match(app, /check_first_inventa_order/);
+  assert.doesNotMatch(app, /Проверить первый заказ|Проверить следующую партию/);
   assert.doesNotMatch(app, /1zPgIA_Au6J8_NEAPsTZo1TLkfFJYUTYKxtIwUWRHS30/);
 });
 
@@ -145,22 +143,17 @@ test('shared browser tabs can be removed locally only after confirmation',()=>{
   assert.match(native,/v1\/browser\/tabs\/\{tab_id\}/);
 });
 
-test('Google Sheets can queue a read-only bounded batch without claiming completion',()=>{
-  assert.match(app,/label="Источники" active=\{page==="sources"\} onClick=\{\(\)=>setPage\("sources"\)\}/);
-  assert.match(app,/invoke<\{queued_orders:number;remaining_orders:number\}>\("check_inventa_order_batch"/);
-  assert.match(app,/Проверить следующую партию \(до 20\)/);
-  assert.match(app,/Следующие партии запускаются твоим нажатием/);
-  assert.match(app,/invoke\("reset_inventa_order_batch"/);
-  assert.match(app,/Начать проверку листа заново/);
-  assert.match(app,/window\.confirm\("Начать пакетную проверку/);
-  const native=fs.readFileSync(path.resolve(__dirname,'../desktop/src-tauri/src/main.rs'),'utf8');
-  assert.match(native,/async fn check_inventa_order_batch\(/);
-  assert.match(native,/\/v1\/integrations\/google-sheets\/check-order-batch/);
-  assert.match(native,/\/v1\/integrations\/google-sheets\/reset-order-batch/);
+test('whole-sheet review has one primary start and an explicit confirmed restart',()=>{
+  assert.match(app,/runner.start\(sheetUrl,clarifiedDate\)/);
+  assert.match(app,/Начать проверку/);
+  assert.match(app,/runner.pause\(\)/);
+  assert.match(app,/window.confirm\("Начать проверку выбранного листа заново/);
+  assert.doesNotMatch(app,/check_first_inventa_order|checkFirstOrder|checkOrderBatch/);
+  assert.match(app,/selectedSheet=\{selectedSheet\} onSelectSheet=\{setSelectedSheet\}/);
 });
 
 test('skills are a first-class reviewed workspace not an inventory-only workflow',()=>{
-  assert.match(app,/label="Навыки" active=\{page==="skills"\}/);
+  assert.match(app,/onClick=\{\(\)=>setPage\("skills"\)\}>Навыки/);
   assert.match(app,/<SkillsPage connected=\{connected\}\/>/);
   const skills=fs.readFileSync(path.resolve(__dirname,'../desktop/src/SkillsPage.tsx'),'utf8');
   assert.match(skills,/get_skills/);

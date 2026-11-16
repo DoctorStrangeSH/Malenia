@@ -234,3 +234,57 @@ body{min-width:820px}
 .inventa-progress {background:#111d2c;border:1px solid #2c4058;border-radius:14px;padding:20px;}
 .inventa-progress b {font-size:22px;}.inventa-progress progress {width:100%;height:12px;accent-color:#8daeff;}
 .source-settings>summary {cursor:pointer;padding:18px;color:#b7c7df;}.inventa-workbench small {line-height:1.6;color:#9babbe;}
+
+/* Malenia 0.7 — focused work, clear controls and readable desktop scale. */
+:root{color-scheme:dark;--bg:#101617;--panel:#182021;--line:#303b3c;--muted:#a0afb0;--accent:#8be0c2;--green:#8be0c2;font-family:"Segoe UI",system-ui,sans-serif;color:#edf3ef}
+body{min-width:760px;background:var(--bg);font-size:14px;line-height:1.55}
+button,input,select,textarea{font:inherit}button{transition:background .15s,border-color .15s}button:disabled{opacity:.45}
+button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #8be0c2;outline-offset:4px}
+.shell{min-height:100vh}.sidebar{width:238px;background:#131b1c;padding:32px 18px 20px;position:sticky;top:0;height:100vh;border-color:var(--line)}
+.brand{padding:0 4px 48px;gap:10px}.brand-mark{background:#8be0c2;color:#122b24;box-shadow:none;border-radius:12px;width:36px;height:36px}
+.brand b{font-size:25px;font-weight:650;letter-spacing:-1px}.brand-dot{color:#8be0c2}.brand small{font-size:7px;letter-spacing:.8px;color:#a0afb0}
+.nav-label{color:#86999b;font-size:10px;letter-spacing:1.6px;padding-left:12px}
+nav{gap:7px}.nav-item{height:48px;font-size:14px;border-radius:10px;color:#aebcbd;gap:11px}.nav-item svg{width:19px;height:19px}
+.nav-item:hover{background:#202c2c;color:#fff}.nav-item.active{background:#263b35;box-shadow:none;color:#a7efd4}.nav-item em{background:#45633d;color:#e8f9d8}
+.side-spacer{min-height:60px}.sidebar-help{display:flex;gap:10px;align-items:center;border:0;background:transparent;color:#9eafb0;padding:17px 11px;font-size:13px}
+.side-version{border-top:1px solid var(--line);padding:18px 4px 0;font-size:10px;color:#829697;display:flex;align-items:center;gap:6px}.side-version span{margin-left:auto}
+.run-shortcut{display:flex;align-items:center;gap:10px;text-align:left;border:1px solid #3c6054;border-radius:12px;background:#1d3029;color:#b7ecd7;padding:13px;margin-bottom:20px}.run-shortcut b,.run-shortcut small{display:block;font-size:12px}.run-shortcut small{color:#a0b6ad;margin-top:3px}
+.main{background:var(--bg)}.topbar{height:76px;padding:0 40px;background:var(--bg);border-color:var(--line)}.crumb{font-size:13px}.crumb b{color:#e3ece8}.top-actions{gap:12px}
+.connection{background:#1a2324;border-color:#354142;color:#b5c2c3;font-size:12px}.connection.online{color:#abdfc6;background:#1b2d25;border-color:#324b3f}
+.content{width:100%;max-width:1260px;margin:0 auto;padding:42px 40px 64px}.page{max-width:none}
+.page-head{margin-bottom:32px;align-items:center;gap:20px}.page-head h1{font-size:34px;font-weight:650;letter-spacing:-1.2px;line-height:1.2;margin:8px 0 12px}.page-head p{font-size:14px;color:var(--muted);line-height:1.7;max-width:680px}.eyebrow{font-size:10px;letter-spacing:1.5px;color:#9eafa9}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;box-shadow:none}
+.primary,.secondary,.danger{min-height:42px;border-radius:10px;padding:10px 17px;font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:none}
+.primary{background:#8be0c2;color:#143328;border:1px solid #8be0c2}.primary:hover:not(:disabled){background:#a6eed4;border-color:#a6eed4}
+.secondary{background:#202a2b;border:1px solid #3b4849;color:#d4dfdc}.secondary:hover:not(:disabled){background:#2c3939;border-color:#697e79}
+.danger{background:#3b2429;border:1px solid #74414c;color:#f0afb8}.icon-btn{width:36px;height:36px;color:#c1ceca}
+.workflow-steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:26px}
+.workflow-steps>div{position:relative;border-top:1px solid #465853;padding:16px 0 8px 35px}.workflow-steps span{position:absolute;left:0;top:16px;color:#85cbb2;font-size:11px;font-weight:700}
+.workflow-steps b{display:block;font-size:12px;font-weight:600}.workflow-steps small{display:block;font-size:11px;color:#91a29e;margin-top:5px;overflow-wrap:anywhere}
+.inventa-workbench{padding:30px;gap:24px;border-color:#3a4e48}
+.workbench-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.inventa-workbench h2{font-size:24px;font-weight:600;letter-spacing:-.5px;margin:0}.workbench-heading p{font-size:13px;color:#a0afac;margin:8px 0 0}
+.workbench-status{border:1px solid #40534e;border-radius:30px;background:#23322d;color:#a7c4b6;padding:6px 12px;font-size:11px;white-space:nowrap}.workbench-status.working{color:#a7efd4;border-color:#55977c}
+.inventa-workbench label{font-size:13px;color:#cad7d1;gap:10px}.inventa-workbench select{background:#111a1b;border-color:#465a55;color:#edf3ef;padding:15px 16px;border-radius:10px;min-height:52px}
+.inventa-workbench>p{margin:0;font-size:13px;color:#b4c4bd}.inventa-workbench .google-actions{margin:0;gap:12px;justify-content:flex-start}.inventa-workbench .google-actions .primary{min-width:190px}
+.inventa-progress{padding:23px;border:1px solid #385247;background:#152820;border-radius:13px}.inventa-progress b{font-size:20px;font-weight:600;color:#c5efda}.inventa-progress p{font-size:13px;color:#b2c5bb;line-height:1.75;margin:8px 0 0;overflow-wrap:anywhere}.inventa-progress progress{accent-color:#8be0c2;height:9px;margin-top:18px}
+.inventa-progress.phase-error{background:#302520;border-color:#775b41}.inventa-progress.phase-error b{color:#f0cd9f}.inventa-progress.phase-error p{color:#d6c4b1}
+.work-empty{display:grid;justify-items:center;text-align:center;padding:26px 20px;border:1px dashed #40544b;border-radius:12px;gap:10px;color:#a6c9b9}.work-empty b{font-size:16px}.work-empty p{margin:0;color:#a4b4ad;font-size:13px}
+.run-details,.advanced-tools,.oauth-help{border-top:1px solid var(--line);padding-top:18px}.run-details summary,.advanced-tools summary,.oauth-help summary{cursor:pointer;color:#b5c7c0;font-size:12px}.run-details p,.advanced-tools p,.oauth-help p{font-size:13px;line-height:1.8;color:#a4b6ad}
+.connection-banner{border:1px solid #5b6550;background:#282e23;border-radius:14px;padding:20px 24px;display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:30px}.connection-banner b{font-size:15px;color:#e1e9c8}.connection-banner p{font-size:12px;color:#b8c3a7;margin:6px 0 0}.connection-banner button{flex-shrink:0}
+.sources-grid{gap:20px}.source-card{padding:26px}.source-card h2{font-size:20px;color:#e4ece8}.source-card p,.source-card small,.source-help{font-size:13px;line-height:1.75;color:#acbcb5}.source-card .source-state{font-size:11px}.source-state.ready{background:#243c30;color:#b4ebcc;border-color:#4c735b}.sources-notice{border-color:#3d5449;background:#1a2a22;color:#b4cbbd;font-size:12px;line-height:1.8}
+.google-connect-form label{font-size:13px;color:#cfdbd4}.google-connect-form input{font-size:14px;padding:12px;background:#111a1b;border-color:#465a55}.source-card .source-action{margin-top:18px}
+.settings-links{display:flex;flex-wrap:wrap;gap:12px;margin:20px 0}.settings-grid{gap:20px;margin-top:24px}.setting h3{font-size:18px}.setting p{font-size:13px;line-height:1.75;color:#b0bfb9}.setting-bottom{font-size:13px}
+.section-tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin-bottom:30px;padding-bottom:14px}.section-tabs button{border:0;background:transparent;color:#a4b6ae;padding:9px 14px;border-radius:8px;font-size:13px}.section-tabs button[aria-current="page"]{background:#293e34;color:#b2eed2}
+.quick-help{max-width:620px;width:calc(100vw - 48px);background:#182221;border:1px solid #42594d;padding:30px;border-radius:20px}.quick-help h2{font-size:26px}.help-steps{padding-left:25px;margin:28px 0}.help-steps li{padding-left:8px;margin-bottom:23px;color:#b1e1c5}.help-steps b{font-size:15px;color:#e1ece6}.help-steps p{font-size:13px;line-height:1.8;color:#acbfb3;margin:6px 0}
+.statusbar{background:var(--bg);border-color:var(--line);color:#8ea399;font-size:11px;padding:14px 40px}.alert{font-size:13px;line-height:1.65;overflow-wrap:anywhere}
+@media(max-width:1100px){.sidebar{width:210px;padding:28px 14px 18px}.brand b{font-size:22px}.brand small{font-size:6px}.content{padding:30px 26px 48px}.topbar{padding:0 26px}.page-head h1{font-size:30px}.sources-grid,.settings-grid{grid-template-columns:1fr}.inventa-workbench{padding:24px}.workflow-steps b{font-size:11px}}
+@media(max-width:850px){.sidebar{width:180px;padding:24px 10px}.brand{gap:7px}.brand small{display:none}.brand b{font-size:21px}.brand-mark{width:30px;height:30px}.nav-item{font-size:12px;padding:0 9px;gap:8px}.content{padding:26px 20px}.topbar{padding:0 20px}.connection{font-size:10px}.connection-banner{align-items:flex-start;flex-direction:column}.page-head{align-items:flex-start;flex-direction:column}.workflow-steps{gap:8px}.workflow-steps>div{padding-left:0;padding-top:35px}.workflow-steps span{top:10px}.workbench-heading{align-items:flex-start}.side-version{font-size:9px}.statusbar{padding:14px 20px;flex-wrap:wrap;gap:10px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+
+/* Secondary pages follow the same readable scale. */
+.assistant-status-card,.assistant-capability-note,.assistant-settings,.ai-messages{background:#182221;border-color:#35453e}
+.assistant-status-copy b,.assistant-empty b{font-size:17px}.assistant-status-copy p,.assistant-capability-note,.assistant-privacy,.assistant-settings-body .note,.ai-controls small,.assistant-empty p{font-size:13px;line-height:1.75}
+.assistant-avatar,.assistant-empty>div{background:#263f32;color:#a9ebc9}.assistant-settings summary{font-size:13px}.assistant-settings summary small{font-size:11px}
+.ai-message{font-size:14px;line-height:1.8}.ai-message b{font-size:12px;color:#b3ddc5}.ai-message p{font-size:14px}.ai-message.user{background:#20382e;border-color:#3c5c49}
+.prompt-suggestions span,.prompt-suggestions button{font-size:12px}.ai-composer textarea{font-size:14px;line-height:1.7}.ai-composer{border-color:#49604f}
+.knowledge-page p,.skills-page p,.permissions-page p{font-size:13px;line-height:1.75}

@@ -37,7 +37,7 @@ jobs:
       - name: Test Asgard card identity and history in a real DOM
         shell: pwsh
         run: |
-          npm install --prefix "$env:RUNNER_TEMP/malenia-dom" --no-save jsdom@26.1.0 react@18.3.1 react-dom@18.3.1
+          npm install --prefix "$env:RUNNER_TEMP/malenia-dom" --no-save jsdom@26.1.0 react@18.3.1 react-dom@18.3.1 playwright@1.56.1
           $env:NODE_PATH = "$env:RUNNER_TEMP/malenia-dom/node_modules"
           node scripts/verify-asgard-cards.cjs
       - name: Test DataLens empty results with real React controls
@@ -45,6 +45,19 @@ jobs:
         run: |
           $env:NODE_PATH = "$env:RUNNER_TEMP/malenia-dom/node_modules"
           node scripts/verify-datalens-empty.cjs
+      - name: Exercise desktop workflow in Chromium
+        shell: pwsh
+        run: |
+          $env:NODE_PATH = "$env:RUNNER_TEMP/malenia-dom/node_modules"
+          & "$env:RUNNER_TEMP/malenia-dom/node_modules/.bin/playwright.cmd" install chromium
+          node scripts/verify-desktop-ui.cjs
+      - name: Upload desktop UI previews
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: malenia-desktop-ui-previews
+          path: ${{ runner.temp }}/malenia-ui/*.png
+          if-no-files-found: ignore
       - name: Test whole-sheet automatic continuation and pause
         run: node --test tests/inventa_run.test.cjs
       - name: Test desktop-triggered browser audit dispatch
