@@ -26,7 +26,7 @@ class OllamaTests(unittest.TestCase):
         self.assertEqual(body["messages"][0]["role"],"system")
         self.assertEqual(body["messages"][1:],self.payload["messages"])
         self.assertFalse(body["stream"])
-        self.assertEqual(body["keep_alive"],"30s")
+        self.assertEqual(body["keep_alive"],0)
         self.assertEqual(body["options"]["num_ctx"],2048)
         self.assertNotIn("tools",body)
         self.assertEqual(set(body),{"model","messages","stream","keep_alive","options"})
@@ -73,7 +73,7 @@ class OllamaTests(unittest.TestCase):
         self.assertEqual(result["sources"][0]["id"],"fixture")
         sent = self.client._request.call_args.args[1]
         self.assertIn("Tokyo",sent["messages"][0]["content"])
-        self.assertEqual(sent["options"]["num_ctx"],4096)
+        self.assertEqual(sent["options"]["num_ctx"],2048)
         self.client.knowledge.retrieve.reset_mock()
         self.client._request = Mock(side_effect=[self.tags,self.reply])
         result = self.client.chat({**self.payload,"use_knowledge":False})
@@ -166,5 +166,31 @@ class OllamaTests(unittest.TestCase):
         self.client._opener=Mock()
         self.client._opener.open.return_value=io.BytesIO(b"x"*131073)
         with self.assertRaises(AIError):self.client._request("/api/chat",self.payload)
+
+    def test_minimal_model_is_preferred_without_hiding_installed_large_models(self):
+        self.client._request = Mock(return_value={"models":[
+            {"name":"qwen3:8b"}, {"name":"qwen2.5:0.5b"}]})
+        self.assertEqual(self.client.status()["models"], ["qwen2.5:0.5b", "qwen3:8b"])
+
+    def test_minimal_profile_keeps_deep_requests_bounded_and_unloads_after_reply(self):
+        self.client._request = Mock(side_effect=[self.tags,self.reply])
+        result = self.client.chat({**self.payload,"reasoning_mode":"deep"})
+        body = self.client._request.call_args.args[1]
+        self.assertEqual(body["keep_alive"],0)
+        self.assertEqual(body["options"]["num_ctx"],2048)
+        self.assertEqual(body["options"]["num_predict"],256)
+        self.assertEqual(body["options"]["num_thread"],1)
+        self.assertFalse(result["reasoning_used"])
+        self.assertNotIn("think",body)
+
+    def test_minimal_history_drops_complete_old_turns_and_keeps_current_question(self):
+        messages = [{"role":role,"content":str(index)*1200}
+            for index,role in enumerate(["user","assistant","user","assistant","user"])]
+        self.client._request = Mock(side_effect=[self.tags,self.reply])
+        self.client.chat({**self.payload,"messages":messages})
+        sent = self.client._request.call_args.args[1]["messages"]
+        self.assertEqual(sent[1:],[messages[-1]])
+        self.assertEqual(len(messages),5)
+
 
 if __name__=="__main__":unittest.main()

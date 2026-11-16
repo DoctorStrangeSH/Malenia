@@ -3,7 +3,7 @@ import { BrainCircuit, Settings2, ShieldCheck, Sparkles } from "lucide-react";
 import {KnowledgeEditor,type KnowledgeDraft} from "./KnowledgePage";
 import { invoke } from "@tauri-apps/api/core";
 
-const modelLabel=(name:string)=>({"qwen3:8b":"Шерлок","qwen3:14b":"Шерлок · расширенный","qwen3:4b":"Шерлок · облегчённый","qwen3:0.6b":"Шерлок · компактный тест","qwen2.5:0.5b":"Шерлок · старый тест","qwen2.5:1.5b":"Шерлок · тест 1.5","qwen2.5:3b":"Шерлок · тест 3"}[name]??"Шерлок");
+const modelLabel=(name:string)=>({"qwen3:8b":"Шерлок","qwen3:14b":"Шерлок · расширенный","qwen3:4b":"Шерлок · облегчённый","qwen3:0.6b":"Шерлок · компактный тест","qwen2.5:0.5b":"Шерлок · минимальный","qwen2.5:1.5b":"Шерлок · тест 1.5","qwen2.5:3b":"Шерлок · тест 3"}[name]??"Шерлок");
 type Source={id:string;title:string;source:string;excerpt:string;start?:number;end?:number;url?:string};
 type Message = {role: "user" | "assistant"; content: string;sources?:Source[];answer_mode?:string;cited_source_ids?:string[];skill_ids?:string[]};
 type Status = {available: boolean; models: string[]};
@@ -13,7 +13,8 @@ type Reply = {message: Message; model: string;sources?:Source[];answer_mode?:str
 
 export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCreated:()=>void}) {
   const [status, setStatus] = useState<Status | null>(null);
-  const [model, setModel] = useState("qwen3:8b");
+  const [model, setModel] = useState("qwen2.5:0.5b");
+  const minimal=model==="qwen2.5:0.5b";
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -35,7 +36,7 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
   const [useWeb,setUseWeb]=useState(false);
   const [reasoningMode,setReasoningMode]=useState<"auto"|"fast"|"deep">("auto");
   const [setupStatus,setSetupStatus]=useState("");
-  const [installModel,setInstallModel]=useState("qwen3:8b");
+  const [installModel,setInstallModel]=useState("qwen2.5:0.5b");
   const saveTask=async()=>{
     if(!taskDraft || taskPending.current || !connected || !taskDraft.title.trim() || taskDraft.description.length>2000)return;
     taskPending.current=true;setTaskBusy(true);setTaskNotice("");setTaskDraft({...taskDraft,submitted:true});
@@ -157,12 +158,13 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
         </div>
         <p className="assistant-privacy">Сообщения обрабатываются локально. Интернет-поиск выключен по умолчанию: при включении в Bing отправляется только текущий вопрос, без заметок и истории. Полная переписка не сохраняется.</p>
         <label className="note">Глубина рассуждения Шерлока
-          <select value={reasoningMode} disabled={busy} onChange={e=>setReasoningMode(e.target.value as "auto"|"fast"|"deep")}>
+          <select value={reasoningMode} disabled={busy||minimal} onChange={e=>setReasoningMode(e.target.value as "auto"|"fast"|"deep")}>
             <option value="auto">Автоматически — глубже для сложных задач</option>
             <option value="fast">Быстро — простые ответы</option>
             <option value="deep">Глубоко — больше анализа, медленнее</option>
           </select>
         </label>
+        {minimal?<p className="note">Минимальный режим: короткие ответы, сокращённая история и освобождение памяти после ответа. Глубокое рассуждение отключено.</p>:null}
         <label className="note"><input type="checkbox" checked={useKnowledge} disabled={busy || useWeb} onChange={e=>{setUseKnowledge(e.target.checked);if(!e.target.checked)setKnowledgeOnly(false);}}/> Использовать подтверждённую память и заметки</label>
         <label className="note"><input type="checkbox" aria-label="Только по знаниям" checked={knowledgeOnly} disabled={busy || !useKnowledge || useWeb} onChange={e=>setKnowledgeOnly(e.target.checked)}/> Только по знаниям: отвечать по найденным записям</label>
         <label className="note"><input type="checkbox" aria-label="Интернет-поиск" checked={useWeb} disabled={busy} onChange={e=>{setUseWeb(e.target.checked);if(e.target.checked)setKnowledgeOnly(false);}}/> Искать в интернете — отправлять текущий вопрос в Bing</label>
@@ -170,8 +172,8 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
         {knowledgeOnly?<p className="note">В этом режиме используются текущий вопрос и найденные фрагменты, без истории чата. Если записей нет, генерация не запускается.</p>:null}
         <details className="assistant-install">
           <summary>Установить или сменить модель Шерлока</summary>
-          <p>Загрузка занимает несколько гигабайт и требует интернета; ответы затем работают локально. При отсутствии движка приложение сначала подготовит runtime (около 1,6 ГБ).</p>
-          <label>Вариант<select disabled={busy} value={installModel} onChange={e=>setInstallModel(e.target.value)}><option value="qwen3:8b">Шерлок — основной, около 5 ГБ</option><option value="qwen3:4b">Шерлок — облегчённый, около 3 ГБ</option><option value="qwen3:14b">Шерлок — расширенный, около 9 ГБ</option></select></label>
+          <p>Минимальный Шерлок предназначен для простых вопросов на компьютерах с 1–2 ГБ свободной ОЗУ. Размер модели — около 400 МБ; фактический расход памяти зависит от запроса и других программ. Движок устанавливается отдельно: архив около 1,6 ГБ, для установки нужно около 4 ГБ свободного места на диске.</p>
+          <label>Вариант<select disabled={busy} value={installModel} onChange={e=>setInstallModel(e.target.value)}><option value="qwen2.5:0.5b">Шерлок — минимальный, модель около 400 МБ, от 1 ГБ свободной ОЗУ</option><option value="qwen3:8b">Шерлок — основной, около 5 ГБ</option><option value="qwen3:4b">Шерлок — облегчённый, около 3 ГБ</option><option value="qwen3:14b">Шерлок — расширенный, около 9 ГБ</option></select></label>
           <button className="secondary" disabled={busy || !connected} onClick={()=>void installSherlock()}>Скачать выбранного Шерлока</button>
           <small>Оставьте окно открытым до завершения. Модель скачивается только по этой кнопке.</small>
         </details>

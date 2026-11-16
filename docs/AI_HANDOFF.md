@@ -1,3 +1,13 @@
+## 2026-11-16 — 0.7.2: minimal Sherlock for 1–2 GiB AVAILABLE RAM
+
+User requests the weakest variant for a colleague with only 1–2 GB available. Interpret as free RAM, not total RAM or free disk. Make qwen2.5:0.5b (official Ollama tag, approx 398 MB download) the default installation choice. Install/native allowlist now permits it with a distinct 1 GiB available-RAM preflight; larger models retain their 5/8/14 GiB guards. Do not silently download or delete existing models. If minimal is installed, status prefers it; manual model selection remains available.
+
+Minimal inference: context 2048, output max 256 tokens, one CPU thread, shorter history (whole turns removed), keep_alive=0 so Ollama releases model RAM after response. No deep thinking on this Qwen2.5 model. Skill suggestion also uses 2048 context, one thread and unloading. Grounded-answer validation, permission rules and deterministic work tools unchanged.
+
+UI offers “Шерлок — минимальный”, explains free RAM vs model download vs runtime disk requirements, disables deep-reasoning control for this model. Runtime archive is still about 1.6 GB and requires about 4 GB FREE DISK during setup: model size is not total runtime memory/disk. 1 GiB operation has not been hardware-benchmarked; actual RAM use depends on prompt, Ollama and other processes. Do not promise strong reasoning or a measured RAM ceiling on this model.
+
+Release metadata synchronized at 0.7.2. Added minimal default-download, bounded inference/history, model selection and per-model memory-guard regressions. Check CI/installer results before delivery.
+
 ## 2026-11-16 — 0.7.1: browser setup bundled in the app
 
 Continue the general-assistant direction. Connections now contains a local browser-setup flow: open the bundled extension folder, load it unpacked in Yandex Browser, paste the extension ID, explicitly register. No downloaded PowerShell command or separately located native host path is required. Installing the unpacked extension and enabling browser read permissions are still deliberate user steps. A saved ID does NOT prove extension connectivity or site permission.

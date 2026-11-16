@@ -183,3 +183,15 @@ test('quick-start prompts populate the composer without sending a request',async
   assert.ok(settings);
   assert.equal(settings.props.open,undefined,'advanced controls stay collapsed by default');
 });
+
+test('fresh setup downloads the minimal model rather than a multi-gigabyte default',async()=>{
+  const calls=[];
+  const h=harness(async(command,args)=>{
+    calls.push({command,args});
+    if(command==='get_ai_status')return {available:true,models:[]};
+    return 'ready';
+  });
+  h.render();await tick();
+  h.find('button',p=>p.children==='Скачать выбранного Шерлока')[0].props.onClick();await tick();
+  assert.deepEqual(calls.find(call=>call.command==='install_sherlock').args,{model:'qwen2.5:0.5b'});
+});

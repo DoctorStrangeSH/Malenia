@@ -481,14 +481,21 @@ async fn chat_ai(state: State<'_, AgentState>, model: String, messages: Value, u
     }).await.map_err(|_| "Ошибка обработки запроса модели".to_string())?
 }
 
+fn sherlock_memory_gb(model: &str) -> Option<u64> {
+    match model {
+        "qwen2.5:0.5b" => Some(1),
+        "qwen3:4b" => Some(5),
+        "qwen3:8b" => Some(8),
+        "qwen3:14b" => Some(14),
+        _ => None,
+    }
+}
+
 #[tauri::command]
 async fn install_sherlock(model: String) -> Result<String, String> {
-    if !matches!(model.as_str(), "qwen3:4b" | "qwen3:8b" | "qwen3:14b") {
-        return Err("Неизвестный вариант Шерлока".to_string());
-    }
+    let required = sherlock_memory_gb(&model).ok_or_else(|| "Неизвестный вариант Шерлока".to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
         // Download only on an explicit click; never silently load the model.
-        let required = match model.as_str() { "qwen3:14b" => 14, "qwen3:8b" => 8, _ => 5 };
         #[cfg(windows)]
         {
             #[repr(C)]
@@ -789,4 +796,17 @@ fn main() {
             request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
         .run(tauri::generate_context!())
         .expect("error while running Malenia");
+}
+
+#[cfg(test)]
+mod model_memory_tests {
+    use super::sherlock_memory_gb;
+    #[test]
+    fn minimal_model_has_its_own_budget_without_weakening_large_model_guards() {
+        assert_eq!(sherlock_memory_gb("qwen2.5:0.5b"), Some(1));
+        assert_eq!(sherlock_memory_gb("qwen3:4b"), Some(5));
+        assert_eq!(sherlock_memory_gb("qwen3:8b"), Some(8));
+        assert_eq!(sherlock_memory_gb("qwen3:14b"), Some(14));
+        assert_eq!(sherlock_memory_gb("remote/model"), None);
+    }
 }
