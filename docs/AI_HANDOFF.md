@@ -1,3 +1,11 @@
+## 2026-11-16 — 0.7.1: browser setup bundled in the app
+
+Continue the general-assistant direction. Connections now contains a local browser-setup flow: open the bundled extension folder, load it unpacked in Yandex Browser, paste the extension ID, explicitly register. No downloaded PowerShell command or separately located native host path is required. Installing the unpacked extension and enabling browser read permissions are still deliberate user steps. A saved ID does NOT prove extension connectivity or site permission.
+
+Installer bundles browser-extension and a pinned ASCII registration script. Native commands expose only fixed resource paths, validate [a-p]{32} IDs, verify SHA256 of the registration script (LF/CRLF), invoke system PowerShell by argument array in a hidden window, pass the fixed bundled native host and verify the saved ID. Registration uses the existing per-user script, no elevation. Replacing an existing ID requires confirmation in the UI. Dev builds without bundled resources show an explicit unavailable state.
+
+Release metadata synchronized at 0.7.1 (Python/Cargo/Tauri/frontend), Bridge remains 1.6.31. Added Rust ID/script-tamper regressions, built-UI registration validation/confirmation cases, and required browser-resource assertions in installed-resource smoke test. Check the latest CI/installer run before claiming delivery verified.
+
 ## 2026-11-16 — desktop 0.7.0: general assistant workspace
 
 USER PRODUCT DIRECTION: Маления is a universal assistant with many future functions. Inventory is ONE tool, not the main task. The user explicitly corrected an inventory-first redesign. Never make inventory the default destination or privilege it in the main menu.

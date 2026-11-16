@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import {KnowledgePage, KnowledgeEditor, type KnowledgeDraft} from "./KnowledgePage";
 import {InventaRun, type RunState} from "./inventaRun";
 import {SkillsPage} from "./SkillsPage";
+import { BrowserSetup } from "./BrowserSetup";
 import { ToolCatalog } from "./ToolCatalog";
 import { AiPage } from "./AiPage";
 import { OrderCheckPage } from "./OrderCheckPage";
@@ -85,7 +86,7 @@ export default function App(){
         <Nav icon={<Settings2/>} label="Настройки" active={["settings","browser","overview","tasks"].includes(page)} onClick={()=>setPage("settings")}/>
       </nav>
       <button className="sidebar-help" onClick={()=>setShowHelp(true)}><CircleHelp size={16}/>С чего начать?</button>
-      <div className="side-version"><LockKeyhole size={12}/> На вашем компьютере <span>0.7.0</span></div>
+      <div className="side-version"><LockKeyhole size={12}/> На вашем компьютере <span>0.7.1</span></div>
     </aside>
 
     <main className="main">
@@ -131,7 +132,7 @@ export default function App(){
         <div hidden={page!=="ai"}><AiPage connected={connected} onTaskCreated={()=>void refresh()}/></div>
         {page==="settings"&&<section className="page"><div className="page-head"><div><div className="eyebrow">КОНФИГУРАЦИЯ</div><h1>Настройки</h1><p>Подключение Малении и защита ваших данных.</p></div></div><div className="settings-links"><button className="secondary" onClick={()=>setPage("connections")}><Plug size={16}/>Рабочие подключения</button><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p><div className="settings-links"><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Работает только на вашем компьютере. Модель для диалога настраивается в разделе «Ассистент». Для проверки ИНВенты модель не требуется." value={connected?"Запущен":"Остановлен"} action={<button className={connected?"danger":"primary"} onClick={connected?stopAgent:runAgent} disabled={busy}>{connected?<Square size={14}/>:<Play size={14}/>} {connected?"Остановить":"Запустить"}</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Доступ к рабочим страницам предоставляется через расширение браузера. Важные изменения требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение в разделе «Подключения»." value="Browser Bridge"/></div></section>}
       </div>
-      <footer className="statusbar"><span><i className={connected?"":"idle"}/>{connected?"Локальный агент активен":"Локальный агент остановлен"}</span><span><LockKeyhole size={12}/>Локальная среда　·　Маления 0.7.0</span></footer>
+      <footer className="statusbar"><span><i className={connected?"":"idle"}/>{connected?"Локальный агент активен":"Локальный агент остановлен"}</span><span><LockKeyhole size={12}/>Локальная среда　·　Маления 0.7.1</span></footer>
     </main>
 
     {showHelp&&<div className="backdrop" onClick={()=>setShowHelp(false)}><section className="modal quick-help" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e=>e.stopPropagation()} onKeyDown={e=>{if(e.key==="Escape")setShowHelp(false);if(e.key==="Tab"){const buttons=e.currentTarget.querySelectorAll<HTMLButtonElement>("button");const first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div className="modal-head"><div><div className="eyebrow">ПЕРВЫЕ ШАГИ</div><h2 id="help-title">Освоимся в Малении</h2></div><button autoFocus className="icon-btn" aria-label="Закрыть справку" onClick={()=>setShowHelp(false)}><X size={18}/></button></div><ol className="help-steps"><li><b>Расскажите ассистенту о задаче</b><p>Откройте диалог, чтобы разобраться в вопросе, подготовить текст или составить план. Для диалога настройте локальную модель Шерлока.</p></li><li><b>Выберите подходящий инструмент</b><p>В разделе «Инструменты» собраны рабочие действия. Например, разбор ИНВенты — отдельный инструмент с выбором листа и своим прогрессом.</p></li><li><b>Подключите нужные источники</b><p>Каждый инструмент подскажет, какой доступ ему нужен. В разделе «Знания» храните полезные документы и проверенные навыки ассистента.</p></li></ol><button className="primary" onClick={()=>{setShowHelp(false);setPage("tools");}}>Посмотреть инструменты <ArrowUpRight size={16}/></button></section></div>}
@@ -333,6 +334,7 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
       {lesson?<KnowledgeEditor initial={lesson} connected={connected} onCancel={()=>setLesson(null)} onSaved={()=>{setLesson(null);setSheetNotice("Пояснение сохранено в памяти ассистента. Правила автоматической сверки пока меняются отдельно — пояснение само по себе не изменяет статусы заказов.");}}/>:null}
     </article>:null}
     {mode==="connections"?<div className="source-settings">
+    <BrowserSetup/>
     <div className="sources-grid">
       <article className="panel source-card google-source-card">
         <div className="source-card-top"><span className="source-icon sheets"><Database size={19}/></span><span className={"source-state "+(sheetsAuthorized?"ready":"pending")}>{statusLabel}</span></div>

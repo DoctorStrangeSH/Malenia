@@ -17,7 +17,7 @@ fs.mkdirSync(output,{recursive:true});
   const errors=[];page.on("pageerror",e=>errors.push(String(e)));
   await page.addInitScript(()=>{
    const base="https://docs.google.com/spreadsheets/d/demo/edit";
-   const state=window.__uiMock={running:false,authorized:false,calls:[],job:null};
+   const state=window.__uiMock={running:false,authorized:false,extensionId:null,calls:[],job:null};
    window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
     state.calls.push({command,args});
     if(command==="start_agent"){state.running=true;return "Маления запущена";}
@@ -34,6 +34,9 @@ fs.mkdirSync(output,{recursive:true});
     if(command==="check_inventa_order_batch"){state.job={job_id:"ui-job",status:"pending"};return {job:state.job,queued_orders:20,eligible_orders:20,batch_start:0,batch_end:20,remaining_orders:0};}
     if(command==="cancel_browser_audit"){state.job=null;return {};}
     if(command==="reset_inventa_order_batch")return {};
+    if(command==="get_browser_bridge_setup")return {available:true,saved_extension_id:state.extensionId};
+    if(command==="open_browser_extension_folder")return null;
+    if(command==="register_browser_bridge"){state.extensionId=args.extensionId;return null;}
     if(command==="get_ai_status")return {available:true,models:["qwen3:8b"]};
     if(command==="chat_ai")return {message:{role:"assistant",content:"Вот план работы по вашей задаче."},model:"qwen3:8b"};
     if(command==="get_knowledge")return {records:[]};
@@ -70,6 +73,19 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByRole("button",{name:"Показать все инструменты",exact:true}).click();
   await page.screenshot({path:path.join(output,"02-tools.png"),fullPage:true});
   await mainNav.getByRole("button",{name:"Подключения",exact:true}).click();
+  await page.getByRole("button",{name:"Открыть папку расширения",exact:true}).click();
+  await page.getByLabel("ID расширения",{exact:true}).fill("wrong-id");
+  assert.equal(await page.getByRole("button",{name:"Настроить связь с браузером",exact:true}).isDisabled(),true);
+  assert.equal(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="register_browser_bridge").length),0);
+  await page.getByLabel("ID расширения",{exact:true}).fill("a".repeat(32));
+  await page.getByRole("button",{name:"Настроить связь с браузером",exact:true}).click();
+  await page.getByText(/Регистрация завершена/).waitFor();
+  assert.equal(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="register_browser_bridge").length),1);
+  await page.getByLabel("ID расширения",{exact:true}).fill("b".repeat(32));
+  page.once("dialog",dialog=>dialog.dismiss());
+  await page.getByRole("button",{name:"Настроить связь с браузером",exact:true}).click();
+  assert.equal(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="register_browser_bridge").length),1);
+  await page.getByLabel("ID расширения",{exact:true}).fill("a".repeat(32));
   await page.getByLabel("Google OAuth Desktop Client ID").fill("demo.apps.googleusercontent.com");
   await page.getByRole("button",{name:"Подключить Google",exact:true}).click();
   await page.getByText("Подключён · чтение и редактирование",{exact:true}).waitFor();
@@ -118,6 +134,6 @@ fs.mkdirSync(output,{recursive:true});
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), "inventory overflow at "+width);
   }
   assert.deepEqual(errors,[]);
-  console.log("Desktop UI: assistant-first launch, persistent conversation and draft, tool search and categories, connections, inventory as a selected tool, exact sheet selection, pause/restart/completion and four destinations at three widths passed.");
+  console.log("Desktop UI: local browser setup and explicit replacement confirmation, assistant-first launch, persistent conversation and draft, tool search and categories, connections, inventory as a selected tool, exact sheet selection, pause/restart/completion and four destinations at three widths passed.");
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

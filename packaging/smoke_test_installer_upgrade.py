@@ -28,6 +28,10 @@ def main():
         raise RuntimeError('Expected exactly one built installer')
     resources = root / 'desktop/src-tauri/resources'
     expected = {p.relative_to(resources): digest(p) for p in resources.rglob('*') if p.is_file()}
+    for required in ("browser-extension/manifest.json", "browser-extension/automation.js",
+                     "browser-setup/register_browser_bridge.ps1"):
+        if not (resources / required).is_file():
+            raise RuntimeError(f"Missing browser setup resource: {required}")
     if not expected:
         raise RuntimeError('No bundled resources to verify')
     release = json.loads((root / 'desktop/package.json').read_text())['version']

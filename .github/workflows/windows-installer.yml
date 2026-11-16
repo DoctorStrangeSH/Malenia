@@ -132,6 +132,15 @@ jobs:
         run: |
           & ./packaging/test_browser_bridge_registration.ps1 -NativeHostPath (Resolve-Path "desktop/src-tauri/resources/malenia-native-host/malenia-native-host.exe").Path
 
+      - name: Bundle browser extension and local registration
+        shell: pwsh
+        run: |
+          $resources = "desktop/src-tauri/resources"
+          Copy-Item -LiteralPath "browser-extension" -Destination $resources -Recurse
+          New-Item -ItemType Directory -Path "$resources/browser-setup" -Force | Out-Null
+          Copy-Item -LiteralPath "packaging/register_browser_bridge.ps1" -Destination "$resources/browser-setup/"
+          if (!(Test-Path "$resources/browser-extension/manifest.json")) { throw "Bundled extension is missing" }
+
       - name: Prepare browser extension archive
         shell: pwsh
         run: |

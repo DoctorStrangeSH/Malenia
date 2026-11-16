@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod runtime_setup;
+mod browser_setup;
 
 use rand::{rngs::OsRng, RngCore};
 use serde::Serialize;
@@ -743,6 +744,22 @@ fn open_search_source(app: tauri::AppHandle, url: String) -> Result<(), String> 
     app.opener().open_url(parsed.as_str(), None::<&str>).map_err(|_| "Не удалось открыть браузер".into())
 }
 
+#[tauri::command]
+fn get_browser_bridge_setup(app: tauri::AppHandle) -> Result<Value, String> {
+    browser_setup::status(&app)
+}
+
+#[tauri::command]
+fn open_browser_extension_folder(app: tauri::AppHandle) -> Result<(), String> {
+    browser_setup::open_folder(&app)
+}
+
+#[tauri::command]
+async fn register_browser_bridge(app: tauri::AppHandle, extension_id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || browser_setup::register(&app, extension_id.trim()))
+        .await.map_err(|_| "Не удалось завершить настройку браузера.".to_string())?
+}
+
 fn main() {
     tauri::Builder::default()
         // Activate the original window before a second shell can own another agent.
@@ -768,7 +785,7 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![start_agent, stop_agent, get_dashboard,
+        .invoke_handler(tauri::generate_handler![get_browser_bridge_setup, open_browser_extension_folder, register_browser_bridge, start_agent, stop_agent, get_dashboard,
             request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
         .run(tauri::generate_context!())
         .expect("error while running Malenia");
