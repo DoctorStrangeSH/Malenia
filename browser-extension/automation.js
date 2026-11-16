@@ -1007,7 +1007,7 @@ var MaleniaAutomation = (() => {
     if(!eligible.length)return [rows[0]]; // Nonempty history must stop zero retries.
     const valid=raw=>{
       if(!/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?$/.test(raw)||
-          !Number.isFinite(Date.parse(raw)))return false;
+          Number(raw.slice(0,4))===0||!Number.isFinite(Date.parse(raw)))return false;
       const day=raw.slice(0,10),dayTime=Date.parse(day+'T00:00:00Z');
       return Number.isFinite(dayTime)&&new Date(dayTime).toISOString().slice(0,10)===day&&
         Number(raw.slice(11,13))<24&&Number(raw.slice(14,16))<60&&Number(raw.slice(17,19))<60;

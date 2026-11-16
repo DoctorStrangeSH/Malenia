@@ -1509,7 +1509,7 @@ test('long histories keep the latest eligible calendar date from any position',(
  const kept=api.compactDatalensHistory(rows);
  assert.deepEqual(Array.from(kept),[rows[105]]);
  assert.equal(api.asgardSearchKeys(inventorySeed(['TEST-1']),{columns:scanBatch([]).columns,rows:kept}).length,0);
- for(const date of ['bad','2026-02-30 12:00:00','2026-10-11 24:00:00']){
+ for(const date of ['bad','0000-01-01 12:00:00','2026-02-30 12:00:00','2026-10-11 24:00:00']){
   const bad=rows.map(row=>[...row]);bad[50]=['TEST-1','101366','OK',date];
   assert.throws(()=>api.compactDatalensHistory(bad),/unmapped_search_results/);
  }
