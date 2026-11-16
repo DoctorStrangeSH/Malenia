@@ -74,6 +74,11 @@ jobs:
             Write-Host "PowerShell syntax OK: $script"
           }
 
+      - name: Verify desktop and bundled runtime release versions
+        env:
+          PYTHONPATH: agent
+        run: python -m unittest discover -s tests -p test_agent_startup.py -v
+
       - name: Package local Python agent
         run: >-
           python -m PyInstaller --clean --onedir

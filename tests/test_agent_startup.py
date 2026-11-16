@@ -1,5 +1,7 @@
 import contextlib
 import io
+import json
+import tomllib
 import os
 import tempfile
 import unittest
@@ -66,4 +68,16 @@ class AgentStartupTests(unittest.TestCase):
         with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root), 'XDG_DATA_HOME': str(self.root)}):
             self.assertEqual(data_directory(), self.root / 'Malenia')
             self.assertEqual(database_path(), self.root / 'Malenia' / 'malenia.sqlite3')
-        self.assertEqual(__version__, '0.6.12')
+        self.assertEqual(__version__, '0.7.0')
+
+    def test_desktop_and_bundled_runtime_release_versions_match(self):
+        root = Path(__file__).resolve().parents[1]
+        versions = {
+            "Python package": tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"],
+            "Cargo": tomllib.loads((root / "desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8"))["package"]["version"],
+            "Tauri": json.loads((root / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))["version"],
+            "Frontend": json.loads((root / "desktop/package.json").read_text(encoding="utf-8"))["version"],
+        }
+        for component, version in versions.items():
+            with self.subTest(component=component):
+                self.assertEqual(version, __version__, "Desktop rejects an agent with a different release")
