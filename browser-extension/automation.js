@@ -739,6 +739,8 @@ var MaleniaAutomation = (() => {
           return [...root.querySelectorAll('*')].some(el=>leafLabel(el,'Нет данных'));
         };
         const freshHistoryRoots=new WeakSet(),busyHistoryRoots=new WeakSet();
+        const scrolledHistoryRoots=new WeakSet();
+        let historyScrollAttempts=0;
         let expectedHistoryCount=historyWidgets().length;
         let readFailure='scan_table_missing',scanShape=null;
         const read = () => {
@@ -913,6 +915,21 @@ var MaleniaAutomation = (() => {
             for(const root of liveRoots){
               if(historyBusy(root))busyHistoryRoots.add(root);
               if(busyHistoryRoots.has(root) && explicitEmpty(root))freshHistoryRoots.add(root);
+            }
+            // DataLens defaults to loading charts only when they enter the
+            // viewport. A titled grid with no table/empty message is not an
+            // empty history. Wake each pending named widget once in this
+            // task-owned tab, then require its actual post-submit DOM update.
+            const pendingRoot=liveRoots.find(root=>{
+              const hasBody=explicitEmpty(root)||[...root.querySelectorAll('table')].some(table=>
+                !table.closest?.('.dl-table__background-table') && visible(table) && table.querySelector('td'));
+              return (!hasBody||!freshHistoryRoots.has(root))&&!scrolledHistoryRoots.has(root) &&
+                typeof root.scrollIntoView==='function';
+            });
+            if(pendingRoot && historyScrollAttempts<12){
+              scrolledHistoryRoots.add(pendingRoot);historyScrollAttempts++;
+              pendingRoot.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+              stableAt=0;last='';return;
             }
             const table=read(), serialized=JSON.stringify(table);
             const empty=table && role==='datalens' && table.rows.length===0;

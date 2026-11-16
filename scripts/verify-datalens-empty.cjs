@@ -16,9 +16,10 @@ const React=require('react'),{createRoot}=require('react-dom/client'),{flushSync
 const root=createRoot(window.document.getElementById('root'));
 window.eval(fs.readFileSync('browser-extension/automation.js','utf8'));const api=window.eval('MaleniaAutomation');
 async function check(options){
- let submits=0,timer;
+ let submits=0,timer,historyScrolls=0;
  function Dashboard(){
   const [evidence,setEvidence]=React.useState(''),[value,setValue]=React.useState('DEFAULT'),[generation,setGeneration]=React.useState(0),[result,setResult]=React.useState(options.initialEmpty?'empty':'old'),[busy,setBusy]=React.useState(false),[other,setOther]=React.useState(0);
+  const [mirrorVisible,setMirrorVisible]=React.useState(!options.lazyMirror);
   const submit=()=>{submits++;
    if(options.stale){setOther(x=>x+1);return;}
    setBusy(true);
@@ -38,14 +39,15 @@ async function check(options){
     options.error&&generation?React.createElement('div',{role:'alert'},'Ошибка загрузки'):null,
     result==='empty'?empty:table),
    React.createElement('div',{'data-qa':'dashkit-grid-item'},React.createElement('h3',null,'Инфо (Шард 1)'),React.createElement(options.emptyTag||'span',null,'Нет данных'),React.createElement('span',null,other)),
-   options.mirrorHistory&&!(options.mirrorRemoved&&generation)?React.createElement('section',{'data-qa':'dashkit-grid-item',key:options.replaceWidget?generation+'mirror':'mirror'},
+   options.mirrorHistory&&!(options.mirrorRemoved&&generation)?React.createElement('section',{'data-qa':'dashkit-grid-item',key:options.replaceWidget?generation+'mirror':'mirror',ref:el=>{if(el)el.scrollIntoView=()=>{historyScrolls++;if(!options.lazyNeverLoads)setMirrorVisible(true);};}},
     React.createElement('span',{className:'dl-widget__chart-title-text'},'История сканов по заказу'),
+    mirrorVisible?React.createElement(React.Fragment,null,
     options.mirrorBusy?React.createElement('div',{role:'progressbar'},'Загрузка'):null,
     options.mirrorError&&generation?React.createElement('div',{role:'alert'},'Ошибка загрузки'):null,
     options.mirrorUnknown?React.createElement('p',null,'Неполный ответ'):
     options.mirrorStale?React.createElement('em',null,'Нет данных'):
     result==='empty'||options.mirrorEmpty?React.createElement('div',{key:generation},React.createElement('em',null,'Нет данных')):
-    options.mirrorForeign?tableFor('OTHER'):options.mirrorDifferentScan?tableFor(options.padding?evidence:'TEST-1','2026/10/06 16:51:32'):table):null,
+    options.mirrorForeign?tableFor('OTHER'):options.mirrorDifferentScan?tableFor(options.padding?evidence:'TEST-1','2026/10/06 16:51:32'):table):null):null,
    options.hiddenCaption?React.createElement('section',{'aria-hidden':'true'},React.createElement('p',null,'История сканов по заказу'),React.createElement('em',null,'Нет данных')):null,
    options.duplicateCaption?React.createElement('section',{'data-qa':options.nativeHeader?'dashkit-grid-item':undefined},React.createElement('p',{className:options.nativeHeader?'dl-widget__chart-title-text':undefined},'История сканов по заказу'),React.createElement('em',null,'Нет данных')):null);
  }
@@ -63,11 +65,11 @@ async function check(options){
     }
     return {ok:true,type:'site_tables_reconciled',read_only:true,write_enabled:false,persisted:false,total:1,summary:{found:1,in_progress:0,manual_review:0}};
    },async()=>{},{exactGetSearch:true,seedInventory:{columns:['cargo_place','inventory_date'],rows:[['12345678','2026-10-03']]},writebackJobId:'job'});
-   assert.equal(result.phase,'reconciled');assert.ok(marked);assert.equal(submits,6);assert.equal(window.document.querySelector('input').value,'0000012345678');return;
+   assert.equal(result.phase,'reconciled');assert.ok(marked);if(options.lazyMirror)assert.ok(historyScrolls>0);assert.equal(submits,6);assert.equal(window.document.querySelector('input').value,'0000012345678');return;
   }
-  if(options.stale||options.error||options.busyForever||options.wrongInput||options.noTitle||options.duplicateCaption||options.mirrorStale||options.mirrorError||options.mirrorBusy||options.mirrorForeign||options.mirrorUnknown||options.mirrorRemoved)await assert.rejects(search,/search_results_unconfirmed|unmapped_search_results/);
+  if(options.stale||options.error||options.busyForever||options.wrongInput||options.noTitle||options.duplicateCaption||options.mirrorStale||options.mirrorError||options.mirrorBusy||options.mirrorForeign||options.mirrorUnknown||options.mirrorRemoved||options.lazyNeverLoads)await assert.rejects(search,/search_results_unconfirmed|unmapped_search_results/);
   else{
-   const result=await search();assert.equal(result.rows.length,options.positive?(options.mirrorDifferentScan?2:1):0);
+   const result=await search();if(options.lazyMirror)assert.ok(historyScrolls>0);assert.equal(result.rows.length,options.positive?(options.mirrorDifferentScan?2:1):0);
    assert.deepEqual(Array.from(api.asgardSearchKeys({columns:['cargo_place','inventory_date'],rows:[['TEST-1','2026-10-03']]},result)),options.positive?[]:['TEST-1']);
   }
   assert.equal(submits,1);
@@ -76,6 +78,16 @@ async function check(options){
 const cases=[{initialEmpty:true,spacedTitle:true,padding:true},{initialEmpty:true,noWidgetAttributes:true,titleTag:'a',emptyTag:'em',padding:true},{initialEmpty:true,noWidgetAttributes:true,stale:true},{initialEmpty:true,noWidgetAttributes:true,busyForever:true},{initialEmpty:true,noWidgetAttributes:true,error:true},{initialEmpty:true,noWidgetAttributes:true,wrongInput:true},{noWidgetAttributes:true,noTitle:true},{initialEmpty:true,noWidgetAttributes:true,replaceWidget:true},{initialEmpty:true,noWidgetAttributes:true,duplicateCaption:true},{initialEmpty:true,titleTag:'a',emptyTag:'em'},{initialEmpty:true,noWidgetAttributes:true,titleTag:'p'},{}, {initialEmpty:true},{initialEmpty:true,replaceWidget:true},{initialEmpty:true,stale:true},
  {initialEmpty:true,error:true},{initialEmpty:true,busyForever:true},{initialEmpty:true,wrongInput:true},{noTitle:true},{positive:true},{initialEmpty:true,padding:true}];
 cases.push(
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,padding:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,positive:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,positive:true,mirrorEmpty:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,positive:true,mirrorDifferentScan:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,lazyNeverLoads:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,mirrorError:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,mirrorBusy:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,mirrorUnknown:true},
+ {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,wrongInput:true},
  {initialEmpty:true,nativeHeader:true,mirrorHistory:true,padding:true},
  {initialEmpty:true,nativeHeader:true,mirrorHistory:true},
  {initialEmpty:true,nativeHeader:true,mirrorHistory:true,positive:true},
