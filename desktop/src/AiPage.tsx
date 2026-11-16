@@ -128,7 +128,7 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
   return <section className="page ai-page" aria-labelledby="ai-title">
     <div className="page-head"><div><div className="eyebrow">ВАШ ИИ-ПОМОЩНИК</div><h1 id="ai-title">Ассистент</h1><p>Разбирайтесь в вопросах, готовьте тексты и планируйте работу вместе с Шерлоком.</p></div></div>
 
-    <div className="assistant-status-card">
+    <div className={"assistant-status-card "+(connected&&status?.available&&status.models.length?"assistant-ready":"")}>
       <div className="assistant-avatar"><BrainCircuit size={23}/></div>
       <div className="assistant-status-copy"><b>{!connected?"Локальное ядро остановлено":!status?"Проверяем подключение":!status.available?"Шерлок пока недоступен":status.models.length?"Шерлок готов к работе":"Нужно установить модель"}</b>
         <p>{!connected?"Нажмите «Запустить Малению» вверху экрана.":!status?"Проверяем локальный движок…":!status.available?"Локальный агент работает, но движок Ollama не отвечает. Нажмите «Запустить Шерлока» ниже.":status.models.length?"Модель доступна для диалога. Доступ к рабочим сайтам подключается отдельно.":"Движок работает, но модель ещё не установлена. Скачайте её ниже."}</p>
@@ -142,7 +142,6 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
       <small>Установка скачивает выбранную модель ({modelLabel(installModel)}); нужен интернет и свободное место.</small>
     </div>:null}
 
-    <details className="assistant-capability-note"><summary><ShieldCheck size={15}/>Диалог и рабочие инструменты</summary><p>Шерлок помогает с вопросами, текстами и планами. Рабочие действия запускаются отдельно в разделе «Инструменты»: чат сам по себе не выполняет их и не получает содержимое рабочих страниц. Не вставляйте в диалог пароли и токены.</p></details>
 
     {error ? <p className="alert error" role="alert">{error}</p> : null}
     {setupStatus?<p role="status" className="alert success">{setupStatus}</p>:null}
@@ -176,15 +175,16 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
           <button className="secondary" disabled={busy || !connected} onClick={()=>void installSherlock()}>Скачать выбранного Шерлока</button>
           <small>Оставьте окно открытым до завершения. Модель скачивается только по этой кнопке.</small>
         </details>
+        <details className="assistant-capability-note"><summary><ShieldCheck size={15}/>Диалог и рабочие инструменты</summary><p>Шерлок помогает с вопросами, текстами и планами. Рабочие действия запускаются отдельно в разделе «Инструменты»: чат сам по себе не выполняет их и не получает содержимое рабочих страниц. Не вставляйте в диалог пароли и токены.</p></details>
       </div>
     </details>
 
-    <div className="prompt-suggestions" aria-label="Примеры запросов">
+    {!messages.length?<div className="prompt-suggestions" aria-label="Примеры запросов">
       <span>Быстрый старт</span>
       <button type="button" onClick={()=>setDraft("Помоги мне организовать рабочий день и расставить приоритеты.")}>Спланировать день</button>
       <button type="button" onClick={()=>setDraft("Помоги разобраться в рабочем вопросе. Сначала уточни необходимые данные.")}>Разобрать вопрос</button>
       <button type="button" onClick={()=>setDraft("Помоги составить понятную инструкцию по описанию процесса.")}>Составить инструкцию</button>
-    </div>
+    </div>:null}
 
     <div className="panel ai-messages" role="log" aria-live="polite" aria-label="Переписка с Шерлоком">
       {!messages.length ? <div className="assistant-empty"><div><Sparkles size={21}/></div><b>Чем помочь сегодня?</b><p>Напишите вопрос или выберите пример выше. Можно вставить небольшой фрагмент таблицы или текста.</p></div> : messages.map((message,index)=><article className={"ai-message "+message.role} key={index}><b>{message.role==="user"?"Вы":"Шерлок"}</b><p>{message.content}</p>{message.answer_mode==="web"?<small>Режим: выдержки интернет-поиска</small>:null}{message.answer_mode==="knowledge_only"?<small>Режим: только по знаниям</small>:null}{message.sources?.length?<details className="ai-sources"><summary>Переданы модели: {message.sources.length} источников</summary>{message.sources.map(source=><div key={source.id}><b>{source.title}</b>{source.url && /^https?:\/\//.test(source.url)?<p><a href={source.url} target="_blank" rel="noopener noreferrer" onClick={event=>{event.preventDefault();void invoke("open_search_source",{url:source.url}).catch(()=>setError("Не удалось открыть источник в браузере. Скопируйте ссылку ниже."));}}>Открыть источник</a></p>:null}<small> · {source.source}{source.start!==undefined?` · символы ${source.start+1}–${source.end}`:""}{message.cited_source_ids?.includes(source.id)?" · модель сослалась на эту запись":""}</small><p>{source.excerpt}</p></div>)}</details>:null}{message.role==="assistant"&&message.skill_ids?.length?<div className="ai-controls">

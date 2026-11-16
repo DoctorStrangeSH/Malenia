@@ -305,3 +305,15 @@ nav{gap:7px}.nav-item{height:48px;font-size:14px;border-radius:10px;color:#aebcb
 .tool-open{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border:0;border-top:1px solid #34483d;background:transparent;padding:16px 0 0;margin-top:auto;color:#b7e2ca;font-size:12px;text-align:left}
 .assistant-capability-note summary{display:flex;align-items:center;gap:9px;cursor:pointer;list-style:none;font-size:12px}.assistant-capability-note p{font-size:13px;line-height:1.8;margin:12px 0 0}
 @media(max-width:1000px){.tool-grid{grid-template-columns:1fr}}
+
+/* Keep the conversation and its composer ahead of secondary controls. */
+.ai-page>.page-head{margin-bottom:18px}
+.assistant-status-card.assistant-ready{padding:10px 15px;margin:0 0 10px;border-radius:11px}
+.assistant-ready .assistant-status-copy p{display:none}
+.assistant-ready .assistant-status-copy b{font-size:13px}
+.assistant-ready .assistant-avatar{width:32px;height:32px;min-width:32px}
+.ai-page>.assistant-settings{margin:10px 0}
+.ai-page>.ai-messages{min-height:190px;margin-bottom:12px}
+.ai-page .prompt-suggestions{margin:9px 0 12px}
+.ai-page .assistant-settings-body>.assistant-capability-note{margin-top:16px}
+.ai-page>.ai-composer{background:#182221;margin-top:0}
