@@ -7,11 +7,11 @@ const vm=require('node:vm');
 const source=fs.readFileSync('browser-extension/automation.js','utf8');
 const READY='Готов для отгрузки в заборную логистику';
 async function check({hiddenNotice=false,duplicateNotice=false,stuckBusy=false,genericNotice=false,plainNotice=false,wrappedNotice=false,noticeEmpty=false,empty=false,foreign=false,mismatch=false,duplicate=false,company=false,
- foreignTransit=false,serviceError=false,ready=false,wasIssued=false,multipleIssued=false,foreignGroup=false,initialMissing=false,replaceTable=false,replaceInput=false,wrongInput=false,hiddenBusy=false,cacheBusy=false,unrelated=false,tableAttribute=false,headingLevel=1,compactCard=false,deepTitle=0,statusTag="span",fourHistory=false,directFF=false,ffHistory=false,lowerFF=false,upperStatus=false,missingCurrent=false,conflictingCurrent=false}={}){
+ foreignTransit=false,serviceError=false,ready=false,pickup=false,wasIssued=false,multipleIssued=false,foreignGroup=false,initialMissing=false,replaceTable=false,replaceInput=false,wrongInput=false,hiddenBusy=false,cacheBusy=false,unrelated=false,tableAttribute=false,headingLevel=1,compactCard=false,deepTitle=0,statusTag="span",fourHistory=false,directFF=false,ffHistory=false,lowerFF=false,upperStatus=false,missingCurrent=false,conflictingCurrent=false}={}){
  noticeEmpty=noticeEmpty||plainNotice;
  empty=empty||noticeEmpty;
  const host='https://asgard.market.yandex-team.ru';let dom,clicks=0,visited=[],renderTimer;
- const active=directFF?'Принят на ФФ':ready?READY:'В пути',dest=company?'Склад ООО "Купишуз"':'Склад партнера';
+ const active=directFF?'Принят на ФФ':pickup?'Готов для выдачи':ready?READY:'В пути',dest=company?'Склад ООО "Купишуз"':'Склад партнера';
  const displayStatus=s=>upperStatus?s.toUpperCase():lowerFF?s.replace('Принят на ФФ','Принят на фф'):s;
  function page(html,url){
   dom?.window.close();dom=new JSDOM(html,{url:host+url,runScripts:'outside-only'});
@@ -89,4 +89,5 @@ scenarios.push({directFF:true,lowerFF:true},{directFF:true,upperStatus:true},
  {ffHistory:true,lowerFF:true},{ffHistory:true,lowerFF:true,ready:true},
  {directFF:true,lowerFF:true,foreign:true},{directFF:true,lowerFF:true,mismatch:true},
  {directFF:true,lowerFF:true,missingCurrent:true},{directFF:true,lowerFF:true,conflictingCurrent:true});
+scenarios.push({pickup:true},{pickup:true,upperStatus:true},{pickup:true,missingCurrent:true},{pickup:true,conflictingCurrent:true},{pickup:true,mismatch:true},{pickup:true,foreign:true},{pickup:true,wasIssued:true},{pickup:true,foreignTransit:true});
 (async()=>{for(const scenario of scenarios)await check(scenario);console.log(`Asgard DOM integration: ${scenarios.length} scenarios passed`);})().catch(error=>{console.error(error);process.exit(1);});

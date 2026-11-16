@@ -306,7 +306,7 @@ var MaleniaAutomation = (() => {
           if(location.origin!==origin)return {error:'search_origin_mismatch'};
           const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
           const text=el=>clean(el?.innerText??el?.textContent);
-          const canonicalStatuses=['В пути','Готов для отгрузки в заборную логистику','Выдан','Принят на ФФ'];
+          const canonicalStatuses=['В пути','Готов для отгрузки в заборную логистику','Готов для выдачи','Выдан','Принят на ФФ'];
           const normalizeStatus=value=>canonicalStatuses.find(status=>status.toLowerCase()===clean(value).toLowerCase())||clean(value);
           const visible=el=>el.getClientRects().length>0;
           const failure=(error,step)=>({error,...(step?{step}:{})});
@@ -470,8 +470,8 @@ var MaleniaAutomation = (() => {
     // in the fresh, exact-barcode result. Do not infer a company in a mixed list.
     if(result.matches.length && result.matches.every(row=>/купишуз/i.test(row.destination)))
       return {columns,rows:[[code,'Купишуз','',result.matches[0].destination,'[]','search_destination']]};
-    const active=['В пути','Готов для отгрузки в заборную логистику'];
-    const rank=status=>status==='В пути'?0:status===active[1]?1:status==='Выдан'?2:3;
+    const active=['В пути','Готов для отгрузки в заборную логистику','Готов для выдачи'];
+    const rank=status=>active.includes(status)?active.indexOf(status):status==='Выдан'?active.length:active.length+1;
     const matches=result.matches.sort((a,b)=>rank(a.status)-rank(b.status));
     if(matches.length>20)throw new Error('unmapped_search_results');
     const confirmed=[];let foreignActive=0;

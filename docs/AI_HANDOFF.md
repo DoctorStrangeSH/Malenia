@@ -1,3 +1,11 @@
+## 2026-11-16 — Bridge 1.6.32: exact “Готов для выдачи” support
+
+User supplied an Asgard card with a visible current badge “Готов для выдачи”, exact cargo heading and matching history, rejected at asgard_card_status. This status was missing from the adapter whitelist. USER EXPLICITLY CHOSE the rule: inventory “В работе”, comment “Взять в работу”. It is NOT “Выдан” and NOT an alias for “Готов для отгрузки в заборную логистику”.
+
+Add the distinct canonical status (case-normalized), prefer its verified active card over issued neighbours, and preserve exact heading/box/current-badge/history checks. Backend applies the chosen ready-for-pickup card rule even if that card has earlier issued/FF entries; existing Kupishuz destination priority and foreign-active/issued-group policy remain unchanged. Existing transit/logistics history rules remain unchanged.
+
+Added real-DOM pickup scenarios: normal, uppercase, absent/conflicting current badge, wrong box, foreign cargo, earlier issued history and foreign-active fallback; backend regression includes the owner-approved outcome and missing-current-history rejection. These use synthetic identifiers only. Desktop remains 0.7.2 with minimal Sherlock; update the extension to 1.6.32 as well. Existing unpacked extension users should replace files in the SAME folder and reload it to preserve its ID, settings and permissions. Installer bundles the new extension.
+
 ## 2026-11-16 — 0.7.2: minimal Sherlock for 1–2 GiB AVAILABLE RAM
 
 User requests the weakest variant for a colleague with only 1–2 GB available. Interpret as free RAM, not total RAM or free disk. Make qwen2.5:0.5b (official Ollama tag, approx 398 MB download) the default installation choice. Install/native allowlist now permits it with a distinct 1 GiB available-RAM preflight; larger models retain their 5/8/14 GiB guards. Do not silently download or delete existing models. If minimal is installed, status prefers it; manual model selection remains available.

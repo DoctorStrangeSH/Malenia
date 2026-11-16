@@ -17,7 +17,7 @@ def outcome(row):
             raise ValueError('invalid_asgard_evidence')
         return 'Ламода', None
     if verification == 'issued_group':
-        active = {'В пути', 'Готов для отгрузки в заборную логистику'}
+        active = {'В пути', 'Готов для отгрузки в заборную логистику', 'Готов для выдачи'}
         if status != 'Выдан' or box or destination or 'Выдан' not in history or not active.intersection(history) or any(item not in active | {'Выдан'} for item in history):
             raise ValueError('invalid_asgard_evidence')
         return 'Выдан', None
@@ -28,7 +28,9 @@ def outcome(row):
     if verification != 'card' or not re.fullmatch(r'\d{1,20}', box) or not history or status not in history:
         raise ValueError('invalid_asgard_evidence')
     if re.search('купишуз', destination, re.IGNORECASE):
-        return 'Ламода', 'Взять в работу' if status in {'В пути', 'Готов для отгрузки в заборную логистику'} and not {'Выдан', 'Принят на ФФ'} & set(history) else None
+        return 'Ламода', 'Взять в работу' if status in {'В пути', 'Готов для отгрузки в заборную логистику', 'Готов для выдачи'} and not {'Выдан', 'Принят на ФФ'} & set(history) else None
+    if status == 'Готов для выдачи':
+        return 'В работе', 'Взять в работу'
     if status in {'В пути', 'Готов для отгрузки в заборную логистику'}:
         if 'Выдан' in history:
             return 'В работе', 'Два ШК Выдан'

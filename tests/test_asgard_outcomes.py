@@ -37,3 +37,12 @@ class AsgardOutcomeTests(unittest.TestCase):
         self.assertEqual(outcome(['TEST-1', 'Выдан', '', '', '["В пути", "Выдан", "Выдан"]', 'issued_group']), ('Выдан', None))
         for statuses in [['В пути'], ['В пути', 'Создан', 'Выдан'], ['Выдан']]:
             with self.assertRaises(ValueError): outcome(['TEST-1', 'Выдан', '', '', json.dumps(statuses), 'issued_group'])
+
+    def test_ready_for_customer_pickup_uses_explicit_owner_rule_not_issued(self):
+        status = 'Готов для выдачи'
+        for history in ([status, 'Прибыл в точку выдачи', 'В пути', 'Создан', 'Принят у отправителя'],
+                        [status, 'Выдан'], [status, 'Принят на ФФ']):
+            with self.subTest(history=history):
+                self.assertEqual(outcome(self.card(history, status=status)), ('В работе', 'Взять в работу'))
+        with self.assertRaises(ValueError):
+            outcome(self.card(['Выдан'], status=status))
