@@ -1,20 +1,23 @@
 # Product direction — 2026-11-16
 
-Current user priority: make Маления understandable for colleagues. The user confirmed the inventory automation works with Browser Bridge 1.6.31.
+Маления is a general work assistant, with many future functions. Inventory reconciliation is one tool and must not become the product's default or primary identity. This is the user's explicit correction.
 
 ## Desktop 0.7.0
 
-- Default: inventory review, one whole-sheet action, visible progress and pause.
-- Separate connections; preserve selected sheet across navigation.
-- Hide manual checks, saved queue and diagnostics from daily navigation.
-- Clear first launch, short in-app help, readable responsive dark theme.
-- Keep automation rules unchanged; validate UI with real Chromium and mocked native API.
+- Assistant is the home screen; keep the conversation and draft during navigation.
+- Tools is a searchable catalogue of available actions with categories and equal cards.
+- Knowledge holds documents, useful records and reviewed skills.
+- Connections holds access to services; Settings holds technical configuration.
+- Inventory reconciliation, manual order checks and batch previews are tools, with their own focused workflows.
+- Clear first launch, short general in-app help, readable responsive dark theme.
+- Preserve automation rules and permissions; validate the UI in Chromium and the full installer on Windows.
 
 ## Next
 
-1. Validate the new workspace with the user on their workday; improve concrete friction.
-2. Colleague installation: reduce OAuth setup, determine approved extension distribution and update channel. Current installer is per-user; corporate permissions still apply.
-3. Instructions, examples and reviewed knowledge/skills. Saved notes do not silently change deterministic inventory rules. Model self-training is not implemented.
+1. Validate the new assistant workspace on varied tasks; improve concrete friction.
+2. Colleague installation: reduce OAuth setup, decide approved extension distribution and update channel.
+3. Instructions, examples and reviewed skills across different tasks. Saved notes do not silently change deterministic automation rules. Model self-training is not implemented.
+4. Add capabilities through the tool catalogue without adding a sidebar destination for each function.
 
 ---
 

@@ -288,3 +288,20 @@ nav{gap:7px}.nav-item{height:48px;font-size:14px;border-radius:10px;color:#aebcb
 .ai-message{font-size:14px;line-height:1.8}.ai-message b{font-size:12px;color:#b3ddc5}.ai-message p{font-size:14px}.ai-message.user{background:#20382e;border-color:#3c5c49}
 .prompt-suggestions span,.prompt-suggestions button{font-size:12px}.ai-composer textarea{font-size:14px;line-height:1.7}.ai-composer{border-color:#49604f}
 .knowledge-page p,.skills-page p,.permissions-page p{font-size:13px;line-height:1.75}
+
+/* A general assistant with an extensible, equally weighted tool catalogue. */
+[hidden]{display:none!important}
+.tool-back{display:inline-flex;align-items:center;background:none;border:0;color:#a6c9b9;padding:0 0 18px;font-size:13px}
+.catalog-count{color:#a2b7ad;font-size:12px;white-space:nowrap}
+.catalog-search{display:flex;align-items:center;gap:12px;background:#182322;border:1px solid #3e534a;border-radius:13px;padding:0 18px;min-height:56px;color:#9bb4a7}
+.catalog-search input{width:100%;min-width:0;border:0;background:transparent;outline:none;color:#edf3ef;padding:15px 0;font-size:14px}.catalog-search:focus-within{outline:2px solid #8be0c2;outline-offset:3px}
+.catalog-search button{background:none;border:0;color:#a9d6bf;font-size:12px}
+.catalog-filters{display:flex;gap:9px;flex-wrap:wrap;margin:22px 0 28px}.catalog-filters button{border:1px solid #36483f;background:transparent;color:#adbbb4;padding:9px 14px;border-radius:30px;font-size:12px}.catalog-filters button[aria-pressed="true"]{background:#294235;border-color:#5c9676;color:#bbefd4}
+.tool-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.tool-card{padding:26px;display:flex;flex-direction:column;min-width:0;transition:border-color .15s,background .15s}.tool-card:hover{border-color:#668774;background:#1c2924}
+.tool-card-top{display:flex;align-items:center;gap:15px;justify-content:space-between}.tool-card-top>span:last-child{font-size:10px;color:#9ab2a5;text-align:right}
+.tool-icon{display:grid;place-items:center;border:1px solid #3e5a49;border-radius:13px;background:#243a2c;color:#b1e3bf;width:47px;height:47px;flex-shrink:0}
+.tool-card h2{font-size:20px;font-weight:600;letter-spacing:-.4px;margin:23px 0 10px}.tool-card p{font-size:13px;line-height:1.8;color:#adbbb4;margin:0 0 25px}
+.tool-open{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border:0;border-top:1px solid #34483d;background:transparent;padding:16px 0 0;margin-top:auto;color:#b7e2ca;font-size:12px;text-align:left}
+.assistant-capability-note summary{display:flex;align-items:center;gap:9px;cursor:pointer;list-style:none;font-size:12px}.assistant-capability-note p{font-size:13px;line-height:1.8;margin:12px 0 0}
+@media(max-width:1000px){.tool-grid{grid-template-columns:1fr}}

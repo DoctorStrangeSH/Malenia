@@ -35,23 +35,46 @@ fs.mkdirSync(output,{recursive:true});
     if(command==="cancel_browser_audit"){state.job=null;return {};}
     if(command==="reset_inventa_order_batch")return {};
     if(command==="get_ai_status")return {available:true,models:["qwen3:8b"]};
+    if(command==="chat_ai")return {message:{role:"assistant",content:"Вот план работы по вашей задаче."},model:"qwen3:8b"};
+    if(command==="get_knowledge")return {records:[]};
     // Non-workflow screens can ask for optional status data.
     return {available:true,models:["qwen3:8b"],items:[],entries:[],skills:[]};
    }};
   });
   await page.goto("http://127.0.0.1:4173");
-  await page.getByRole("heading",{name:"Проверка ИНВенты",exact:true}).waitFor();
+  await page.getByRole("heading",{name:"Ассистент",exact:true}).waitFor();
+  assert.equal(await page.getByLabel("Таблица и лист").count(),0);
   await page.screenshot({path:path.join(output,"01-first-launch.png"),fullPage:true});
   await page.getByRole("button",{name:"Запустить Малению",exact:true}).click();
   await page.locator(".connection-banner").waitFor({state:"detached"});
   const mainNav=page.getByRole("navigation",{name:"Основные разделы"});
-  assert.deepEqual(await mainNav.getByRole("button").allTextContents(),["Проверка ИНВенты","Подключения","Ассистент"]);
+  assert.deepEqual(await mainNav.getByRole("button").allTextContents(),["Ассистент","Инструменты","Знания","Подключения"]);
+  await page.getByLabel("Сообщение",{exact:true}).fill("Помоги составить план рабочего дня");
+  await page.getByRole("button",{name:"Отправить",exact:true}).click();
+  await page.getByText("Вот план работы по вашей задаче.",{exact:true}).waitFor();
+  await page.getByLabel("Сообщение",{exact:true}).fill("Несохранённый черновик");
+  const openInventory=async()=>{
+    await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
+    await page.getByRole("button",{name:"Открыть: Разбор ИНВенты",exact:true}).click();
+  };
+  await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
+  assert.equal(await page.locator(".tool-card").count(),5);
+  await page.getByLabel("Поиск инструментов",{exact:true}).fill("инв");
+  assert.equal(await page.locator(".tool-card").count(),1);
+  await page.getByRole("button",{name:"Очистить поиск инструментов",exact:true}).click();
+  await page.getByRole("button",{name:"Знания и навыки",exact:true}).click();
+  assert.equal(await page.locator(".tool-card").count(),2);
+  await page.getByRole("button",{name:"Все",exact:true}).click();
+  await page.getByLabel("Поиск инструментов",{exact:true}).fill("несуществующий инструмент");
+  await page.getByText("Инструмент не найден",{exact:true}).waitFor();
+  await page.getByRole("button",{name:"Показать все инструменты",exact:true}).click();
+  await page.screenshot({path:path.join(output,"02-tools.png"),fullPage:true});
   await mainNav.getByRole("button",{name:"Подключения",exact:true}).click();
   await page.getByLabel("Google OAuth Desktop Client ID").fill("demo.apps.googleusercontent.com");
   await page.getByRole("button",{name:"Подключить Google",exact:true}).click();
   await page.getByText("Подключён · чтение и редактирование",{exact:true}).waitFor();
   await page.screenshot({path:path.join(output,"02-connections.png"),fullPage:true});
-  await mainNav.getByRole("button",{name:"Проверка ИНВенты",exact:true}).click();
+  await openInventory();
   const select=page.getByLabel("Таблица и лист");
   await select.locator("option",{hasText:"16.11.2026"}).waitFor({state:"attached"});
   await select.selectOption({label:"16.11.2026"});
@@ -67,8 +90,10 @@ fs.mkdirSync(output,{recursive:true});
   assert.deepEqual(cancel.args,{jobId:"ui-job"});
   await mainNav.getByRole("button",{name:"Ассистент",exact:true}).click();
   await page.getByRole("heading",{name:"Ассистент",exact:true}).waitFor();
+  await page.getByText("Вот план работы по вашей задаче.",{exact:true}).waitFor();
+  assert.equal(await page.getByLabel("Сообщение",{exact:true}).inputValue(),"Несохранённый черновик");
   await page.screenshot({path:path.join(output,"04-assistant.png"),fullPage:true});
-  await mainNav.getByRole("button",{name:"Проверка ИНВенты",exact:true}).click();
+  await openInventory();
   assert.match(await select.inputValue(),/gid=2$/);
   await page.getByText("Как работает проверка и дополнительные действия",{exact:true}).click();
   page.once("dialog",dialog=>dialog.dismiss());
@@ -84,10 +109,15 @@ fs.mkdirSync(output,{recursive:true});
   assert.ok(queued.every(x=>x.args.spreadsheetUrl.endsWith("gid=2")));
   for(const width of [1440,1080,850]){
    await page.setViewportSize({width,height:900});
-   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), "horizontal overflow at "+width);
-   await page.screenshot({path:path.join(output,"workspace-"+width+".png"),fullPage:true});
+   for(const destination of ["Ассистент","Инструменты","Знания"]){
+    await mainNav.getByRole("button",{name:destination,exact:true}).click();
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), destination+" horizontal overflow at "+width);
+    await page.screenshot({path:path.join(output,destination+"-"+width+".png"),fullPage:true});
+   }
+   await openInventory();
+   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), "inventory overflow at "+width);
   }
   assert.deepEqual(errors,[]);
-  console.log("Desktop UI: first launch, Google connection, exact sheet selection, start/pause, navigation persistence, confirmed restart, completion and 3 window widths passed.");
+  console.log("Desktop UI: assistant-first launch, persistent conversation and draft, tool search and categories, connections, inventory as a selected tool, exact sheet selection, pause/restart/completion and four destinations at three widths passed.");
  }finally{if(browser)await browser.close();server.kill();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

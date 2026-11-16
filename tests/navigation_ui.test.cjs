@@ -5,9 +5,9 @@ const path = require('node:path');
 
 const app = fs.readFileSync(path.resolve(__dirname, '../desktop/src/App.tsx'), 'utf8');
 
-test('inventory review is the default workspace destination', () => {
+test('assistant is the default workspace and inventory lives in the tool catalogue', () => {
   assert.match(app, /label="Ассистент" active=\{page==="ai"\}/);
-  assert.match(app, /useState<Page>\("sources"\)/);
+  assert.match(app, /useState<Page>\("ai"\)/);
   assert.match(app, /label="Подключения" active=\{page==="connections"\}/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Проверка заказа"/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Список заказов"/);
@@ -20,11 +20,14 @@ test('queued tasks are never presented as automatically executed', () => {
   assert.match(app, /не запускаются автоматически/);
 });
 
-test('daily navigation hides saved tasks and groups knowledge inside the assistant', () => {
+test('daily navigation separates tools, knowledge and connections without a task queue', () => {
   assert.doesNotMatch(app, /<Nav[^\n]*label="Задания"/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Навыки"/);
-  assert.match(app, /aria-label="Ассистент и знания"/);
+  assert.match(app, /aria-label="Знания и навыки"/);
   assert.match(app, /Дополнительные инструменты/);
+  assert.match(app, /label="Инструменты"/);
+  assert.match(app, /label="Знания"/);
+  assert.doesNotMatch(app, /<Nav[^\n]*label="Проверка ИНВенты"/);
 });
 
 test('sources page is reachable and shows truthful connection state', () => {
@@ -188,4 +191,8 @@ test('Sherlock offers automatic thinking depth for complex work',()=>{
   const native=fs.readFileSync(path.resolve(__dirname,'../desktop/src-tauri/src/main.rs'),'utf8');
   assert.match(native,/reasoning_mode: Option<String>/);
   assert.match(native,/"reasoning_mode": reasoning_mode\.unwrap_or_else/);
+});
+
+test('assistant conversation stays mounted while tools and settings are open',()=>{
+  assert.match(app, /<div hidden=\{page!=="ai"\}><AiPage/);
 });
