@@ -43,12 +43,12 @@ test('AI answer requires explicit review; uncertain retry reuses the same ID and
   h.find('textarea',p=>p.id==='ai-draft')[0].props.onChange({target:{value:'Plan my work'}});
   h.find('form')[0].props.onSubmit({preventDefault(){}});await tick();
   assert.equal(saves.length,0);
-  const review=h.find('button',p=>p.children==='Создать задачу из ответа')[0];
+  const review=h.find('button',p=>p.children==='Сохранить план из ответа')[0];
   review.props.onClick();
   const input=h.find('input',p=>p.type!=='checkbox')[0];
   assert.equal(input.props.value,'Plan my work');
   input.props.onChange({target:{value:'Reviewed title'}});
-  let save=h.find('button',p=>p.children==='Добавить в очередь')[0];
+  let save=h.find('button',p=>p.children==='Сохранить план')[0];
   save.props.onClick();save.props.onClick();await tick();
   assert.equal(saves.length,1);
   assert.equal(saves[0].title,'Reviewed title');
@@ -56,7 +56,7 @@ test('AI answer requires explicit review; uncertain retry reuses the same ID and
   assert.match(saves[0].requestId,/^[a-f0-9-]{36}$/);
   assert.equal(h.find('input',p=>p.type!=='checkbox')[0].props.disabled,true);
   fail=false;
-  h.find('button',p=>p.children==='Добавить в очередь')[0].props.onClick();await tick();
+  h.find('button',p=>p.children==='Сохранить план')[0].props.onClick();await tick();
   assert.deepEqual(saves[1],saves[0]);
   assert.equal(h.find('input',p=>p.type!=='checkbox').length,0);
   assert.equal(h.refreshed(),1);
