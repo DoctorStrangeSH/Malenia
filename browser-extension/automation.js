@@ -700,8 +700,8 @@ var MaleniaAutomation = (() => {
         };
         const leafLabel=(el,label)=>historyVisible(el) && labelText(el)===label &&
           !Array.from(el.children||[]).some(child=>historyVisible(child)&&labelText(child)===label);
-        const historyWidget=()=>{
-          if(role!=='datalens')return null;
+        const historyWidgets=()=>{
+          if(role!=='datalens')return [];
           // Owner DOM: chart titles live here; AdaptiveTabs also mounts an
           // offscreen select-switcher with measurable duplicate title text.
           // Bind the named chart to its own grid item, never to those copies.
@@ -709,15 +709,15 @@ var MaleniaAutomation = (() => {
             .filter(el=>historyVisible(el) && labelText(el)===caption);
           const chartRoots=[...new Set(chartTitles.map(el=>el.closest(
             '[data-qa="dashkit-grid-item"], .dashkit-grid-item')).filter(Boolean))];
-          if(chartRoots.length)return chartRoots.length===1?chartRoots[0]:null;
+          if(chartRoots.length)return chartRoots.length<=12?chartRoots:[];
           // Titles and empty cells can be links, paragraphs or custom typography.
           // Use rendered labels rather than a guessed set of element tags.
           const titles=[...document.querySelectorAll('*')].filter(el=>
             labelText(el)===caption && leafLabel(el,caption));
-          if(titles.length!==1)return null;
+          if(titles.length!==1)return [];
           const title=titles[0];
           const known=title.closest?.('[data-qa="dashkit-grid-item"], .dashkit-grid-item, .react-grid-item, [data-dashkit-grid-id]');
-          if(known)return known;
+          if(known)return [known];
           // Legacy layouts need no CSS-specific wrapper. Only a compact section
           // containing this caption and its empty/loading content can qualify;
           // never adopt an ancestor containing other widgets or search controls.
@@ -726,9 +726,9 @@ var MaleniaAutomation = (() => {
             if(root===document.body || root===document.documentElement || root.querySelector('input'))break;
             const rest=clean(labelText(root).replace(caption,'').replace(/Нет данных|Загрузка/gi,''));
             if(!rest && (root.querySelector('[aria-busy="true"],[role="progressbar"],.g-loader,.g-spin') ||
-                [...root.querySelectorAll('*')].some(el=>leafLabel(el,'Нет данных'))))return root;
+                [...root.querySelectorAll('*')].some(el=>leafLabel(el,'Нет данных'))))return [root];
           }
-          return null;
+          return [];
         };
         const historyBusy=root=>root && (root.getAttribute('aria-busy')==='true' ||
           [...root.querySelectorAll('[aria-busy="true"], [role="progressbar"], .g-loader, .g-spin')].some(visible));
@@ -738,17 +738,24 @@ var MaleniaAutomation = (() => {
           if([...root.querySelectorAll('td')].some(el=>visible(el) && labelText(el) && labelText(el)!=='Нет данных'))return false;
           return [...root.querySelectorAll('*')].some(el=>leafLabel(el,'Нет данных'));
         };
-        let historyRoot=historyWidget(),emptyRefreshed=false,sawHistoryBusy=false;
+        const freshHistoryRoots=new WeakSet(),busyHistoryRoots=new WeakSet();
+        let expectedHistoryCount=historyWidgets().length;
         let readFailure='scan_table_missing',scanShape=null;
         const read = () => {
           readFailure='scan_table_missing';scanShape=null;
-          const root=historyWidget();
-          if(role==='datalens' && !root)readFailure='scan_history_widget_missing';
-          if(explicitEmpty(root)){
+          const roots=historyWidgets();
+          expectedHistoryCount=Math.max(expectedHistoryCount,roots.length);
+          if(role==='datalens' && !roots.length)readFailure='scan_history_widget_missing';
+          if(expectedHistoryCount>1 && roots.length<expectedHistoryCount){readFailure='scan_table_ambiguous';return null;}
+          if(roots.length>1 && roots.some(root=>historyBusy(root) ||
+              [...root.querySelectorAll('[role="alert"], .chartkit-error, .chartkit-widget-error')].some(visible))){
+            readFailure='scan_empty_unconfirmed';return null;
+          }
+          if(roots.length && roots.every(explicitEmpty)){
             readFailure='scan_empty_unconfirmed';
             return {columns:['main_partner_code_original','sc_id','result','scanned_at'],rows:[]};
           }
-          const candidates=[];
+          const candidates=[],candidateTables=[];
           for(const table of document.querySelectorAll('table')) {
             // DataLens renders measurement copies through a portal offscreen.
             // They have dimensions, so getClientRects alone cannot exclude them.
@@ -798,6 +805,7 @@ var MaleniaAutomation = (() => {
               if(!identified.length || identified.some(row=>row[col('place_external_id')]!==code)){
                 readFailure='scan_table_identity_mismatch';return null;
               }
+              candidateTables.push(table);
               candidates.push({columns:['main_partner_code_original','sc_id','result','scanned_at'],
                 rows:identified.map(row=>[code,row[col('sc_id')].replace(/\s/g,''),row[col('result')],row[col('scanned_at')].replace(/\//g,'-')])});
             } else {
@@ -805,6 +813,19 @@ var MaleniaAutomation = (() => {
               if(rows.length!==1) return null;
               candidates.push({columns:['cargo_place','status','box_id'],
                 rows:[[code,rows[0][heads.indexOf('Статус грузоместа')],rows[0][heads.indexOf('ID коробки')]]]});
+            }
+          }
+          if(role==='datalens' && roots.length>1){
+            // Every named widget must be either explicitly empty or parsed.
+            // Never let an empty shard hide another shard's exact-cargo scans.
+            const complete=roots.every(root=>explicitEmpty(root)||candidateTables.some(table=>root.contains(table))) &&
+              candidateTables.every(table=>roots.some(root=>root.contains(table)));
+            if(!complete){readFailure='scan_table_incomplete';return null;}
+            if(candidates.length){
+              const rows=[...new Map(candidates.flatMap(table=>table.rows).map(row=>[JSON.stringify(row),row])).values()];
+              if(rows.length>100){readFailure='scan_row_limit';return null;}
+              readFailure=null;
+              return {columns:candidates[0].columns,rows};
             }
           }
           if(candidates.length>1)readFailure='scan_table_ambiguous';
@@ -888,27 +909,29 @@ var MaleniaAutomation = (() => {
               // Keep focus: calling blur here can submit twice with stale props.
               return;
             }
-            const liveRoot=historyWidget();
-            if(historyBusy(liveRoot))sawHistoryBusy=true;
-            if(sawHistoryBusy && explicitEmpty(liveRoot))emptyRefreshed=true;
+            const liveRoots=historyWidgets();
+            for(const root of liveRoots){
+              if(historyBusy(root))busyHistoryRoots.add(root);
+              if(busyHistoryRoots.has(root) && explicitEmpty(root))freshHistoryRoots.add(root);
+            }
             const table=read(), serialized=JSON.stringify(table);
             const empty=table && role==='datalens' && table.rows.length===0;
-            if(!table || (empty?!emptyRefreshed:serialized===before)){stableAt=0;return;}
+            const allFresh=liveRoots.length>0 && liveRoots.every(root=>freshHistoryRoots.has(root));
+            if(!table || (empty?!allFresh:serialized===before) || (liveRoots.length>1&&!allFresh)){stableAt=0;return;}
             if(serialized!==last){last=serialized;stableAt=Date.now();return;}
             if(stableAt && Date.now()-stableAt>=750) finish(table);
           };
           observer=new MutationObserver(records=>{
             if(submitted && role==='datalens'){
-              const liveRoot=historyWidget();
-              const roots=[historyRoot,liveRoot].filter(Boolean);
-              // Only child/text changes in this widget prove a refreshed empty
-              // result. Input renders and unrelated widgets cannot authorize it.
-              if(records.some(record=>record.type!=='attributes' && (
-                roots.some(root=>root===record.target || root.contains(record.target)) ||
-                [...record.addedNodes,...record.removedNodes].some(node=>roots.some(root=>node===root || node.contains?.(root)))
-              )))emptyRefreshed=true;
-              if(historyBusy(liveRoot))sawHistoryBusy=true;
-              historyRoot=liveRoot;
+              for(const root of historyWidgets()){
+                // Track freshness independently. A refresh in one named widget
+                // must never authorize a cached empty/result in its neighbour.
+                if(records.some(record=>record.type!=='attributes' && (
+                    root===record.target || root.contains(record.target) ||
+                    [...record.addedNodes].some(node=>node===root || node.contains?.(root))
+                )))freshHistoryRoots.add(root);
+                if(historyBusy(root))busyHistoryRoots.add(root);
+              }
             }
             check();
           });

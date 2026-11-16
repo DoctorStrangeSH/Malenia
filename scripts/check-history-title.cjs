@@ -12,12 +12,12 @@ function locate(text,{hidden=false,duplicate=false,measurement=false,native=fals
  const all=hidden||duplicate||measurement?[title,copy]:[title];
  const document={querySelectorAll:selector=>selector==='.dl-widget__chart-title-text'?(native?all:[]):all,body:{},documentElement:{}};
  const ctx={role:'datalens',document,getComputedStyle:()=>({display:'block',visibility:'visible'}),visible:el=>el.getClientRects().length>0,clean:s=>String(s||'').replace(/\s+/g,' ').trim()};
- return vm.runInNewContext(source.slice(start,end)+';historyWidget()===document.querySelectorAll()[0].parentElement',ctx);
+ return vm.runInNewContext(source.slice(start,end)+';(typeof historyWidgets==="function"?historyWidgets():[historyWidget()].filter(Boolean)).length',ctx);
 }
-assert.equal(locate('История\u00a0сканов\nпо\u00a0заказу'),true);
-assert.equal(locate('История сканов по заказу',{hidden:true}),true);
-assert.equal(locate('История сканов по заказу',{duplicate:true}),false);
-assert.equal(locate('Инфо (Шард 1)'),false);
-assert.equal(locate('История сканов по заказу',{measurement:true,native:true}),true);
-assert.equal(locate('История сканов по заказу',{duplicate:true,native:true}),false);
+assert.equal(locate('История\u00a0сканов\nпо\u00a0заказу'),1);
+assert.equal(locate('История сканов по заказу',{hidden:true}),1);
+assert.equal(locate('История сканов по заказу',{duplicate:true}),0);
+assert.equal(locate('Инфо (Шард 1)'),0);
+assert.equal(locate('История сканов по заказу',{measurement:true,native:true}),1);
+assert.equal(locate('История сканов по заказу',{duplicate:true,native:true}),2);
 console.log('Actual history locator: 6 cases passed');
