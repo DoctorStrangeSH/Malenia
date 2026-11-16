@@ -9,13 +9,15 @@ Object.assign(global,{window,document:window.document,HTMLElement:window.HTMLEle
 Object.defineProperty(global,'navigator',{value:window.navigator,configurable:true});
 window.HTMLElement.prototype.getClientRects=function(){for(let el=this;el;el=el.parentElement)if(el.style?.display==='none')return [];return [{}];};
 const timeout=window.setTimeout.bind(window),interval=window.setInterval.bind(window),NativeDate=window.Date;
-window.setTimeout=(fn,ms,...args)=>timeout(fn,ms/10,...args);
-window.setInterval=(fn,ms,...args)=>interval(fn,ms/10,...args);
-window.Date=class extends NativeDate {static now(){return NativeDate.now()*10;}};
+let timeScale=10;
+window.setTimeout=(fn,ms,...args)=>timeout(fn,ms/timeScale,...args);
+window.setInterval=(fn,ms,...args)=>interval(fn,ms/timeScale,...args);
+window.Date=class extends NativeDate {static now(){return NativeDate.now()*timeScale;}};
 const React=require('react'),{createRoot}=require('react-dom/client'),{flushSync}=require('react-dom');
 const root=createRoot(window.document.getElementById('root'));
 window.eval(fs.readFileSync('browser-extension/automation.js','utf8'));const api=window.eval('MaleniaAutomation');
 async function check(options){
+ timeScale=options.historyRows>=1000?2:10; // Give jsdom time to mount the 33,000-cell boundary fixture.
  let submits=0,timer,historyScrolls=0;
  function Dashboard(){
   const [evidence,setEvidence]=React.useState(''),[value,setValue]=React.useState('DEFAULT'),[generation,setGeneration]=React.useState(0),[result,setResult]=React.useState(options.initialEmpty?'empty':'old'),[busy,setBusy]=React.useState(false),[other,setOther]=React.useState(0);
@@ -26,9 +28,13 @@ async function check(options){
    timer=window.setTimeout(()=>{setResult(options.positive||(options.padding&&value==='0000012345678')?'positive':'empty');setEvidence(value);setGeneration(x=>x+1);setOther(x=>x+1);if(!options.busyForever)setBusy(false);if(options.wrongInput)setValue('OTHER');},200);
   };
   const empty=React.createElement('div',{key:generation},React.createElement(options.emptyTag||'span',null,'Нет данных'));
-  const tableFor=(id,date='2026/10/05 16:51:32')=>React.createElement('table',null,React.createElement('tbody',null,
-   React.createElement('tr',null,...['scanned_at','sc_id','result','place_external_id'].map(s=>React.createElement('th',{key:s},s))),
-   React.createElement('tr',null,...[date,'101366','OK',id].map((s,i)=>React.createElement('td',{key:i},s)))));
+  const tableFor=(id,date='2026/10/05 16:51:32')=>{
+   const headers=['scanned_at','sc_id','result','place_external_id',...(options.wideHistory?Array.from({length:29},(_,i)=>i<2?'sortable_id':'extra_'+i):[])];
+   return React.createElement('table',null,React.createElement('tbody',null,
+    React.createElement('tr',null,...headers.map((s,i)=>React.createElement('th',{key:i},s))),
+    ...Array.from({length:options.historyRows||1},(_,index)=>React.createElement('tr',{key:index},
+     ...[options.latestLast&&index===(options.historyRows||1)-1?'2026/10/11 16:51:32':date,'101366','OK',id,...(options.wideHistory?Array(29).fill('unused'):[])].map((s,i)=>React.createElement('td',{key:i},s))))));
+  };
   const table=tableFor(result==='positive'?(options.padding?evidence:'TEST-1'):'OLD');
   return React.createElement(React.Fragment,null,
    React.createElement('div',{'data-qa':'dashkit-grid-item','data-dashkit-grid-id':'13'},React.createElement('span',{'data-qa':'chartkit-control-input'},React.createElement('input',{className:'g-text-input__control',type:'text',value,onChange:e=>setValue(e.target.value),onKeyPress:e=>{if(e.charCode===13)submit();}}))),
@@ -60,16 +66,16 @@ async function check(options){
    let marked=false;
    const result=await api.run(chrome,targets,async msg=>{
     if(msg.type==='mark_inventa_found'){
-     assert.equal(msg.inventory.rows[0][0],'12345678');assert.equal(msg.datalens.rows[0][0],'12345678');marked=true;
+     assert.equal(msg.inventory.rows[0][0],'12345678');assert.equal(msg.datalens.rows[0][0],'12345678');if(options.latestLast)assert.equal(msg.datalens.rows[0][3],'2026-10-11 16:51:32');marked=true;
      return {ok:true,type:'inventa_found_marked',verified:true,written:1};
     }
     return {ok:true,type:'site_tables_reconciled',read_only:true,write_enabled:false,persisted:false,total:1,summary:{found:1,in_progress:0,manual_review:0}};
    },async()=>{},{exactGetSearch:true,seedInventory:{columns:['cargo_place','inventory_date'],rows:[['12345678','2026-10-03']]},writebackJobId:'job'});
    assert.equal(result.phase,'reconciled');assert.ok(marked);if(options.lazyMirror)assert.ok(historyScrolls>0);assert.equal(submits,6);assert.equal(window.document.querySelector('input').value,'0000012345678');return;
   }
-  if(options.stale||options.error||options.busyForever||options.wrongInput||options.noTitle||options.duplicateCaption||options.mirrorStale||options.mirrorError||options.mirrorBusy||options.mirrorForeign||options.mirrorUnknown||options.mirrorRemoved||options.lazyNeverLoads)await assert.rejects(search,/search_results_unconfirmed|unmapped_search_results/);
+  if(options.stale||options.error||options.busyForever||options.wrongInput||options.noTitle||options.duplicateCaption||options.mirrorStale||options.mirrorError||options.mirrorBusy||options.mirrorForeign||options.mirrorUnknown||options.mirrorRemoved||options.lazyNeverLoads||options.historyRows>1000)await assert.rejects(search,/search_results_unconfirmed|unmapped_search_results/);
   else{
-   const result=await search();if(options.lazyMirror)assert.ok(historyScrolls>0);assert.equal(result.rows.length,options.positive?(options.mirrorDifferentScan?2:1):0);
+   const result=await search();if(options.lazyMirror)assert.ok(historyScrolls>0);assert.equal(result.rows.length,options.positive?(options.mirrorDifferentScan?2:(options.historyRows||1)):0);
    assert.deepEqual(Array.from(api.asgardSearchKeys({columns:['cargo_place','inventory_date'],rows:[['TEST-1','2026-10-03']]},result)),options.positive?[]:['TEST-1']);
   }
   assert.equal(submits,1);
@@ -78,6 +84,10 @@ async function check(options){
 const cases=[{initialEmpty:true,spacedTitle:true,padding:true},{initialEmpty:true,noWidgetAttributes:true,titleTag:'a',emptyTag:'em',padding:true},{initialEmpty:true,noWidgetAttributes:true,stale:true},{initialEmpty:true,noWidgetAttributes:true,busyForever:true},{initialEmpty:true,noWidgetAttributes:true,error:true},{initialEmpty:true,noWidgetAttributes:true,wrongInput:true},{noWidgetAttributes:true,noTitle:true},{initialEmpty:true,noWidgetAttributes:true,replaceWidget:true},{initialEmpty:true,noWidgetAttributes:true,duplicateCaption:true},{initialEmpty:true,titleTag:'a',emptyTag:'em'},{initialEmpty:true,noWidgetAttributes:true,titleTag:'p'},{}, {initialEmpty:true},{initialEmpty:true,replaceWidget:true},{initialEmpty:true,stale:true},
  {initialEmpty:true,error:true},{initialEmpty:true,busyForever:true},{initialEmpty:true,wrongInput:true},{noTitle:true},{positive:true},{initialEmpty:true,padding:true}];
 cases.push(
+ {initialEmpty:true,nativeHeader:true,positive:true,historyRows:106,wideHistory:true,latestLast:true},
+ {initialEmpty:true,nativeHeader:true,padding:true,historyRows:106,wideHistory:true,latestLast:true},
+ {initialEmpty:true,nativeHeader:true,positive:true,historyRows:1000,wideHistory:true,latestLast:true},
+ {initialEmpty:true,nativeHeader:true,positive:true,historyRows:1001,wideHistory:true},
  {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,padding:true},
  {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true},
  {initialEmpty:true,nativeHeader:true,mirrorHistory:true,lazyMirror:true,positive:true},

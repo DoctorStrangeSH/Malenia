@@ -864,7 +864,7 @@ test('a later DataLens failure stops the batch without searching found orders in
 test('a single oversized scan history is rejected before Asgard',async()=>{
   const api=runner(),chrome=fakeBrowser();
   chrome.scripting.executeScript=async({args:[role,key]})=>{
-    assert.equal(role,'datalens');return [{result:scanBatch([key],101)}];
+    assert.equal(role,'datalens');return [{result:scanBatch([key],1001)}];
   };
   const result=await api.run(chrome,workTargets,async()=>{},async()=>{},
     {exactGetSearch:true,seedInventory:inventorySeed(['TEST'])});
@@ -1194,7 +1194,7 @@ test('scan reader excludes footer summaries and projects only required columns',
 
 test('scan structure failures report separate causes with numeric-only evidence',async()=>{
  const api=runner();
- for(const [options,step] of [[{rowCount:101},'scan_row_limit'],
+ for(const [options,step] of [[{rowCount:1001},'scan_row_limit'],
   [{duplicateRequired:true},'scan_header_ambiguous'],[{badWidth:true},'scan_row_width'],
   [{requiredLong:true},'scan_cell_limit']]){
   const f=workplaceFixture('datalens',options);
@@ -1492,4 +1492,74 @@ test('Asgard canonicalizes FF casing while keeping current status separate from 
   assert.deepEqual(Array.from(extract([['Принят на фф',true]])),[]);
   assert.equal(extract([['Принят на фф',false],['Выдан',false]]).length,2);
   assert.deepEqual(Array.from(extract([['Принят на неизвестный склад',false]])),[]);
+});
+
+
+test('a 106-row DOM history is read without the former 100-row cap',async()=>{
+ const api=runner(),f=workplaceFixture('datalens',{rowCount:106});
+ const table=await api.workplaceSearch(f.chrome,7,'datalens','TEST-1',f.host);
+ assert.equal(table.rows.length,106);
+});
+
+test('long histories keep the latest eligible calendar date from any position',()=>{
+ const api=runner(),rows=Array.from({length:106},()=>['TEST-1','101366','OK','2026-09-01 12:00:00']);
+ rows[105]=['TEST-1','101366','OK','2026-10-11 01:00:00'];
+ rows[0]=['TEST-1','999','OK','2026-12-31 12:00:00'];
+ rows[1]=['TEST-1','101366','ERR','2026-12-31 12:00:00'];
+ const kept=api.compactDatalensHistory(rows);
+ assert.deepEqual(Array.from(kept),[rows[105]]);
+ assert.equal(api.asgardSearchKeys(inventorySeed(['TEST-1']),{columns:scanBatch([]).columns,rows:kept}).length,0);
+ for(const date of ['bad','2026-02-30 12:00:00','2026-10-11 24:00:00']){
+  const bad=rows.map(row=>[...row]);bad[50]=['TEST-1','101366','OK',date];
+  assert.throws(()=>api.compactDatalensHistory(bad),/unmapped_search_results/);
+ }
+});
+
+test('compaction preserves nonempty old and irrelevant histories and the 1000-row bound',()=>{
+ const api=runner();
+ const old=scanBatch(['TEST-1'],1000);old.rows.forEach(row=>row[3]='2026-09-01 12:00:00');
+ const kept=api.compactDatalensHistory(old.rows);
+ assert.equal(kept.length,1);
+ assert.deepEqual(Array.from(api.asgardSearchKeys(inventorySeed(['TEST-1']),{columns:old.columns,rows:kept})),['TEST-1']);
+ const irrelevant=old.rows.map(row=>[row[0],'999',row[2],row[3]]);
+ assert.deepEqual(Array.from(api.compactDatalensHistory(irrelevant)),[irrelevant[0]]);
+ assert.equal(api.compactDatalensHistory(old.rows.slice(0,100)).length,100);
+ assert.throws(()=>api.compactDatalensHistory(scanBatch(['TEST-1'],1001).rows),/too_many_search_rows/);
+});
+
+test('20 long scan histories fit the existing native protocol and acknowledge Found writes',async()=>{
+ const api=runner(),chrome=fakeBrowser(),codes=Array.from({length:20},(_,i)=>'LONG-'+i);
+ let foundWrites=0;
+ chrome.scripting.executeScript=async({args:[role,key]})=>{
+  assert.equal(role,'datalens');const scans=scanBatch([key],106);
+  scans.rows.forEach(row=>row[3]='2026-09-01 12:00:00');
+  scans.rows[105][3]='2026-10-11 12:00:00';
+  return [{result:scans}];
+ };
+ const result=await api.run(chrome,workTargets,async message=>{
+  if(message.type==='mark_inventa_found'){
+   foundWrites++;assert.equal(message.datalens.rows.length,20);
+   assert.ok(message.datalens.rows.every(row=>row[3]==='2026-10-11 12:00:00'));
+   return {ok:true,type:'inventa_found_marked',verified:true,written:20};
+  }
+  assert.equal(message.snapshots.asgard.rows.length,0);
+  assert.equal(message.snapshots.datalens.rows.length,20);
+  return {ok:true,type:'site_tables_reconciled',persisted:false,read_only:true,write_enabled:false,total:20,summary:{found:20,in_progress:0,manual_review:0}};
+ },async()=>{},{exactGetSearch:true,seedInventory:inventorySeed(codes),writebackJobId:'job'});
+ assert.equal(result.phase,'reconciled');assert.equal(foundWrites,1);
+});
+
+test('a foreign or malformed row in a long history cannot be hidden by compaction',async()=>{
+ const api=runner();
+ for(const foreign of [true,false]){
+  const chrome=fakeBrowser();let sent=0;
+  chrome.scripting.executeScript=async({args:[_role,key]})=>{
+   const scans=scanBatch([key],106);
+   if(foreign)scans.rows[105][0]='FOREIGN';else scans.rows[105][3]='bad';
+   return [{result:scans}];
+  };
+  const result=await api.run(chrome,workTargets,async()=>{sent++;return {};},async()=>{},
+   {exactGetSearch:true,seedInventory:inventorySeed(['TEST-1']),writebackJobId:'job'});
+  assert.equal(result.phase,'needs_attention');assert.equal(sent,0);
+ }
 });

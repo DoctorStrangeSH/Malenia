@@ -112,6 +112,7 @@ var MaleniaAutomation = (() => {
 
   const MAX_SEARCHES = 20;
   const MAX_BATCH_SCAN_ROWS = MAX_SEARCHES * 100;
+  const MAX_DATALENS_HISTORY_ROWS = 1000;
   // Optimization only: the Python reconciliation engine remains authoritative.
   // We may avoid sending a cargo code to Asgard only with complete, exact
   // evidence of a later successful scan at the approved SC.
@@ -511,7 +512,7 @@ var MaleniaAutomation = (() => {
     const hosts = {datalens:"https://datalens.yandex-team.ru",asgard:"https://asgard.market.yandex-team.ru"};
     if (origin !== hosts[role] || !/^[A-Za-z0-9_.-]{1,128}$/.test(code)) throw new Error("unsupported_dynamic_search");
     const response = await chromeApi.scripting.executeScript({target:{tabId},world:role==='datalens'?'MAIN':'ISOLATED',
-      func: async (role, code, expectedOrigin) => {
+      func: async (role, code, expectedOrigin, maxScanRows) => {
         if (location.origin !== expectedOrigin) return null;
         const clean = s => String(s || "").replace(/\s+/g," ").trim();
         const visible = el => el.getClientRects().length > 0;
@@ -778,7 +779,7 @@ var MaleniaAutomation = (() => {
             const duplicateRequired=required.filter(name=>heads.filter(h=>h===name).length!==1).length;
             scanShape={rows:dataTrs.length,columns:heads.length,min_cells:0,max_cells:0,
               duplicate_required_headers:duplicateRequired,max_required_chars:0};
-            if(dataTrs.length>100){readFailure='scan_row_limit';return null;}
+            if(dataTrs.length>(role==='datalens'?maxScanRows:100)){readFailure='scan_row_limit';return null;}
             if(duplicateRequired || (role!=='datalens' && new Set(heads).size!==heads.length)){
               readFailure='scan_header_ambiguous';return null;
             }
@@ -825,7 +826,7 @@ var MaleniaAutomation = (() => {
             if(!complete){readFailure='scan_table_incomplete';return null;}
             if(candidates.length){
               const rows=[...new Map(candidates.flatMap(table=>table.rows).map(row=>[JSON.stringify(row),row])).values()];
-              if(rows.length>100){readFailure='scan_row_limit';return null;}
+              if(rows.length>maxScanRows){readFailure='scan_row_limit';return null;}
               readFailure=null;
               return {columns:candidates[0].columns,rows};
             }
@@ -972,7 +973,7 @@ var MaleniaAutomation = (() => {
           else trigger=setTimeout(check,0);
           timer=setInterval(check,250);
         });
-      },args:[role,code,origin]});
+      },args:[role,code,origin,MAX_DATALENS_HISTORY_ROWS]});
     const table=response?.[0]?.result;
     if(table?.error) {
       const error=new Error(table.error);
@@ -993,6 +994,29 @@ var MaleniaAutomation = (() => {
   // Temporary recovery for numeric barcodes whose leading zeros were lost in
   // the inventory sheet. Retry only a confirmed empty history, never an error.
   // Keep the inventory key unchanged for native reconciliation/writeback.
+
+  // The native batch protocol holds at most 100 scan rows per cargo. For a
+  // longer fully-read history, its decision depends only on the latest OK
+  // calendar date at SC 101366. Keep an actual source row with that date.
+  function compactDatalensHistory(rows) {
+    if(!Array.isArray(rows)||rows.length>MAX_DATALENS_HISTORY_ROWS)throw new Error('too_many_search_rows');
+    if(rows.length<=100)return rows;
+    if(rows.some(row=>!Array.isArray(row)||row.length!==4||row.some(cell=>typeof cell!=='string'||cell.length>256)))
+      throw new Error('unmapped_search_results');
+    const eligible=rows.filter(row=>row[1]==='101366'&&row[2]==='OK');
+    if(!eligible.length)return [rows[0]]; // Nonempty history must stop zero retries.
+    const valid=raw=>{
+      if(!/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})?$/.test(raw)||
+          !Number.isFinite(Date.parse(raw)))return false;
+      const day=raw.slice(0,10),dayTime=Date.parse(day+'T00:00:00Z');
+      return Number.isFinite(dayTime)&&new Date(dayTime).toISOString().slice(0,10)===day&&
+        Number(raw.slice(11,13))<24&&Number(raw.slice(14,16))<60&&Number(raw.slice(17,19))<60;
+    };
+    // A malformed eligible row might be the latest: never drop it to mark Found.
+    if(eligible.some(row=>!valid(row[3])))throw new Error('unmapped_search_results');
+    return [eligible.reduce((latest,row)=>row[3].slice(0,10)>latest[3].slice(0,10)?row:latest)];
+  }
+
   async function datalensSearchWithPadding(chromeApi,tabId,original,origin) {
     const columns=['main_partner_code_original','sc_id','result','scanned_at'];
     let candidate=original;
@@ -1000,14 +1024,14 @@ var MaleniaAutomation = (() => {
       const table=await workplaceSearch(chromeApi,tabId,'datalens',candidate,origin);
       if(!table || JSON.stringify(table.columns)!==JSON.stringify(columns) || !Array.isArray(table.rows))
         throw new Error('unmapped_search_results');
-      if(table.rows.length>100)throw new Error('too_many_search_rows');
+      if(table.rows.length>MAX_DATALENS_HISTORY_ROWS)throw new Error('too_many_search_rows');
       if(table.rows.some(row=>!Array.isArray(row) || row.length!==columns.length || row[0]!==candidate)){
         throw new Error('unverified_search_result_identity');
       }
       if(table.rows.length){
         // workplaceSearch already checked the exact padded identity in the DOM.
         // Associate that verified answer only with the original requested row.
-        return {columns,rows:table.rows.map(row=>[original,...row.slice(1)])};
+        return {columns,rows:compactDatalensHistory(table.rows).map(row=>[original,...row.slice(1)])};
       }
       if(!/^\d+$/.test(original) || added>=10 || candidate.length>=128)return {columns,rows:[]};
       candidate='0'+candidate;
@@ -1400,6 +1424,6 @@ var MaleniaAutomation = (() => {
       if(stopped||signal.aborted)await closeOwned();
     }
   }
-  return {ROLES, MAX_TEXT, MAX_PAGES, MAX_SEARCHES, normalizeTargets, sourceUrl, origins, nextPage, exactGetSearch, reactiveSearch, workplaceSearch, asgardSearchKeys, reasonCode, waitLoaded, run};
+  return {ROLES, MAX_TEXT, MAX_PAGES, MAX_SEARCHES, normalizeTargets, sourceUrl, origins, nextPage, exactGetSearch, reactiveSearch, workplaceSearch, compactDatalensHistory, asgardSearchKeys, reasonCode, waitLoaded, run};
 })();
 
