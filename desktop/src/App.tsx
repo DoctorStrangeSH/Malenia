@@ -8,7 +8,7 @@ import { OrderBatchPage } from "./OrderBatchPage";
 import { invoke } from "@tauri-apps/api/core";
 import { PermissionsPage, type PermissionRequest, type PermissionDecision } from "./PermissionsPage";
 import {
-  Activity, ArrowUpRight, BrainCircuit, Check, ChevronDown, CircleHelp,
+  Activity, ArrowUpRight, BrainCircuit, Check, CircleHelp,
   Clock3, Cpu, Database, Globe2, ListTodo,
   LoaderCircle, LockKeyhole, MemoryStick, Play, Plus, Plug,
   Search, Settings2, ShieldCheck, Sparkles, Square, X
