@@ -40,8 +40,11 @@ jobs:
           npm install --prefix "$env:RUNNER_TEMP/malenia-dom" --no-save jsdom@26.1.0 react@18.3.1 react-dom@18.3.1 playwright@1.56.1
           $env:NODE_PATH = "$env:RUNNER_TEMP/malenia-dom/node_modules"
           node scripts/verify-asgard-cards.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-asgard-order-cards.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-work-tabs.cjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Test DataLens empty results with real React controls
         shell: pwsh
         run: |
