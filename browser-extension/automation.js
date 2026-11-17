@@ -304,12 +304,12 @@ var MaleniaAutomation = (() => {
     try {
       result=await asgardSearchAttempt(chromeApi,tabId,code,origin,'barcode');
     } catch(error) {
-      if(error.message!=='asgard_no_exact_cargo'||!/^\\d{1,20}$/.test(code)) {
+      if(error.message!=='asgard_no_exact_cargo'||!/^\d{1,20}$/.test(code)) {
         if(error.message==='asgard_no_exact_cargo')throw new Error('unverified_search_result_identity');
         throw error;
       }
     }
-    if(result && (result.rows[0]?.[5]!=='not_found'||!/^\\d{1,20}$/.test(code)))return result;
+    if(result && (result.rows[0]?.[5]!=='not_found'||!/^\d{1,20}$/.test(code)))return result;
     // A bare numeric inventory key can be an external order ID. A barcode
     // miss is not proof that this order has no return boxes.
     const target=new URL(start.url);
