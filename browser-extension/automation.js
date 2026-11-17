@@ -3,6 +3,71 @@ var MaleniaAutomation = (() => {
   const ROLES = ["inventory", "datalens", "asgard"];
   const MAX_TEXT = 16000;
   const reviewTabs = new Map();
+  // Only tabs created by this runner are retained. Session records contain no
+  // order codes or page text; document ID + URL digest detect manual navigation.
+  const workTabs=new Map();
+  const WORK_TABS_KEY='maleniaWorkTabs';
+  const cancelled=chromeApi=>chromeApi.auditSignal?.aborted;
+  async function workUrlHash(url) {
+    const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(url));
+    return Array.from(new Uint8Array(bytes),byte=>byte.toString(16).padStart(2,'0')).join('');
+  }
+  async function saveWorkTabs(chromeApi) {
+    if(chromeApi.storage?.session)await chromeApi.storage.session.set({[WORK_TABS_KEY]:Object.fromEntries(workTabs)});
+  }
+  async function workDocument(chromeApi,id,origin) {
+    const tab=await chromeApi.tabs.get(id);
+    if(new URL(tab.url).origin!==origin)return null;
+    const response=await chromeApi.scripting.executeScript({target:{tabId:id},world:'ISOLATED',
+      func:()=>({workOrigin:location.origin})});
+    const frame=response?.[0];
+    if(frame?.result?.workOrigin!==origin||typeof frame.documentId!=='string'||!frame.documentId)return null;
+    const current=await chromeApi.tabs.get(id);
+    if(current.url!==tab.url)return null;
+    return {documentId:frame.documentId,urlHash:await workUrlHash(tab.url)};
+  }
+  async function retainWorkTab(chromeApi,role,source,id) {
+    if(cancelled(chromeApi))return false;
+    try {
+      const document=await workDocument(chromeApi,id,new URL(source).origin);
+      if(!document)return false;
+      workTabs.set(role,{id,source,...document});
+      await saveWorkTabs(chromeApi);
+      return !cancelled(chromeApi);
+    } catch(error) {
+      if(cancelled(chromeApi))throw error;
+      return false;
+    }
+  }
+  async function acquireWorkTab(chromeApi,role,source,initialUrl=source) {
+    let prior=workTabs.get(role);
+    if(chromeApi.storage?.session) {
+      const saved=await chromeApi.storage.session.get(WORK_TABS_KEY);
+      const records=saved?.[WORK_TABS_KEY];
+      if(records&&typeof records==='object')for(const key of ['datalens','asgard','asgard_card']){
+        const value=records[key];
+        if(value&&Number.isInteger(value.id)&&typeof value.source==='string'&&value.source.length<=2048&&
+            typeof value.documentId==='string'&&value.documentId.length<=128&&/^[a-f0-9]{64}$/.test(value.urlHash))
+          workTabs.set(key,value);
+      }
+      prior=workTabs.get(role)||prior;
+    }
+    if(prior&&Number.isInteger(prior.id)&&prior.source===source) {
+      let document;
+      try {document=await workDocument(chromeApi,prior.id,new URL(source).origin);}
+      catch(error){if(cancelled(chromeApi))throw error;}
+      if(document&&document.documentId===prior.documentId&&document.urlHash===prior.urlHash) {
+        // Adopt into this job's cancellation scope before any page action.
+        await chromeApi.adoptWorkTab?.(prior.id);
+        const tab=await chromeApi.tabs.update(prior.id,{active:true});
+        return {...tab,id:prior.id};
+      }
+    }
+    workTabs.delete(role);
+    await saveWorkTabs(chromeApi);
+    return chromeApi.tabs.create({url:initialUrl,active:true});
+  }
+
   const SEARCH_STEPS = new Set(["page_changed","input_setter_unavailable","input_value_reset","input_changed_after_submit","input_handler_failed","input_handler_unavailable","input_replaced_before_submit","input_loading_timeout","scan_table_missing","scan_history_widget_missing","scan_empty_unconfirmed","scan_table_ambiguous","scan_table_incomplete","scan_table_identity_mismatch","scan_row_limit","scan_header_ambiguous","scan_row_width","scan_cell_limit","result_wait_timeout","asgard_wait_loading","asgard_table_missing","asgard_table_ambiguous","asgard_table_incomplete","asgard_input_unconfirmed","asgard_result_not_refreshed","asgard_card_heading","asgard_card_box","asgard_card_history","asgard_card_status"]);
   function safeScanShape(value){
     const fields=['rows','columns','min_cells','max_cells','duplicate_required_headers','max_required_chars'];
@@ -298,11 +363,11 @@ var MaleniaAutomation = (() => {
 
   // The reverse-flow list describes different boxes, not duplicate evidence.
   // Reuse the task-owned tab; verify each linked card before using its history.
-  async function asgardWorkplaceSearch(chromeApi, tabId, code, origin) {
+  async function asgardWorkplaceSearch(chromeApi, tabId, code, origin, reuseWorkTabs=false) {
     const start=await chromeApi.tabs.get(tabId);
     let result;
     try {
-      result=await asgardSearchAttempt(chromeApi,tabId,code,origin,'barcode');
+      result=await asgardSearchAttempt(chromeApi,tabId,code,origin,'barcode',reuseWorkTabs);
     } catch(error) {
       if(error.message!=='asgard_no_exact_cargo'||!/^\d{1,20}$/.test(code)) {
         if(error.message==='asgard_no_exact_cargo')throw new Error('unverified_search_result_identity');
@@ -314,14 +379,14 @@ var MaleniaAutomation = (() => {
     // miss is not proof that this order has no return boxes.
     const target=new URL(start.url);
     if(target.origin!==origin||target.username||target.password)throw new Error('search_origin_mismatch');
-    await chromeApi.tabs.update(tabId,{url:target.href});await waitLoaded(chromeApi,tabId);
-    return asgardSearchAttempt(chromeApi,tabId,code,origin,'order');
+    if(!reuseWorkTabs){await chromeApi.tabs.update(tabId,{url:target.href});await waitLoaded(chromeApi,tabId);}
+    return asgardSearchAttempt(chromeApi,tabId,code,origin,'order',reuseWorkTabs);
   }
 
-  async function asgardSearchAttempt(chromeApi, tabId, code, origin, searchKind) {
+  async function asgardSearchAttempt(chromeApi, tabId, code, origin, searchKind, reuseWorkTabs) {
     if(origin!=="https://asgard.market.yandex-team.ru"||!/^[A-Za-z0-9_.-]{1,128}$/.test(code))throw new Error("unsupported_dynamic_search");
-    const probe=async(action)=>{
-      const response=await chromeApi.scripting.executeScript({target:{tabId},world:'ISOLATED',
+    const probe=async(action,probeTabId=tabId)=>{
+      const response=await chromeApi.scripting.executeScript({target:{tabId:probeTabId},world:'ISOLATED',
         func:async(action,code,origin,searchKind)=>{
           if(location.origin!==origin)return {error:'search_origin_mismatch'};
           const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
@@ -373,7 +438,18 @@ var MaleniaAutomation = (() => {
             const {inputs,matches}=controls();
             if(matches.length!==1)return failure(matches.length?'search_field_ambiguous':'search_field_missing');
             const input=matches[0];
-            if(inputs.some(el=>el!==input&&el.value.trim()))return failure('search_filters_not_empty');
+            const foreign=inputs.filter(el=>el!==input&&el.value.trim());
+            const prior=globalThis.__maleniaAsgardLastQuery;
+            // Clear only this runner's acknowledged previous search field.
+            // User-added filters are never erased to make a query succeed.
+            if(foreign.some(el=>el!==prior?.input||el.value!==prior.code))return failure('search_filters_not_empty');
+            if(foreign.length){
+              const clear=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
+              if(!clear)return failure('unmapped_search_results');
+              for(const el of foreign){clear.call(el,'');el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));}
+              await new Promise(resolve=>setTimeout(resolve,0));
+              if(controls().inputs.some(el=>el!==input&&el.value.trim()))return failure('search_filters_not_empty');
+            }
             const buttons=[...document.querySelectorAll('button')].filter(el=>visible(el)&&!el.disabled&&text(el)==='Найти');
             if(buttons.length!==1)return failure('search_button_missing');
             const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;
@@ -393,6 +469,7 @@ var MaleniaAutomation = (() => {
             // Observe its stable ancestor, but only result mutations count as fresh.
             state.observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeOldValue:true,attributeFilter:['disabled','aria-busy','class','style']});
             globalThis.__maleniaAsgardSearch=state;
+            globalThis.__maleniaAsgardLastQuery={input:live.matches[0],code};
             buttons[0].click();if(loading())state.loadingSeen=true;return {submitted:true};
           }
           if(loading()){
@@ -500,14 +577,22 @@ var MaleniaAutomation = (() => {
     const matches=result.matches.sort((a,b)=>rank(a.status)-rank(b.status));
     if(matches.length>20)throw new Error('unmapped_search_results');
     if(new Set(matches.map(row=>row.box)).size!==matches.length)throw new Error('unverified_search_result_identity');
-    const confirmed=[];let foreignActive=0;
+    const confirmed=[];let foreignActive=0,cardTabId=tabId,detailOwned=false;
+    const detailSource=origin+'/returnBox/';
+    try {
     for(const match of matches){
       // A verified transit card wins; a foreign transit card must not hide a matching issued card.
       if(confirmed.some(row=>active.includes(row[1]))&&!active.includes(match.status))continue;
-      await chromeApi.tabs.update(tabId,{url:match.url});await waitLoaded(chromeApi,tabId);
+      if(reuseWorkTabs&&!detailOwned){
+        const detail=await acquireWorkTab(chromeApi,'asgard_card',detailSource,match.url);
+        cardTabId=detail.id;detailOwned=true;
+        const current=await chromeApi.tabs.get(cardTabId);
+        if(current.url!==match.url)await chromeApi.tabs.update(cardTabId,{url:match.url});
+      }else await chromeApi.tabs.update(cardTabId,{url:match.url});
+      await waitLoaded(chromeApi,cardTabId);
       let card=null,cardStep='asgard_card_heading';const deadline=Date.now()+15000;
       while(Date.now()<deadline){
-        const snapshot=await probe('card');
+        const snapshot=await probe('card',cardTabId);
         if(snapshot&&!snapshot.pending){card=snapshot;break;}
         if(SEARCH_STEPS.has(snapshot?.step))cardStep=snapshot.step;
         await new Promise(r=>setTimeout(r,250));
@@ -519,6 +604,15 @@ var MaleniaAutomation = (() => {
       const company=/купишуз/i.test(match.destination);
       if(company!==card.kupishuz)throw new Error('unverified_search_result_identity');
       confirmed.push([code,match.status,match.box,match.destination,JSON.stringify(card.history),'card']);
+    }
+    } catch(error) {
+      if(detailOwned)error.reviewTabId=cardTabId;
+      throw error;
+    } finally {
+      if(detailOwned&&!cancelled(chromeApi)){
+        const retained=await retainWorkTab(chromeApi,'asgard_card',detailSource,cardTabId);
+        if(!retained)try{await chromeApi.tabs.remove(cardTabId);}catch{/* Already closed. */}
+      }
     }
     if(confirmed.length===matches.length && confirmed.length>0 &&
         confirmed.every(row=>row[1]==='Принят на ФФ' && /купишуз/i.test(row[3])===/купишуз/i.test(confirmed[0][3])))
@@ -539,8 +633,8 @@ var MaleniaAutomation = (() => {
     return {columns,rows:confirmed};
   }
 
-  async function workplaceSearch(chromeApi, tabId, role, code, origin, verifyAsgard = false) {
-    if(role==='asgard' && verifyAsgard)return asgardWorkplaceSearch(chromeApi,tabId,code,origin);
+  async function workplaceSearch(chromeApi, tabId, role, code, origin, verifyAsgard = false, reuseWorkTabs = false) {
+    if(role==='asgard' && verifyAsgard)return asgardWorkplaceSearch(chromeApi,tabId,code,origin,reuseWorkTabs);
     const hosts = {datalens:"https://datalens.yandex-team.ru",asgard:"https://asgard.market.yandex-team.ru"};
     if (origin !== hosts[role] || !/^[A-Za-z0-9_.-]{1,128}$/.test(code)) throw new Error("unsupported_dynamic_search");
     const response = await chromeApi.scripting.executeScript({target:{tabId},world:role==='datalens'?'MAIN':'ISOLATED',
@@ -1070,15 +1164,16 @@ var MaleniaAutomation = (() => {
     }
   }
 
-  async function visit(chromeApi, role, url, sendNative, searchKey = null, verifyAsgard = false) {
-    let tabId, keepForReview=false;
+  async function visit(chromeApi, role, url, sendNative, searchKey = null, verifyAsgard = false, reuseWorkTabs = false) {
+    let tabId, keepForReview=false, reusable=false;
     try {
       const workplace=searchKey!==null && (
         (role==='datalens' && new URL(url).origin==='https://datalens.yandex-team.ru') ||
         (role==='asgard' && new URL(url).origin==='https://asgard.market.yandex-team.ru'));
       // SPA controls may hydrate only in a selected tab. Activate before reading,
       // not just after a failure when the untouched dashboard defaults become visible.
-      const tab = await chromeApi.tabs.create({url, active: workplace});
+      reusable=workplace&&reuseWorkTabs;
+      const tab = reusable?await acquireWorkTab(chromeApi,role,url):await chromeApi.tabs.create({url, active: workplace});
       if (!Number.isInteger(tab.id)) throw new Error("invalid_tab");
       tabId = tab.id;
       if(workplace && Number.isInteger(tab.windowId) && tab.windowId>=0 && chromeApi.windows?.update) {
@@ -1094,25 +1189,26 @@ var MaleniaAutomation = (() => {
           try {
             const table = role==='datalens'
               ?await datalensSearchWithPadding(chromeApi,tabId,searchKey,new URL(url).origin)
-              :await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin, verifyAsgard);
+              :await workplaceSearch(chromeApi, tabId, role, searchKey, new URL(url).origin, verifyAsgard, reusable);
             return {table,characters:0,pages:1};
           } catch(error) {
             if(error?.message==='audit_cancelled'||error?.message==='audit_progress_unavailable')throw error;
             // Keep only a failed page on the explicitly authorized service origin.
             // Never close the user's existing tabs; these IDs were created here.
             try {
-              const failed=await chromeApi.tabs.get(tabId);
+              const reviewId=Number.isInteger(error?.reviewTabId)?error.reviewTabId:tabId;
+              const failed=await chromeApi.tabs.get(reviewId);
               if(new URL(failed.url || '').origin===new URL(url).origin) {
                 keepForReview=true;
                 const prior=reviewTabs.get(role);
-                if(prior && prior.id!==tabId) {
+                if(prior && prior.id!==reviewId && !reusable) {
                   try {
                     const old=await chromeApi.tabs.get(prior.id);
                     if(old.url===prior.url)await chromeApi.tabs.remove(prior.id);
                   } catch { /* Previous review page was closed or navigated away. */ }
                 }
-                reviewTabs.set(role,{id:tabId,url:failed.url});
-                try { await chromeApi.tabs.update(tabId,{active:true}); } catch { /* Keep visible on the tab strip if activation failed. */ }
+                reviewTabs.set(role,{id:reviewId,url:failed.url});
+                try { await chromeApi.tabs.update(reviewId,{active:true}); } catch { /* Keep visible on the tab strip if activation failed. */ }
                 if(error && typeof error==='object')error.reviewAvailable=true;
               }
             } catch { /* Closed or redirected tabs still follow regular cleanup. */ }
@@ -1273,8 +1369,10 @@ var MaleniaAutomation = (() => {
       }
       throw new Error("pagination_limit");
     } finally {
-      if (tabId !== undefined && !keepForReview) {
-        try { await chromeApi.tabs.remove(tabId); } catch { /* Tab already closed. */ }
+      if(tabId!==undefined) {
+        let retained=false;
+        if(reusable&&!cancelled(chromeApi))retained=await retainWorkTab(chromeApi,role,url,tabId);
+        if(!retained&&!keepForReview)try{await chromeApi.tabs.remove(tabId);}catch{/* Tab already closed. */}
       }
     }
   }
@@ -1332,7 +1430,7 @@ var MaleniaAutomation = (() => {
         const keys = searchKeys || [null];
         let table = null, characters = 0, pages = 0;
         for (const key of keys) {
-          const visitResult = await visit(chromeApi, role, targets[role], sendNative, key, options.asgardWriteback===true);
+          const visitResult = await visit(chromeApi, role, targets[role], sendNative, key, options.asgardWriteback===true, options.reuseWorkTabs===true);
           if (options.exactGetSearch && !visitResult.table) {
             throw new Error("unmapped_search_results");
           }
@@ -1435,7 +1533,8 @@ var MaleniaAutomation = (() => {
     signal.addEventListener('abort',stop,{once:true});
     // Every action is scoped to this run's tabs. A cancelled generation cannot
     // act under a newer job ID, and closing a task tab interrupts its page script.
-    const taskChrome={...chromeApi,auditSignal:signal,windows:chromeApi.windows,tabs:{...chromeApi.tabs,onUpdated:chromeApi.tabs.onUpdated,
+    const taskChrome={...chromeApi,auditSignal:signal,windows:chromeApi.windows,
+      async adoptWorkTab(id){await active();owned.add(id);check();},tabs:{...chromeApi.tabs,onUpdated:chromeApi.tabs.onUpdated,
       async create(args){
         await active();const tab=await chromeApi.tabs.create(args);
         if(Number.isInteger(tab.id))owned.add(tab.id);

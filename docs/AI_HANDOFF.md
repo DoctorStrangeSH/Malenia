@@ -1,3 +1,13 @@
+## 2026-11-17 — Bridge 1.6.34: retained search workspaces
+
+Owner requests opening the page once and typing successive orders instead of closing/reopening it. Production popup and desktop jobs now opt into reuseWorkTabs. Retain one task-created DataLens search tab and one Asgard search tab across keys and batches, plus one reusable Asgard detail tab. Numeric barcode-to-external-order fallback switches fields in the SAME search document; only an acknowledged prior field owned by this runner can be cleared. Extra user-entered filters still block. All freshness, identity, history, zero-padding, writeback and cancellation checks remain.
+
+Keep a bounded session-only registry of task tab IDs, configured source URL, browser document ID and SHA256 of the current URL. No order codes, page contents or result histories in this registry. Validate document ID, URL digest and origin before reusing a tab; closed/reloaded/manually navigated tabs are relinquished, and existing user tabs are never discovered or borrowed. Restore all service records across MV3 worker restarts. Adopt reused tabs into the current cancellation scope before page actions; cancellation closes only that job's adopted/created tabs. A failure keeps the actual detail page visible for review. Successful workspaces stay open for the next batch.
+
+Legacy one-shot/generic traversal remains unchanged when reuseWorkTabs is absent. Unsupported document IDs/session persistence fall back to one-shot cleanup rather than accepting an unverified tab. App/native stay 0.7.2; extension becomes 1.6.34. Replace files in the same unpacked folder and reload. No reset of inventory progress is needed.
+
+Added six work-tab lifecycle tests (multiple orders/batches, worker recreation, closed/manual navigation, review retry, cancellation of adopted tabs, DataLens-found Asgard skip), and stateful Asgard search/detail DOM scenarios with multiple numeric order searches, no search reloads, exact box checks and user-filter preservation. CI runs these with existing adapter suites. Report exact CI results before claiming this release verified; installed corporate pages remain a separate live check.
+
 ## 2026-11-17 — Bridge 1.6.33: multiple FF boxes and external-order association
 
 User reports a numeric inventory order stopping on a reverse-flow search with four linked boxes, all “Принят на фф”. Two adapter gaps: only multiple issued cards were consolidated; exact cargo-heading comparison cannot identify a bare external order ID whose boxes have separate cargo barcodes.

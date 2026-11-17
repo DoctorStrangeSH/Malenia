@@ -114,7 +114,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         throw new Error("unsupported_host");
       }
       await MaleniaAutomation.run(chrome,targets,message=>session.send(message),progress,
-        {exactGetSearch:message.exactGetSearch === true});
+        {exactGetSearch:message.exactGetSearch === true,reuseWorkTabs:true});
     } catch {
       await progress({phase:"needs_attention",results:[],error:"setup_or_connection"});
     } finally {
@@ -205,7 +205,7 @@ async function pollDesktopAudit() {
       }
       const result = await MaleniaAutomation.run(chrome,targets,
         message=>session.send(message),report,
-        {exactGetSearch:claimed.job.inventory ? true : stored.maleniaExactGetSearch !== false,
+        {reuseWorkTabs:true,exactGetSearch:claimed.job.inventory ? true : stored.maleniaExactGetSearch !== false,
          ...(claimed.job.inventory ? {seedInventory:claimed.job.inventory} : {}),
          ...(claimed.job.writeback_required?{writebackJobId:jobId}:{}),
          asgardWriteback:claimed.job.asgard_writeback_required===true,
