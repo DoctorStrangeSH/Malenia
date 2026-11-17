@@ -1,3 +1,13 @@
+## 2026-11-17 — Bridge 1.6.33: multiple FF boxes and external-order association
+
+User reports a numeric inventory order stopping on a reverse-flow search with four linked boxes, all “Принят на фф”. Two adapter gaps: only multiple issued cards were consolidated; exact cargo-heading comparison cannot identify a bare external order ID whose boxes have separate cargo barcodes.
+
+Preserve barcode search first. If a numeric (1–20 digit) barcode search is explicitly empty, or every FF card has a different cargo heading, reload the task-owned original search page and query the specifically labelled “Внешний ID заказа” field. Require controlled-input acknowledgement, result freshness and settling, unique box IDs and at most 20 boxes. Order fallback supports ONLY a uniformly FF result: open EVERY linked card and verify its unique cargo heading, exact listed box ID, matching current FF status, own FF history and destination/company consistency. Different cargo headings are permitted only in this acknowledged external-order search, never in barcode mode. Mixed order statuses, missing history, wrong IDs, stale results or foreign origins still stop without writeback. Explicit empty barcode AND external-order results permit the existing not-found outcome.
+
+After every matching FF card has been verified, consolidate the uniform group into one existing card-evidence outcome for the original inventory key. Existing backend rule stays “В работе” / comment “Принят на ФФ”; no new business decision or native schema. Multiple exact-cargo FF cards now consolidate as well. Preserve active/issued/Kupishuz policies and all DataLens logic. App/native remain 0.7.2; extension becomes 1.6.33. Update unpacked extension in its SAME folder and reload, then resume stopped run.
+
+Added two multi-FF DOM regressions and a separate external-order suite covering four distinct barcodes, barcode foreign-FF fallback, exact-barcode success, both empty, mixed statuses, wrong box/current status/history, duplicate boxes, foreign origin, 21-box cap, stale results and reset input. CI runs both DOM suites. Local 93 automation tests pass; real corporate case and CI results must be reported separately.
+
 ## 2026-11-16 — Bridge 1.6.32: exact “Готов для выдачи” support
 
 User supplied an Asgard card with a visible current badge “Готов для выдачи”, exact cargo heading and matching history, rejected at asgard_card_status. This status was missing from the adapter whitelist. USER EXPLICITLY CHOSE the rule: inventory “В работе”, comment “Взять в работу”. It is NOT “Выдан” and NOT an alias for “Готов для отгрузки в заборную логистику”.

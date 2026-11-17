@@ -7,11 +7,11 @@ const vm=require('node:vm');
 const source=fs.readFileSync('browser-extension/automation.js','utf8');
 const READY='Готов для отгрузки в заборную логистику';
 async function check({hiddenNotice=false,duplicateNotice=false,stuckBusy=false,genericNotice=false,plainNotice=false,wrappedNotice=false,noticeEmpty=false,empty=false,foreign=false,mismatch=false,duplicate=false,company=false,
- foreignTransit=false,serviceError=false,ready=false,pickup=false,wasIssued=false,multipleIssued=false,foreignGroup=false,initialMissing=false,replaceTable=false,replaceInput=false,wrongInput=false,hiddenBusy=false,cacheBusy=false,unrelated=false,tableAttribute=false,headingLevel=1,compactCard=false,deepTitle=0,statusTag="span",fourHistory=false,directFF=false,ffHistory=false,lowerFF=false,upperStatus=false,missingCurrent=false,conflictingCurrent=false}={}){
+ foreignTransit=false,serviceError=false,ready=false,pickup=false,wasIssued=false,multipleIssued=false,foreignGroup=false,initialMissing=false,replaceTable=false,replaceInput=false,wrongInput=false,hiddenBusy=false,cacheBusy=false,unrelated=false,tableAttribute=false,headingLevel=1,compactCard=false,deepTitle=0,statusTag="span",fourHistory=false,directFF=false,ffHistory=false,lowerFF=false,upperStatus=false,missingCurrent=false,conflictingCurrent=false,multipleFF=false}={}){
  noticeEmpty=noticeEmpty||plainNotice;
  empty=empty||noticeEmpty;
  const host='https://asgard.market.yandex-team.ru';let dom,clicks=0,visited=[],renderTimer;
- const active=directFF?'Принят на ФФ':pickup?'Готов для выдачи':ready?READY:'В пути',dest=company?'Склад ООО "Купишуз"':'Склад партнера';
+ const active=(directFF||multipleFF)?'Принят на ФФ':pickup?'Готов для выдачи':ready?READY:'В пути',dest=company?'Склад ООО "Купишуз"':'Склад партнера';
  const displayStatus=s=>upperStatus?s.toUpperCase():lowerFF?s.replace('Принят на ФФ','Принят на фф'):s;
  function page(html,url){
   dom?.window.close();dom=new JSDOM(html,{url:host+url,runScripts:'outside-only'});
@@ -19,7 +19,7 @@ async function check({hiddenNotice=false,duplicateNotice=false,stuckBusy=false,g
  }
  const headers='<tr><th>Статус грузоместа</th><th>ID возврата</th><th>ID партнера</th><th>ID коробки</th><th>Точка назначения</th></tr>';
  page('<label>Штрихкод коробки<input></label><button>Найти</button><div id="results">'+(initialMissing?'':'<table>'+headers+'</table>')+'</div>'+(hiddenBusy?'<div role="progressbar" style="display:none"></div>':''),'/returnBox/search');
- const statuses=directFF?[active]:foreign&&!foreignGroup?[active]:['Выдан',active,...(duplicate?[active]:multipleIssued?['Выдан']:[])];
+ const statuses=multipleFF?Array(4).fill('Принят на ФФ'):directFF?[active]:foreign&&!foreignGroup?[active]:['Выдан',active,...(duplicate?[active]:multipleIssued?['Выдан']:[])];
  const rendered=headers+(empty?'<tr><td colspan="5">Ничего не найдено</td></tr>':statuses.map((status,i)=>`<tr><td>${displayStatus(status)}</td><td>111</td><td>222</td><td><a href="/returnBox/${100+i}">${100+i}</a></td><td>${dest}</td></tr>`).join(''));
  const notice=plainNotice?(wrappedNotice?'<section class="custom-message"><div><strong>Коробки не найдены</strong></div></section>':'<div class="custom-message">Коробки не найдены</div>'):'<div class="ant-alert ant-alert-info"><span class="ant-alert-message">Коробки не найдены</span></div>';
  const noticeHTML=(hiddenNotice?'<div aria-hidden="true">'+notice+'</div>':genericNotice?notice.replace('Коробки не найдены','Нет данных'):notice)+(duplicateNotice?notice:'');
@@ -70,12 +70,12 @@ async function check({hiddenNotice=false,duplicateNotice=false,stuckBusy=false,g
    else if(company&&!empty){assert.equal(row[1],'Купишуз');assert.equal(visited.length,0);}
    else if(!empty){
     const expectedStatus=foreignTransit?'Выдан':active;
-    assert.equal(row[2],foreignTransit||directFF?'100':'101');assert.equal(row[1],expectedStatus);
+    assert.equal(row[2],foreignTransit||directFF||multipleFF?'100':'101');assert.equal(row[1],expectedStatus);
     assert.deepEqual(JSON.parse(row[4]),fourHistory?[expectedStatus,'Создан',expectedStatus,'Создан']:[expectedStatus,'Принят у отправителя',...(wasIssued?['Выдан']:[]),...(ffHistory?['Принят на ФФ']:[])]);
    }
   }
   assert.equal(clicks,1);
-  if(!foreign&&!foreignTransit&&!directFF)assert.ok(visited.every(url=>!url.endsWith('/100')),'Issued neighbour was opened');
+  if(!foreign&&!foreignTransit&&!directFF&&!multipleFF)assert.ok(visited.every(url=>!url.endsWith('/100')),'Issued neighbour was opened');
  }finally{clearTimeout(renderTimer);dom.window.close();}
 }
 const scenarios=[{plainNotice:true,hiddenNotice:true,initialMissing:true},{plainNotice:true,duplicateNotice:true,initialMissing:true},{plainNotice:true,stuckBusy:true,initialMissing:true},{plainNotice:true,genericNotice:true,initialMissing:true},{plainNotice:true,initialMissing:true},{plainNotice:true,wrappedNotice:true,initialMissing:true},{plainNotice:true,cacheBusy:true},{plainNotice:true,unrelated:true},{plainNotice:true,replaceInput:true,wrongInput:true},{plainNotice:true,serviceError:true},{noticeEmpty:true,initialMissing:true},{noticeEmpty:true,cacheBusy:true},{noticeEmpty:true,unrelated:true},{noticeEmpty:true,replaceInput:true,wrongInput:true},{noticeEmpty:true,serviceError:true},{},{empty:true},{foreign:true},{mismatch:true},{duplicate:true},{company:true},
@@ -89,5 +89,6 @@ scenarios.push({directFF:true,lowerFF:true},{directFF:true,upperStatus:true},
  {ffHistory:true,lowerFF:true},{ffHistory:true,lowerFF:true,ready:true},
  {directFF:true,lowerFF:true,foreign:true},{directFF:true,lowerFF:true,mismatch:true},
  {directFF:true,lowerFF:true,missingCurrent:true},{directFF:true,lowerFF:true,conflictingCurrent:true});
+scenarios.push({directFF:true,multipleFF:true},{directFF:true,multipleFF:true,lowerFF:true});
 scenarios.push({pickup:true},{pickup:true,upperStatus:true},{pickup:true,missingCurrent:true},{pickup:true,conflictingCurrent:true},{pickup:true,mismatch:true},{pickup:true,foreign:true},{pickup:true,wasIssued:true},{pickup:true,foreignTransit:true});
 (async()=>{for(const scenario of scenarios)await check(scenario);console.log(`Asgard DOM integration: ${scenarios.length} scenarios passed`);})().catch(error=>{console.error(error);process.exit(1);});

@@ -299,10 +299,30 @@ var MaleniaAutomation = (() => {
   // The reverse-flow list describes different boxes, not duplicate evidence.
   // Reuse the task-owned tab; verify each linked card before using its history.
   async function asgardWorkplaceSearch(chromeApi, tabId, code, origin) {
+    const start=await chromeApi.tabs.get(tabId);
+    let result;
+    try {
+      result=await asgardSearchAttempt(chromeApi,tabId,code,origin,'barcode');
+    } catch(error) {
+      if(error.message!=='asgard_no_exact_cargo'||!/^\\d{1,20}$/.test(code)) {
+        if(error.message==='asgard_no_exact_cargo')throw new Error('unverified_search_result_identity');
+        throw error;
+      }
+    }
+    if(result && (result.rows[0]?.[5]!=='not_found'||!/^\\d{1,20}$/.test(code)))return result;
+    // A bare numeric inventory key can be an external order ID. A barcode
+    // miss is not proof that this order has no return boxes.
+    const target=new URL(start.url);
+    if(target.origin!==origin||target.username||target.password)throw new Error('search_origin_mismatch');
+    await chromeApi.tabs.update(tabId,{url:target.href});await waitLoaded(chromeApi,tabId);
+    return asgardSearchAttempt(chromeApi,tabId,code,origin,'order');
+  }
+
+  async function asgardSearchAttempt(chromeApi, tabId, code, origin, searchKind) {
     if(origin!=="https://asgard.market.yandex-team.ru"||!/^[A-Za-z0-9_.-]{1,128}$/.test(code))throw new Error("unsupported_dynamic_search");
     const probe=async(action)=>{
       const response=await chromeApi.scripting.executeScript({target:{tabId},world:'ISOLATED',
-        func:async(action,code,origin)=>{
+        func:async(action,code,origin,searchKind)=>{
           if(location.origin!==origin)return {error:'search_origin_mismatch'};
           const clean=s=>String(s||'').replace(/\s+/g,' ').trim();
           const text=el=>clean(el?.innerText??el?.textContent);
@@ -344,7 +364,7 @@ var MaleniaAutomation = (() => {
                 captions.push(parent.textContent);
                 for(const label of parent.querySelectorAll('label,span,div'))if(visible(label))captions.push(label.textContent);
               }
-              return captions.some(s=>/^Штрихкод коробки\s*[:*]?$/i.test(clean(s)));
+              return captions.some(s=>(searchKind==='order'?/^Внешний ID заказа\s*[:*]?$/i:/^Штрихкод коробки\s*[:*]?$/i).test(clean(s)));
             });
             return {inputs,matches};
           };
@@ -418,7 +438,7 @@ var MaleniaAutomation = (() => {
             if(!headings.length)headings=[...document.querySelectorAll('div,span,p,strong,b')].filter(el=>visible(el)&&!el.closest('table')&&cargoText(el)&&![...el.children].some(child=>cargoText(child)));
             const cargo=[...new Set(headings.map(cargoText))];
             if(cargo.length!==1)return {pending:true,step:'asgard_card_heading'};
-            if(cargo[0]!==code)return {other:true};
+            if(searchKind!=='order'&&cargo[0]!==code)return {other:true};
             const pageText=clean(document.body.innerText||document.body.textContent);
             const ids=[...new Set([...pageText.matchAll(/ID\s*грузоместа\s*(\d{1,20})(?!\d)/g)].map(match=>match[1]))];
             if(ids.length!==1)return {pending:true,step:'asgard_card_box'};
@@ -441,7 +461,7 @@ var MaleniaAutomation = (() => {
             return {box,history,status:statuses[0],kupishuz:/купишуз/i.test(pageText)};
           }
           return null;
-        },args:[action,code,origin]});
+        },args:[action,code,origin,searchKind]});
       const result=response?.[0]?.result;
       if(result?.error){const error=new Error(result.error);if(SEARCH_STEPS.has(result.step))error.step=result.step;throw error;}
       return result;
@@ -466,14 +486,20 @@ var MaleniaAutomation = (() => {
     if(!result){const error=new Error('search_results_unconfirmed');error.step=lastStep;throw error;}
     const columns=['cargo_place','status','box_id','destination','history_json','verification'];
     if(result.empty)return {columns,rows:[[code,'Не найден','','','[]','not_found']]};
+    // Order association is proved by an acknowledged exact external-ID query,
+    // refreshed results and each linked card's box ID. Only a uniform FF group
+    // has a reviewed order-level decision; mixed statuses remain ambiguous.
+    if(searchKind==='order' && (!result.matches.length || result.matches.some(row=>row.status!=='Принят на ФФ')))
+      throw new Error('unverified_search_result_identity');
     // The owner authorizes Lamoda directly from a uniformly Купишуз destination
     // in the fresh, exact-barcode result. Do not infer a company in a mixed list.
-    if(result.matches.length && result.matches.every(row=>/купишуз/i.test(row.destination)))
+    if(searchKind==='barcode' && result.matches.length && result.matches.every(row=>/купишуз/i.test(row.destination)))
       return {columns,rows:[[code,'Купишуз','',result.matches[0].destination,'[]','search_destination']]};
     const active=['В пути','Готов для отгрузки в заборную логистику','Готов для выдачи'];
     const rank=status=>active.includes(status)?active.indexOf(status):status==='Выдан'?active.length:active.length+1;
     const matches=result.matches.sort((a,b)=>rank(a.status)-rank(b.status));
     if(matches.length>20)throw new Error('unmapped_search_results');
+    if(new Set(matches.map(row=>row.box)).size!==matches.length)throw new Error('unverified_search_result_identity');
     const confirmed=[];let foreignActive=0;
     for(const match of matches){
       // A verified transit card wins; a foreign transit card must not hide a matching issued card.
@@ -494,6 +520,12 @@ var MaleniaAutomation = (() => {
       if(company!==card.kupishuz)throw new Error('unverified_search_result_identity');
       confirmed.push([code,match.status,match.box,match.destination,JSON.stringify(card.history),'card']);
     }
+    if(confirmed.length===matches.length && confirmed.length>0 &&
+        confirmed.every(row=>row[1]==='Принят на ФФ'))
+      return {columns,rows:[confirmed[0]]};
+    if(searchKind==='barcode'&&!confirmed.length&&foreignActive===0 &&
+        matches.every(row=>row.status==='Принят на ФФ'))
+      throw new Error('asgard_no_exact_cargo');
     // Several exact-cargo issued cards all support the same issued decision.
     // No history from a foreign active card contributes to this outcome.
     if(confirmed.length>1 && confirmed.every(row=>row[1]==='Выдан'))return {columns,rows:[confirmed[0]]};
