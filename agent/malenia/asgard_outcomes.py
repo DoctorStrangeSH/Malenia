@@ -16,6 +16,11 @@ def outcome(row):
         if status != 'Купишуз' or box or history or not re.search('купишуз', destination, re.IGNORECASE):
             raise ValueError('invalid_asgard_evidence')
         return 'Ламода', None
+    if verification == 'ff_search_group':
+        if (status != 'Принят на ФФ' or box or destination or not 1 <= len(history) <= 20
+                or any(item != 'Принят на ФФ' for item in history)):
+            raise ValueError('invalid_asgard_evidence')
+        return 'В работе', 'Принят на ФФ'
     if verification == 'issued_group':
         active = {'В пути', 'Готов для отгрузки в заборную логистику', 'Готов для выдачи'}
         if status != 'Выдан' or box or destination or 'Выдан' not in history or not active.intersection(history) or any(item not in active | {'Выдан'} for item in history):

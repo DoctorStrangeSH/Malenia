@@ -281,7 +281,7 @@ class AsgardWritebackTests(unittest.TestCase):
         return handle_message({'type': 'mark_inventa_asgard', 'request_id': 'fixture', 'job_id': job['job_id'],
             'inventory': job['inventory'], 'datalens': {'columns': ['main_partner_code_original', 'sc_id', 'result', 'scanned_at'],
                 'rows': [['BOX-0', '101366', 'OK', '2026-10-05 16:00:00'], ['BOX-2', '101366', 'OK', '2026-10-09 16:00:00']]},
-            'asgard': {'columns': COLUMNS, 'rows': [['BOX-1', status, '' if verification in {'not_found', 'search_destination', 'issued_group'} else '123', destination,
+            'asgard': {'columns': COLUMNS, 'rows': [['BOX-1', status, '' if verification in {'not_found', 'search_destination', 'issued_group', 'ff_search_group'} else '123', destination,
                 json.dumps(history if history is not None else ['В пути', 'Создан', 'Принят у отправителя']), verification]]}},
             self.store, google_sheets=self.sheets)
 
@@ -340,6 +340,26 @@ class AsgardWritebackTests(unittest.TestCase):
         result = self.mark_asgard(job, status='Выдан', destination='', history=['В пути', 'Выдан'], verification='issued_group')
         self.assertTrue(result['ok'], result)
         self.assertEqual(self.api.grid[2][7], 'Выдан')
+        self.assertEqual(self.api.grid[2][5], 'Keep comment')
+
+    def test_ff_search_group_writes_comment_and_completes_the_stopped_order(self):
+        self.api.grid[2][5] = ''
+        job = self.queue(); self.mark(job)
+        result = self.mark_asgard(job, status='Принят на ФФ', destination='',
+                                 history=['Принят на ФФ'] * 12, verification='ff_search_group')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['written'], 1)
+        self.assertEqual(self.api.grid[2][7], 'В работе')
+        self.assertEqual(self.api.grid[2][5], 'Принят на ФФ')
+        self.assertTrue(self.store.finish_browser_audit(job['job_id'], True))
+        self.assertEqual(self.store.latest_browser_audit_job()['status'], 'completed')
+
+    def test_mixed_ff_group_cannot_write_or_advance_the_cursor(self):
+        job = self.queue(); self.mark(job)
+        result = self.mark_asgard(job, status='Принят на ФФ', destination='',
+                                 history=['Принят на ФФ', 'В пути'], verification='ff_search_group')
+        self.assertFalse(result['ok'])
+        self.assertEqual(self.api.grid[2][7], '')
         self.assertEqual(self.api.grid[2][5], 'Keep comment')
 
     def test_unverified_history_never_writes_and_asgard_requires_found_stage(self):

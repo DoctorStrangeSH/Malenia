@@ -46,3 +46,16 @@ class AsgardOutcomeTests(unittest.TestCase):
                 self.assertEqual(outcome(self.card(history, status=status)), ('В работе', 'Взять в работу'))
         with self.assertRaises(ValueError):
             outcome(self.card(['Выдан'], status=status))
+
+    def test_uniform_ff_search_group_uses_explicit_result_list_rule(self):
+        for count in (1, 12, 20):
+            row = ['TEST-1', 'Принят на ФФ', '', '', json.dumps(['Принят на ФФ'] * count), 'ff_search_group']
+            self.assertEqual(outcome(row), ('В работе', 'Принят на ФФ'))
+        for history in ([], ['Выдан'], ['Принят на ФФ', 'В пути'], ['Принят на ФФ'] * 21):
+            with self.subTest(history=history):
+                with self.assertRaises(ValueError):
+                    outcome(['TEST-1', 'Принят на ФФ', '', '', json.dumps(history), 'ff_search_group'])
+        for index, value in ((1, 'Выдан'), (2, '123'), (3, 'Купишуз')):
+            row = ['TEST-1', 'Принят на ФФ', '', '', '["Принят на ФФ"]', 'ff_search_group']
+            row[index] = value
+            with self.assertRaises(ValueError): outcome(row)

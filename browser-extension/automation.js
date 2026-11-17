@@ -572,6 +572,13 @@ var MaleniaAutomation = (() => {
     // in the fresh, exact-barcode result. Do not infer a company in a mixed list.
     if(searchKind==='barcode' && result.matches.length && result.matches.every(row=>/купишуз/i.test(row.destination)))
       return {columns,rows:[[code,'Купишуз','',result.matches[0].destination,'[]','search_destination']]};
+    // Owner-approved result-list rule: every refreshed exact-query row is FF.
+    // This is search-group evidence, never invented matching card/history data.
+    if(result.matches.length && result.matches.every(row=>row.status==='Принят на ФФ'&&!/купишуз/i.test(row.destination))){
+      if(result.matches.length>20)throw new Error('unmapped_search_results');
+      if(new Set(result.matches.map(row=>row.box)).size!==result.matches.length)throw new Error('unverified_search_result_identity');
+      return {columns,rows:[[code,'Принят на ФФ','','',JSON.stringify(result.matches.map(row=>row.status)),'ff_search_group']]};
+    }
     const active=['В пути','Готов для отгрузки в заборную логистику','Готов для выдачи'];
     const rank=status=>active.includes(status)?active.indexOf(status):status==='Выдан'?active.length:active.length+1;
     const matches=result.matches.sort((a,b)=>rank(a.status)-rank(b.status));

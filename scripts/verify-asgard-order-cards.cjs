@@ -54,7 +54,7 @@ async function check(options={}){
  vm.createContext(ctx);vm.runInContext(source,ctx);
  try{
   const search=()=>ctx.MaleniaAutomation.workplaceSearch(chrome,1,'asgard',code,host,true);
-  if(options.mixed||options.boxMismatch||options.statusMismatch||options.historyMissing||options.duplicate||options.mixedDestination)
+  if(options.mixed||options.duplicate||options.mixedDestination)
    await assert.rejects(search,/unverified_search_result_identity/);
   else if(options.badOrigin)await assert.rejects(search,/search_origin_mismatch/);
   else if(options.limit)await assert.rejects(search,/unmapped_search_results/);
@@ -64,13 +64,14 @@ async function check(options={}){
    assert.equal(result.rows.length,1);
    assert.equal(result.rows[0][0],code);
    assert.equal(result.rows[0][1],options.emptyOrder?'Не найден':FF);
-   assert.equal(result.rows[0][5],options.emptyOrder?'not_found':'card');
+   assert.equal(result.rows[0][5],options.emptyOrder?'not_found':'ff_search_group');
    if(!options.emptyOrder){
-    assert.equal(result.rows[0][2],'501');
-    assert.deepEqual(Array.from(visited.slice(-4)),ids,'Every linked FF card must be opened');
+    assert.equal(result.rows[0][2],'');
+    assert.ok(JSON.parse(result.rows[0][4]).every(status=>status===FF));
+    assert.equal(visited.length,0,'Uniform FF search result must not require card headings');
    }
   }
-  assert.deepEqual(clicks,options.exactCargo?[['barcode',code]]:[['barcode',code],['order',code]]);
+  assert.deepEqual(clicks,options.barcodeForeign?[['barcode',code]]:[['barcode',code],['order',code]]);
  }finally{clearTimeout(timer);dom.window.close();}
 }
 const scenarios=[{}, {barcodeForeign:true}, {barcodeForeign:true,exactCargo:true},

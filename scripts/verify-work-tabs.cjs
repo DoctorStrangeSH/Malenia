@@ -11,7 +11,8 @@ const headers='<tr><th>Статус грузоместа</th><th>ID возвра
 const FF='Принят на ФФ';
 async function check(mode='normal'){
  let next=1,doc=0;
- const tabs=new Map(),state={},created=[],navigations=[],queries=[],cards=[],writes=[],timers=new Set();
+ const tabs=new Map(),state={},created=[],navigations=[],queries=[],cards=[],writes=[],timers=new Set(),boxCargo=new Map();
+ const active=mode==='active-cards',status=active?'В пути':FF;
  function mount(tab,url){
   tab.dom?.window.close();tab.url=url;tab.documentId='doc-'+(++doc);
   const path=new URL(url).pathname;
@@ -20,8 +21,8 @@ async function check(mode='normal'){
    if(path==='/returnBox/search')html='<label>Внешний ID заказа<input id="order" placeholder="Внешний ID заказа"></label><label>Внешний ID возврата<input id="return"></label><label>Штрихкод коробки<input id="barcode" placeholder="Штрихкод коробки"></label><button>Найти</button><section><table>'+headers+'</table></section>';
    else{
     const box=path.split('/').pop();cards.push(box);
-    const bad=mode==='wrong-box'&&box.endsWith('2');
-    html='<h1>Грузоместо PVZ_FBY_RET_'+box+'</h1><span>'+FF+'</span><aside>ID грузоместа '+(bad?'999':box)+' Точка назначения —</aside><h3>История изменения статусов</h3><table><tr><th>Дата</th><th>Статус</th></tr><tr><td>24.10.2026 12:00:00</td><td>'+FF+'</td></tr></table>';
+    const bad=false;
+    html='<h1>Грузоместо '+(active?boxCargo.get(box):'PVZ_FBY_RET_'+box)+'</h1><span>'+status+'</span><aside>ID грузоместа '+(bad?'999':box)+' Точка назначения —</aside><h3>История изменения статусов</h3><table><tr><th>Дата</th><th>Статус</th></tr><tr><td>24.10.2026 12:00:00</td><td>'+status+'</td></tr></table>';
    }
   }
   tab.dom=new JSDOM(html,{url,runScripts:'outside-only'});
@@ -34,7 +35,9 @@ async function check(mode='normal'){
    queries.push([order?'order':'barcode',order||barcode]);
    const timer=setTimeout(()=>{
     timers.delete(timer);
-    dom.window.document.querySelector('table').innerHTML=headers+(!order?'<tr><td colspan="5">Ничего не найдено</td></tr>':[order.slice(-3)+'1',order.slice(-3)+'2'].map(box=>'<tr><td>Принят на фф</td><td>111</td><td>—</td><td><a href="/returnBox/'+box+'">'+box+'</a></td><td>—</td></tr>').join(''));
+    const boxes=active?[(barcode||order).slice(-3)+'1']:[order.slice(-3)+'1',order.slice(-3)+'2'];
+    for(const box of boxes)boxCargo.set(box,barcode||order);
+    dom.window.document.querySelector('table').innerHTML=headers+(!order&&!active?'<tr><td colspan="5">Ничего не найдено</td></tr>':boxes.map(box=>'<tr><td>'+status.replace('ФФ','фф')+'</td><td>111</td><td>—</td><td><a href="/returnBox/'+box+'">'+(mode==='wrong-box'&&box.endsWith('2')?'INVALID':box)+'</a></td><td>—</td></tr>').join(''));
    },20);timers.add(timer);
   };
  }
@@ -63,29 +66,29 @@ async function check(mode='normal'){
    seedInventory:{columns:['cargo_place','inventory_date'],rows:keys.map(key=>[key,'2026-10-03'])}});
  }
  try{
-  const first=await batch(mode==='wrong-box'?['61000000101']:['61000000101','61000000102']);
+  const first=await batch(active?['BOX-101','BOX-102']:mode==='wrong-box'?['61000000101']:['61000000101','61000000102']);
   if(mode==='wrong-box'){
    assert.equal(first.phase,'needs_attention');assert.equal(writes.length,0);
-   assert.ok([...tabs.values()].some(tab=>tab.url.endsWith('/1012')),'Failed detail must remain for review');
+   assert.ok([...tabs.values()].some(tab=>tab.url===targets.asgard),'Failed search must remain for review');
    return;
   }
   assert.equal(first.phase,'reconciled');
   const search=[...tabs.values()].find(tab=>tab.url===targets.asgard),originalDoc=search.documentId;
   if(mode==='foreign-filter')search.dom.window.document.querySelector('#return').value='USER-FILTER';
-  const second=await batch(['61000000103']);
+  const second=await batch([active?'BOX-103':'61000000103']);
   if(mode==='foreign-filter'){
    assert.equal(second.phase,'needs_attention');assert.equal(writes.length,1);
    assert.equal(search.dom.window.document.querySelector('#return').value,'USER-FILTER');
   }else{
    assert.equal(second.phase,'reconciled');assert.equal(writes.length,2);
-   assert.deepEqual(queries,[['barcode','61000000101'],['order','61000000101'],['barcode','61000000102'],['order','61000000102'],['barcode','61000000103'],['order','61000000103']]);
-   assert.deepEqual(cards,['1011','1012','1021','1022','1031','1032']);
-   assert.equal(writes[1].asgard.rows[0][0],'61000000103');
+   if(!active)assert.deepEqual(queries,[['barcode','61000000101'],['order','61000000101'],['barcode','61000000102'],['order','61000000102'],['barcode','61000000103'],['order','61000000103']]);
+   assert.deepEqual(cards,active?['1011','1021','1031']:[]);
+   assert.equal(writes[1].asgard.rows[0][0],active?'BOX-103':'61000000103');
   }
-  assert.equal(created.length,3,'One DataLens, one Asgard search and one detail tab');
+  assert.equal(created.length,active?3:2,'Retain the search tabs and only open details when needed');
   assert.equal(search.documentId,originalDoc,'Search document must survive all orders');
   assert.ok(navigations.every(url=>new URL(url).pathname!=='/returnBox/search'),'No search reloads');
   assert.ok(!JSON.stringify(state).includes('61000000'),'No order IDs in session registry');
  }finally{for(const timer of timers)clearTimeout(timer);for(const tab of tabs.values())tab.dom.window.close();}
 }
-(async()=>{for(const mode of ['normal','wrong-box','foreign-filter'])await check(mode);console.log('Asgard retained search/detail DOM: 3 scenarios passed');})().catch(error=>{console.error(error);process.exit(1);});
+(async()=>{for(const mode of ['normal','wrong-box','foreign-filter','active-cards'])await check(mode);console.log('Asgard retained search/detail DOM: 4 scenarios passed');})().catch(error=>{console.error(error);process.exit(1);});
