@@ -27,7 +27,7 @@ async function check(options={}){
     if(options.unrelated&&kind==='order'){dom.window.document.body.append(dom.window.document.createElement('aside'));return;}
     if(options.inputReset&&kind==='order')dom.window.document.querySelector('#order').value='61000000002';
     const empty=(kind==='barcode'&&!options.barcodeForeign)||options.emptyOrder;
-    dom.window.document.querySelector('table').innerHTML=headers+(empty?'<tr><td colspan="7">Ничего не найдено</td></tr>':ids.map((id,i)=>'<tr><td>'+statuses[i].replace('ФФ','фф')+'</td><td>111</td><td>—</td><td><a href="'+(options.badOrigin&&kind==='order'?'https://other.invalid':'')+'/returnBox/'+(options.duplicate&&i===3?'501':id)+'">'+(options.duplicate&&i===3?'501':id)+'</a></td><td>01.09.2026</td><td>24.10.2026</td><td>—</td></tr>').join(''));
+    dom.window.document.querySelector('table').innerHTML=headers+(empty?'<tr><td colspan="7">Ничего не найдено</td></tr>':ids.map((id,i)=>'<tr><td>'+statuses[i].replace('ФФ','фф')+'</td><td>111</td><td>—</td><td><a href="'+(options.badOrigin&&kind==='order'?'https://other.invalid':'')+'/returnBox/'+(options.duplicate&&i===3?'501':id)+'">'+(options.duplicate&&i===3?'501':id)+'</a></td><td>01.09.2026</td><td>24.10.2026</td><td>'+(options.mixedDestination&&i===3?'Купишуз':'—')+'</td></tr>').join(''));
    },20);
   };
  }
@@ -40,9 +40,10 @@ async function check(options={}){
    visited.push(id);
    const index=ids.indexOf(id),current=options.statusMismatch&&id==='504'?'Выдан':FF;
    const box=options.boxMismatch&&id==='504'?'999':id;
+   const destination=options.mixedDestination&&id==='504'?'Купишуз':'—';
    const cargo=options.exactCargo?code:'PVZ_FBY_RET_'+(700+index);
    const history=options.historyMissing&&id==='504'?'Создан':FF;
-   page('<h1>Грузоместо '+cargo+'</h1><span>'+current+'</span><aside>ID грузоместа '+box+' Точка назначения —</aside><h3>История изменения статусов</h3><table><tr><th>Дата</th><th>Статус</th></tr><tr><td>24.10.2026 17:28:44</td><td>'+history+'</td></tr></table>',new URL(url).pathname);
+   page('<h1>Грузоместо '+cargo+'</h1><span>'+current+'</span><aside>ID грузоместа '+box+' Точка назначения '+destination+'</aside><h3>История изменения статусов</h3><table><tr><th>Дата</th><th>Статус</th></tr><tr><td>24.10.2026 17:28:44</td><td>'+history+'</td></tr></table>',new URL(url).pathname);
   },
   onUpdated:{addListener(){},removeListener(){}}
  },scripting:{async executeScript({func,args,world}){
@@ -53,7 +54,7 @@ async function check(options={}){
  vm.createContext(ctx);vm.runInContext(source,ctx);
  try{
   const search=()=>ctx.MaleniaAutomation.workplaceSearch(chrome,1,'asgard',code,host,true);
-  if(options.mixed||options.boxMismatch||options.statusMismatch||options.historyMissing||options.duplicate)
+  if(options.mixed||options.boxMismatch||options.statusMismatch||options.historyMissing||options.duplicate||options.mixedDestination)
    await assert.rejects(search,/unverified_search_result_identity/);
   else if(options.badOrigin)await assert.rejects(search,/search_origin_mismatch/);
   else if(options.limit)await assert.rejects(search,/unmapped_search_results/);
@@ -74,5 +75,5 @@ async function check(options={}){
 }
 const scenarios=[{}, {barcodeForeign:true}, {barcodeForeign:true,exactCargo:true},
  {emptyOrder:true},{mixed:true},{boxMismatch:true},{statusMismatch:true},
- {historyMissing:true},{duplicate:true},{badOrigin:true},{limit:true},{unrelated:true},{inputReset:true}];
+ {historyMissing:true},{mixedDestination:true},{duplicate:true},{badOrigin:true},{limit:true},{unrelated:true},{inputReset:true}];
 (async()=>{for(const scenario of scenarios)await check(scenario);console.log('Asgard external-order DOM: '+scenarios.length+' scenarios passed');})().catch(error=>{console.error(error);process.exit(1);});

@@ -521,7 +521,7 @@ var MaleniaAutomation = (() => {
       confirmed.push([code,match.status,match.box,match.destination,JSON.stringify(card.history),'card']);
     }
     if(confirmed.length===matches.length && confirmed.length>0 &&
-        confirmed.every(row=>row[1]==='Принят на ФФ'))
+        confirmed.every(row=>row[1]==='Принят на ФФ' && /купишуз/i.test(row[3])===/купишуз/i.test(confirmed[0][3])))
       return {columns,rows:[confirmed[0]]};
     if(searchKind==='barcode'&&!confirmed.length&&foreignActive===0 &&
         matches.every(row=>row.status==='Принят на ФФ'))
