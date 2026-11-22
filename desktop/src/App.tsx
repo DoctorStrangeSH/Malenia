@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {KnowledgePage, KnowledgeEditor, type KnowledgeDraft} from "./KnowledgePage";
+import {WorkspaceDialog} from "./WorkspaceDialog";
+import {KnowledgePage} from "./KnowledgePage";
 import {InventaRun, type RunState} from "./inventaRun";
 import {SkillsPage} from "./SkillsPage";
 import { BrowserSetup } from "./BrowserSetup";
 import { ToolCatalog } from "./ToolCatalog";
 import { AiPage } from "./AiPage";
 import { OrderCheckPage } from "./OrderCheckPage";
-import { OrderBatchPage } from "./OrderBatchPage";
 import { invoke } from "@tauri-apps/api/core";
 import { PermissionsPage, type PermissionRequest, type PermissionDecision } from "./PermissionsPage";
 import {
@@ -23,9 +23,9 @@ type BrowserAudit = { checked_at:string; total:number; summary:{found:number;in_
 type BrowserAuditJob = { job_id:string; status:"pending"|"running"|"completed"|"failed"|"expired"; created_at:string; updated_at:string; current_role:"inventory"|"datalens"|"asgard"|null; completed_sources:number; attention_sources:number; failed_role:"inventory"|"datalens"|"asgard"|null };
 type Resources = { total_memory_bytes:number; available_memory_bytes:number; used_memory_percent:number; logical_processors:number; cpu_usage_percent:number; mode:"normal"|"economy"|"emergency"; recommended_parallel_jobs:number; };
 type Dashboard = { running:boolean; resources:Resources; tasks:Task[]; events:EventItem[]; browser_tabs:BrowserTab[]; browser_audit:BrowserAudit|null; browser_audit_job:BrowserAuditJob|null; permissions:PermissionRequest[]; };
-type Page = "overview"|"tasks"|"browser"|"sources"|"tools"|"connections"|"orders"|"order_batch"|"ai"|"settings"|"permissions"|"knowledge"|"skills";
+type Page = "overview"|"tasks"|"browser"|"sources"|"tools"|"connections"|"orders"|"ai"|"settings"|"permissions"|"knowledge"|"skills";
 
-const labels:Record<Page,string>={overview:"Главная",tasks:"Сохранённые планы",browser:"Браузер",tools:"Инструменты",sources:"Инвентаризация",connections:"Подключения",orders:"Проверка заказа",order_batch:"Список заказов",ai:"Ассистент",settings:"Настройки",permissions:"Разрешения",knowledge:"Память и знания",skills:"Инструкции"};
+const labels:Record<Page,string>={overview:"Главная",tasks:"Сохранённые планы",browser:"Браузер",tools:"Инструменты",sources:"Инвентаризация",connections:"Подключения",orders:"Проверка заказа",ai:"Ассистент",settings:"Настройки",permissions:"Разрешения",knowledge:"Память и знания",skills:"Инструкции"};
 const bytes=(n:number)=>n ? (n/1024/1024/1024).toFixed(1)+" ГБ" : "—";
 const time=(v:string)=>{try{return new Intl.DateTimeFormat("ru-RU",{hour:"2-digit",minute:"2-digit"}).format(new Date(v));}catch{return v;}};
 
@@ -76,7 +76,7 @@ export default function App(){
       
       <nav aria-label="Основные разделы">
         <Nav icon={<Sparkles/>} label="Ассистент" active={page==="ai"} onClick={()=>setPage("ai")}/>
-        <Nav icon={<Database/>} label="Инструменты" active={["tools","sources","orders","order_batch"].includes(page)} onClick={()=>setPage("tools")}/>
+        <Nav icon={<Database/>} label="Инструменты" active={["tools","sources","orders"].includes(page)} onClick={()=>setPage("tools")}/>
         <Nav icon={<BrainCircuit/>} label="Инструкции" active={["knowledge","skills"].includes(page)} onClick={()=>setPage("skills")}/>
         <Nav icon={<Plug/>} label="Подключения" active={page==="connections"} onClick={()=>setPage("connections")}/>
       </nav>
@@ -86,7 +86,7 @@ export default function App(){
         <Nav icon={<ShieldCheck/>} label="Разрешения" active={page==="permissions"} count={data?.permissions.filter(p=>p.status==="pending").length} onClick={()=>setPage("permissions")}/>
         <Nav icon={<Settings2/>} label="Настройки" active={["settings","browser","overview","tasks"].includes(page)} onClick={()=>setPage("settings")}/>
       </nav>
-      <div className="side-version"><LockKeyhole size={12}/> На вашем компьютере <span>0.8.1</span></div>
+      <div className="side-version"><LockKeyhole size={12}/> На вашем компьютере <span>0.8.2</span></div>
     </aside>
 
     <main className="main">
@@ -94,7 +94,7 @@ export default function App(){
       <div className="content">
         {!connected&&<div className="connection-banner"><div><b>Маления готова к запуску</b><p>Нажмите «Запустить Малению», чтобы открыть чат и инструменты.</p></div><button className="primary" onClick={()=>void runAgent()} disabled={busy}>{busy?<LoaderCircle className="spin" size={16}/>:<Play size={16}/>}Запустить Малению</button></div>}
         {["knowledge","skills"].includes(page)?<nav className="section-tabs" aria-label="Знания и навыки"><button aria-current={page==="knowledge"?"page":undefined} onClick={()=>setPage("knowledge")}>Память и документы</button><button aria-current={page==="skills"?"page":undefined} onClick={()=>setPage("skills")}>Инструкции</button></nav>:null}
-        {["sources","orders","order_batch"].includes(page)?<button className="tool-back" onClick={()=>setPage("tools")}>← Все инструменты</button>:null}
+        {["sources","orders"].includes(page)?<button className="tool-back" onClick={()=>setPage("tools")}>← Все инструменты</button>:null}
         {page==="tools"?<ToolCatalog onOpen={setPage}/>:null}
         {error&&<div className="alert error"><X size={15}/>{error}<button onClick={()=>setError("")}><X size={14}/></button></div>}
         {notice&&<div className="alert success"><Check size={15}/>{notice}<button onClick={()=>setNotice("")}><X size={14}/></button></div>}
@@ -126,13 +126,12 @@ export default function App(){
         {page==="browser"&&<BrowserPage tabs={data?.browser_tabs??[]} audit={data?.browser_audit??null} job={data?.browser_audit_job??null} connected={connected} onRequested={()=>void refresh()} onOpenSources={()=>setPage("sources")}/>}
         {(page==="sources"||page==="connections")&&<SourcesPage mode={page==="sources"?"work":"connections"} selectedSheet={selectedSheet} onSelectSheet={setSelectedSheet} onOpenConnections={()=>setPage("connections")} tabs={data?.browser_tabs??[]} connected={connected} runState={runState} runner={inventaRun}/>} 
         {page==="orders"&&<OrderCheckPage connected={connected}/>}
-        {page==="order_batch"&&<OrderBatchPage connected={connected}/>}
         {page==="knowledge"&&<KnowledgePage connected={connected}/>}
         {page==="skills"&&<SkillsPage connected={connected} onApply={item=>{setInstruction(item);setPage("ai");}}/>}
         <div hidden={page!=="ai"}><AiPage instruction={instruction} onClearInstruction={()=>setInstruction(null)} onInstructions={()=>setPage("skills")} connected={connected} onTaskCreated={()=>void refresh()}/></div>
         {page==="settings"&&<section className="page"><div className="page-head"><div><div className="eyebrow">КОНФИГУРАЦИЯ</div><h1>Настройки</h1><p>Подключение Малении и защита ваших данных.</p></div></div><div className="settings-links"><button className="secondary" onClick={()=>setPage("connections")}><Plug size={16}/>Рабочие подключения</button><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p><div className="settings-links"><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Работает только на вашем компьютере. Модель для диалога настраивается в разделе «Ассистент». Для проверки инвентаризации модель не требуется." value={connected?"Запущен":"Остановлен"} action={<button className={connected?"danger":"primary"} onClick={connected?stopAgent:runAgent} disabled={busy}>{connected?<Square size={14}/>:<Play size={14}/>} {connected?"Остановить":"Запустить"}</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Доступ к рабочим страницам предоставляется через расширение браузера. Важные изменения требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение в разделе «Подключения»." value="Browser Bridge"/></div></section>}
       </div>
-      <footer className="statusbar"><span><i className={connected?"":"idle"}/>{connected?"Локальный агент активен":"Локальный агент остановлен"}</span><span><LockKeyhole size={12}/>Локальная среда　·　Маления 0.8.1</span></footer>
+      <footer className="statusbar"><span><i className={connected?"":"idle"}/>{connected?"Локальный агент активен":"Локальный агент остановлен"}</span><span><LockKeyhole size={12}/>Локальная среда　·　Маления 0.8.2</span></footer>
     </main>
 
     {showHelp&&<div className="backdrop" onClick={()=>setShowHelp(false)}><section className="modal quick-help" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e=>e.stopPropagation()} onKeyDown={e=>{if(e.key==="Escape")setShowHelp(false);if(e.key==="Tab"){const buttons=e.currentTarget.querySelectorAll<HTMLButtonElement>("button");const first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div className="modal-head"><div><div className="eyebrow">ПЕРВЫЕ ШАГИ</div><h2 id="help-title">Освоимся в Малении</h2></div><button autoFocus className="icon-btn" aria-label="Закрыть справку" onClick={()=>setShowHelp(false)}><X size={18}/></button></div><ol className="help-steps"><li><b>Расскажите ассистенту о задаче</b><p>Откройте диалог, чтобы разобраться в вопросе, подготовить текст или составить план. Для диалога настройте локальную модель Шерлока.</p></li><li><b>Выберите подходящий инструмент</b><p>В разделе «Инструменты» собраны рабочие действия. Для инвентаризации выберите лист и запустите проверку.</p></li><li><b>Подключите нужные источники</b><p>Каждый инструмент подскажет, какой доступ ему нужен. В разделе «Инструкции» опишите рабочее правило и утвердите его для следующих разговоров.</p></li></ol><button className="primary" onClick={()=>{setShowHelp(false);setPage("tools");}}>Посмотреть инструменты <ArrowUpRight size={16}/></button></section></div>}
@@ -220,7 +219,7 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
   const [clarifiedYear,setClarifiedYear]=useState("");
   const [sheetOptions,setSheetOptions]=useState<{url:string;title:string}[]>([]);
   const [loadingSheets,setLoadingSheets]=useState(false);
-  const [lesson,setLesson]=useState<KnowledgeDraft|null>(null);
+  const [service,setService]=useState("");
   const sheetTabs=tabs.filter(tab=>/^https:\/\/docs\.google\.com\/spreadsheets\/d\//.test(tab.url));
   const sheetUrl=selectedSheet||sheetTabs[0]?.url||"";
   const runBusy=["waiting","running","pausing"].includes(runState.phase);
@@ -329,12 +328,20 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
       <div className={"inventa-progress phase-"+runState.phase} role="status" aria-live="polite"><b>{runState.phase==="error"?"Проверка остановлена":runState.phase==="pausing"?"Останавливаю поиск":runState.phase==="paused"?"Проверка на паузе":runState.phase==="completed"?"Проверка завершена":runState.total?`${runState.processed} из ${runState.total} заказов проверено`:runBusy?"Подготавливаю проверку":!sheetsAuthorized?"Нужно подключить Google":!sheetUrl?"Передайте таблицу из браузера":"Готова начать"}</b><p>{runState.message}</p>
         {runState.total>0?<progress aria-label="Прогресс разбора" max={runState.total} value={runState.processed}/>:null}
       </div>
-      <details className="run-details"><summary>Как работает проверка и дополнительные действия</summary><p>Строки со статусом «Найден» пропускаются. В партии до 20 остальных заказов. Каждый сначала проверяется в DataLens: скан OK от СЦ 101366 после даты листа означает «Найден» — Asgard для него пропускается. Asgard открывается только для остальных заказов партии. Партии переходят одна в другую автоматически. При ошибке разбор остановится; проверенная позиция сохранится. Можно переходить между разделами, пока окно Малении открыто. Подтверждённые в DataLens заказы получают статус «Найден» и зелёную заливку; по Asgard записываются статусы и комментарии. «Пауза» отменяет текущий поиск, «Начать заново» отменяет старую задачу и готовит новую очередь.</p><div className="settings-links"><button className="secondary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||runBusy||(needsYear&&!clarifiedDate)} onClick={()=>{if(window.confirm("Начать проверку выбранного листа заново? Сохранённая позиция будет сброшена."))void runner.restart(sheetUrl,clarifiedDate);}}>Начать заново</button><button className="secondary" disabled={!connected||!!lesson||runBusy} onClick={()=>setLesson({id:crypto.randomUUID(),title:"Заметка о проверке инвентаризации",content:"",kind:"memory"})}>Сохранить заметку</button></div></details>
-      {lesson?<KnowledgeEditor initial={lesson} connected={connected} onCancel={()=>setLesson(null)} onSaved={()=>{setLesson(null);setSheetNotice("Пояснение сохранено в памяти ассистента. Правила автоматической сверки пока меняются отдельно — пояснение само по себе не изменяет статусы заказов.");}}/>:null}
+      <div className="settings-links"><button className="secondary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||runBusy||(needsYear&&!clarifiedDate)} onClick={()=>{if(window.confirm("Начать проверку выбранного листа заново? Сохранённая позиция будет сброшена."))void runner.restart(sheetUrl,clarifiedDate);}}>Начать заново</button></div>
     </article>:null}
     {mode==="connections"?<div className="source-settings">
-    <BrowserSetup/>
-    <div className="sources-grid">
+    <div className="service-list">
+      <button onClick={()=>setService("Браузер")}><Globe2/><strong>Яндекс Браузер</strong><small>Расширение</small><ArrowUpRight/></button>
+      <button onClick={()=>setService("Google Sheets")}><Database/><strong>Google Sheets</strong><small>{statusLabel}</small><ArrowUpRight/></button>
+      {["DataLens","Asgard"].map(name=>{
+        const host=name==="DataLens"?"datalens.yandex-team.ru":"asgard.market.yandex-team.ru";
+        const shared=tabs.some(tab=>{try{return new URL(tab.url).hostname===host;}catch{return false;}});
+        return <button key={name} onClick={()=>setService(name)}><Plug/><strong>{name}</strong><small>{shared?"Вкладка передана · требуется тест":"Ожидает вкладку"}</small><ArrowUpRight/></button>;
+      })}
+    </div>
+    {service?<WorkspaceDialog title={service} onClose={()=>setService("")}>
+      {service==="Браузер"?<BrowserSetup/>:service==="Google Sheets"?<>
       <article className="panel source-card google-source-card">
         <div className="source-card-top"><span className="source-icon sheets"><Database size={19}/></span><span className={"source-state "+(sheetsAuthorized?"ready":"pending")}>{statusLabel}</span></div>
         <h2>Google Sheets · Инвентаризация</h2>
@@ -372,24 +379,8 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
         {sheetsStatus.status==="expired"?<p className="source-help">Окно авторизации не получило ответ вовремя. Начните подключение заново.</p>:null}
         {sheetsStatus.status==="error"?<p className="source-help">Google не подтвердил нужный scope или OAuth завершился ошибкой. Проверьте OAuth consent screen и Client ID.</p>:null}
       </article>
-      {[
-        {name:"Yandex DataLens",host:"datalens.yandex-team.ru",style:"datalens",icon:<Activity size={19}/>,
-          description:"Адаптер поиска читает историю сканов по грузоместу и проверяет успешные сканы СЦ 101366 после даты инвентаризации.",
-          help:"Открой вкладку DataLens «Заказы» → расширение Малении → «Использовать эту вкладку»."},
-        {name:"Asgard",host:"asgard.market.yandex-team.ru",style:"asgard",icon:<Globe2 size={19}/>,
-          description:"Адаптер ищет штрихкод коробки в «Обратном потоке» и читает статус грузоместа. При необходимости проверяет историю коробки.",
-          help:"Выбери страницу «Обратный поток», оставив остальные поля поиска пустыми."}
-      ].map(source=>{
-        const shared=tabs.some(tab=>{try{return new URL(tab.url).hostname===source.host;}catch{return false;}});
-        return <article className="panel source-card" key={source.host} data-testid={"source-"+source.style}>
-          <div className="source-card-top"><span className={"source-icon "+source.style}>{source.icon}</span><span className="source-state pending">{shared?"Вкладка передана · требуется тест":"Передай рабочую вкладку"}</span></div>
-          <h2>{source.name}</h2><p>{source.description}</p>
-          <small>{source.help} Передача вкладки ещё не подтверждает разрешение на чтение и успешную проверку заказа.</small>
-          
-        </article>;
-      })}
-
-    </div>
+      </>:<p>Откройте {service==="DataLens"?"дашборд «Заказы» в DataLens":"страницу «Обратный поток» в Asgard"}. В расширении Малении выберите «Использовать эту вкладку».</p>}
+    </WorkspaceDialog>:null}
     </div>:null}
   </section>;
 }

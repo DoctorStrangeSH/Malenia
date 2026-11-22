@@ -151,8 +151,8 @@ export function AiPage({connected,onTaskCreated,onInstructions,instruction,onCle
           <button className="secondary" disabled={!!ratedSkills[index+":"+skillId]} onClick={()=>void rateSkill(skillId,false,index+":"+skillId)}>Не помог</button>
         </span>)}
       </div>:null}
-      {message.role==="assistant"?<button className="secondary" disabled={busy||skillBusy||!connected||!!skillSuggestion} onClick={()=>void suggestFrom(index)}>Сделать навык из ответа</button>:null}
-      {message.role==="assistant" ? <button className="secondary" disabled={busy || taskBusy || !!taskDraft || !connected} onClick={()=>{setTaskNotice("");setTaskDraft({requestId:crypto.randomUUID(),title:(messages[index-1]?.content??"План из чата").slice(0,200),description:message.content});}}>Сохранить план из ответа</button> : <button className="secondary" disabled={busy || !!memoryDraft || !connected} onClick={()=>setMemoryDraft({id:crypto.randomUUID(),title:message.content.slice(0,120),content:message.content,kind:"memory"})}>Запомнить</button>}</article>)}
+      <details className="message-actions"><summary>Действия</summary>{message.role==="assistant"?<button className="secondary" disabled={busy||skillBusy||!connected||!!skillSuggestion} onClick={()=>void suggestFrom(index)}>Сделать навык из ответа</button>:null}
+      {message.role==="assistant" ? <button className="secondary" disabled={busy || taskBusy || !!taskDraft || !connected} onClick={()=>{setTaskNotice("");setTaskDraft({requestId:crypto.randomUUID(),title:(messages[index-1]?.content??"План из чата").slice(0,200),description:message.content});}}>Сохранить план из ответа</button> : <button className="secondary" disabled={busy || !!memoryDraft || !connected} onClick={()=>setMemoryDraft({id:crypto.randomUUID(),title:message.content.slice(0,120),content:message.content,kind:"memory"})}>Запомнить</button>}</details></article>)}
       {feedbackNotice?<p role="status" className="note">{feedbackNotice}</p>:null}
       {busy ? <p role="status">Шерлок готовит ответ… При первом запуске подготовка движка или модели может занять несколько минут.</p> : null}
     </div>

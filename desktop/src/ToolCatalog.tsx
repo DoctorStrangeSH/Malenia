@@ -1,9 +1,8 @@
-import { ArrowUpRight, ClipboardList, Layers3 } from "lucide-react";
+import { ArrowUpRight, ClipboardList } from "lucide-react";
 
-type ToolTarget = "sources" | "order_batch";
+type ToolTarget = "sources";
 const tools = [
   {target:"sources", title:"Инвентаризация", description:"Сверить лист Google Sheets с DataLens и Asgard.", icon:ClipboardList},
-  {target:"order_batch", title:"Предпросмотр списка", description:"Проверить строки из Excel перед обработкой.", icon:Layers3},
 ] as const;
 
 export function ToolCatalog({onOpen}:{onOpen:(target:ToolTarget)=>void}) {

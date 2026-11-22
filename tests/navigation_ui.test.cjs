@@ -81,7 +81,7 @@ test('offline order-checking skill is reachable and has no write actions', () =>
 
 test('bulk Excel preview preserves source read-only and escapes formulas', () => {
   assert.doesNotMatch(app, /<Nav[^\n]*label="Список заказов"/);
-  assert.match(app, /<OrderBatchPage connected=\{connected\}\/>/);
+  assert.doesNotMatch(app, /<OrderBatchPage connected=\{connected\}\/>/);
   const bulk = fs.readFileSync(path.resolve(__dirname, '../desktop/src/OrderBatchPage.tsx'), 'utf8');
   assert.match(bulk, /invoke<BatchResponse>\("preview_order_batch"/);
   assert.match(bulk, /navigator\.clipboard\.writeText\(report\(batch\)\)/);
