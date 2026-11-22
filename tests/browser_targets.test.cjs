@@ -26,12 +26,13 @@ function screen(granted=true, audit=null, openTabs=null) {
     {title:'Credentials',url:'https://user:pass@secret.example/'},
     {title:'Local',url:'https://localhost/'},
   ];}};
-  const ctx={URL,chrome,document:{getElementById:id=>nodes[id],createElement:()=>({})}};
+  const shared=[];
+  const ctx={URL,chrome,crypto:require("node:crypto").webcrypto,sanitizedTab:tab=>({title:tab.title,url:new URL(tab.url).origin+new URL(tab.url).pathname}),sendNativeMessage:async msg=>{shared.push(msg);return {ok:true};},document:{getElementById:id=>nodes[id],createElement:()=>({})}};
   vm.createContext(ctx);vm.runInContext(automation,ctx);vm.runInContext(setup,ctx);
   nodes.targetInventory.value='https://docs.google.com/spreadsheets/d/example';
   nodes.targetDatalens.value='https://analytics.example/dashboard';
   nodes.targetAsgard.value='https://asgard.example/returns';
-  return {nodes,click:async()=>{await nodes.saveTargets.click();await flush();},
+  return {nodes,shared,click:async()=>{await nodes.saveTargets.click();await flush();},
     get stored(){return stored;},get requested(){return requested;}};
 }
 test('user explicitly saves three read-only sources and requests scoped permission',async()=>{
@@ -56,6 +57,8 @@ test('open-tab picker needs no typed URLs and reads no page content before permi
   await ui.click();
   assert.equal(ui.requested,1);
   assert.equal(ui.stored.maleniaTargets.inventory,'https://docs.google.com/spreadsheets/d/example/edit');
+  assert.equal(ui.shared.length,3);
+  assert.ok(ui.shared.every(msg=>msg.type==='share_active_tab'));
 });
 test('denied permission never persists target URLs',async()=>{
   const ui=screen(false);await ui.click();

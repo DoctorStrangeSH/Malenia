@@ -25,7 +25,7 @@ type Resources = { total_memory_bytes:number; available_memory_bytes:number; use
 type Dashboard = { running:boolean; resources:Resources; tasks:Task[]; events:EventItem[]; browser_tabs:BrowserTab[]; browser_audit:BrowserAudit|null; browser_audit_job:BrowserAuditJob|null; permissions:PermissionRequest[]; };
 type Page = "overview"|"tasks"|"browser"|"sources"|"tools"|"connections"|"orders"|"order_batch"|"ai"|"settings"|"permissions"|"knowledge"|"skills";
 
-const labels:Record<Page,string>={overview:"Главная",tasks:"Сохранённые планы",browser:"Браузер",tools:"Инструменты",sources:"Разбор ИНВенты",connections:"Подключения",orders:"Проверка заказа",order_batch:"Список заказов",ai:"Ассистент",settings:"Настройки",permissions:"Разрешения",knowledge:"Память и знания",skills:"Навыки"};
+const labels:Record<Page,string>={overview:"Главная",tasks:"Сохранённые планы",browser:"Браузер",tools:"Инструменты",sources:"Инвентаризация",connections:"Подключения",orders:"Проверка заказа",order_batch:"Список заказов",ai:"Ассистент",settings:"Настройки",permissions:"Разрешения",knowledge:"Память и знания",skills:"Инструкции"};
 const bytes=(n:number)=>n ? (n/1024/1024/1024).toFixed(1)+" ГБ" : "—";
 const time=(v:string)=>{try{return new Intl.DateTimeFormat("ru-RU",{hour:"2-digit",minute:"2-digit"}).format(new Date(v));}catch{return v;}};
 
@@ -71,29 +71,28 @@ export default function App(){
 
   return <div className="shell">
     <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><Sparkles size={22}/></div><div><b>Маления<span className="brand-dot">.</span></b><small>МЕНЬШЕ РУТИНЫ. БОЛЬШЕ ЯСНОСТИ.</small></div></div>
-      <div className="nav-label">РАБОТА</div>
+      <div className="brand"><div className="brand-mark"><Sparkles size={22}/></div><div><b>Маления<span className="brand-dot">.</span></b></div></div>
+      
       <nav aria-label="Основные разделы">
         <Nav icon={<Sparkles/>} label="Ассистент" active={page==="ai"} onClick={()=>setPage("ai")}/>
         <Nav icon={<Database/>} label="Инструменты" active={["tools","sources","orders","order_batch"].includes(page)} onClick={()=>setPage("tools")}/>
-        <Nav icon={<BrainCircuit/>} label="Знания" active={["knowledge","skills"].includes(page)} onClick={()=>setPage("knowledge")}/>
+        <Nav icon={<BrainCircuit/>} label="Инструкции" active={["knowledge","skills"].includes(page)} onClick={()=>setPage("skills")}/>
         <Nav icon={<Plug/>} label="Подключения" active={page==="connections"} onClick={()=>setPage("connections")}/>
       </nav>
       <div className="side-spacer"/>
-      {["waiting","running","pausing","paused"].includes(runState.phase)?<button className="run-shortcut" onClick={()=>setPage("sources")}><Activity size={17}/><span><b>{runState.phase==="paused"?"Проверка на паузе":"Проверка ИНВенты"}</b><small>{runState.processed} из {runState.total||"…"} обработано</small></span></button>:null}
+      {["waiting","running","pausing","paused"].includes(runState.phase)?<button className="run-shortcut" onClick={()=>setPage("sources")}><Activity size={17}/><span><b>{runState.phase==="paused"?"Проверка на паузе":"Проверка инвентаризации"}</b><small>{runState.processed} из {runState.total||"…"} обработано</small></span></button>:null}
       <nav aria-label="Сервис">
         <Nav icon={<ShieldCheck/>} label="Разрешения" active={page==="permissions"} count={data?.permissions.filter(p=>p.status==="pending").length} onClick={()=>setPage("permissions")}/>
         <Nav icon={<Settings2/>} label="Настройки" active={["settings","browser","overview","tasks"].includes(page)} onClick={()=>setPage("settings")}/>
       </nav>
-      <button className="sidebar-help" onClick={()=>setShowHelp(true)}><CircleHelp size={16}/>С чего начать?</button>
-      <div className="side-version"><LockKeyhole size={12}/> На вашем компьютере <span>0.7.3</span></div>
+      <div className="side-version"><LockKeyhole size={12}/> На вашем компьютере <span>0.8.0</span></div>
     </aside>
 
     <main className="main">
-      <header className="topbar"><div className="crumb">Маления <span>/</span> <b>{labels[page]}</b></div><div className="top-actions"><div className={"connection "+(connected?"online":"")}><i/> {connected?"Агент подключён":"Агент не запущен"}</div><button className="icon-btn" title="С чего начать?" aria-label="Открыть справку" onClick={()=>setShowHelp(true)}><CircleHelp size={17}/></button></div></header>
+      <header className="topbar"><div className="crumb">Маления <span>/</span> <b>{labels[page]}</b></div><div className="top-actions"><div className={"connection "+(connected?"online":"")}><i/> {connected?"Маления запущена":"Ожидает запуска"}</div><button className="icon-btn" title="С чего начать?" aria-label="Открыть справку" onClick={()=>setShowHelp(true)}><CircleHelp size={17}/></button></div></header>
       <div className="content">
         {!connected&&<div className="connection-banner"><div><b>Начнём с подключения Малении</b><p>Запустите рабочее ядро, чтобы общаться с ассистентом и пользоваться инструментами.</p></div><button className="primary" onClick={()=>void runAgent()} disabled={busy}>{busy?<LoaderCircle className="spin" size={16}/>:<Play size={16}/>}Запустить Малению</button></div>}
-        {["knowledge","skills"].includes(page)?<nav className="section-tabs" aria-label="Знания и навыки"><button aria-current={page==="knowledge"?"page":undefined} onClick={()=>setPage("knowledge")}>Память и документы</button><button aria-current={page==="skills"?"page":undefined} onClick={()=>setPage("skills")}>Навыки</button></nav>:null}
+        {["knowledge","skills"].includes(page)?<nav className="section-tabs" aria-label="Знания и навыки"><button aria-current={page==="knowledge"?"page":undefined} onClick={()=>setPage("knowledge")}>Память и документы</button><button aria-current={page==="skills"?"page":undefined} onClick={()=>setPage("skills")}>Инструкции</button></nav>:null}
         {["sources","orders","order_batch"].includes(page)?<button className="tool-back" onClick={()=>setPage("tools")}>← Все инструменты</button>:null}
         {page==="tools"?<ToolCatalog onOpen={setPage}/>:null}
         {error&&<div className="alert error"><X size={15}/>{error}<button onClick={()=>setError("")}><X size={14}/></button></div>}
@@ -124,18 +123,18 @@ export default function App(){
 
         {page==="permissions"&&<PermissionsPage requests={data?.permissions??[]} connected={connected} busy={busy} onDecide={decidePermission}/>}
         {page==="browser"&&<BrowserPage tabs={data?.browser_tabs??[]} audit={data?.browser_audit??null} job={data?.browser_audit_job??null} connected={connected} onRequested={()=>void refresh()} onOpenSources={()=>setPage("sources")}/>}
-        {(page==="sources"||page==="connections")&&<SourcesPage mode={page==="sources"?"work":"connections"} selectedSheet={selectedSheet} onSelectSheet={setSelectedSheet} onOpenConnections={()=>setPage("connections")} tabs={data?.browser_tabs??[]} connected={connected} onOpenBrowser={()=>setPage("browser")} runState={runState} runner={inventaRun}/>} 
+        {(page==="sources"||page==="connections")&&<SourcesPage mode={page==="sources"?"work":"connections"} selectedSheet={selectedSheet} onSelectSheet={setSelectedSheet} onOpenConnections={()=>setPage("connections")} tabs={data?.browser_tabs??[]} connected={connected} runState={runState} runner={inventaRun}/>} 
         {page==="orders"&&<OrderCheckPage connected={connected}/>}
         {page==="order_batch"&&<OrderBatchPage connected={connected}/>}
         {page==="knowledge"&&<KnowledgePage connected={connected}/>}
         {page==="skills"&&<SkillsPage connected={connected}/>}
-        <div hidden={page!=="ai"}><AiPage connected={connected} onTaskCreated={()=>void refresh()}/></div>
-        {page==="settings"&&<section className="page"><div className="page-head"><div><div className="eyebrow">КОНФИГУРАЦИЯ</div><h1>Настройки</h1><p>Подключение Малении и защита ваших данных.</p></div></div><div className="settings-links"><button className="secondary" onClick={()=>setPage("connections")}><Plug size={16}/>Рабочие подключения</button><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p><div className="settings-links"><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Работает только на вашем компьютере. Модель для диалога настраивается в разделе «Ассистент». Для проверки ИНВенты модель не требуется." value={connected?"Запущен":"Остановлен"} action={<button className={connected?"danger":"primary"} onClick={connected?stopAgent:runAgent} disabled={busy}>{connected?<Square size={14}/>:<Play size={14}/>} {connected?"Остановить":"Запустить"}</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Доступ к рабочим страницам предоставляется через расширение браузера. Важные изменения требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение в разделе «Подключения»." value="Browser Bridge"/></div></section>}
+        <div hidden={page!=="ai"}><AiPage onInstructions={()=>setPage("skills")} connected={connected} onTaskCreated={()=>void refresh()}/></div>
+        {page==="settings"&&<section className="page"><div className="page-head"><div><div className="eyebrow">КОНФИГУРАЦИЯ</div><h1>Настройки</h1><p>Подключение Малении и защита ваших данных.</p></div></div><div className="settings-links"><button className="secondary" onClick={()=>setPage("connections")}><Plug size={16}/>Рабочие подключения</button><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p><div className="settings-links"><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Работает только на вашем компьютере. Модель для диалога настраивается в разделе «Ассистент». Для проверки инвентаризации модель не требуется." value={connected?"Запущен":"Остановлен"} action={<button className={connected?"danger":"primary"} onClick={connected?stopAgent:runAgent} disabled={busy}>{connected?<Square size={14}/>:<Play size={14}/>} {connected?"Остановить":"Запустить"}</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Доступ к рабочим страницам предоставляется через расширение браузера. Важные изменения требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение в разделе «Подключения»." value="Browser Bridge"/></div></section>}
       </div>
-      <footer className="statusbar"><span><i className={connected?"":"idle"}/>{connected?"Локальный агент активен":"Локальный агент остановлен"}</span><span><LockKeyhole size={12}/>Локальная среда　·　Маления 0.7.3</span></footer>
+      <footer className="statusbar"><span><i className={connected?"":"idle"}/>{connected?"Локальный агент активен":"Локальный агент остановлен"}</span><span><LockKeyhole size={12}/>Локальная среда　·　Маления 0.8.0</span></footer>
     </main>
 
-    {showHelp&&<div className="backdrop" onClick={()=>setShowHelp(false)}><section className="modal quick-help" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e=>e.stopPropagation()} onKeyDown={e=>{if(e.key==="Escape")setShowHelp(false);if(e.key==="Tab"){const buttons=e.currentTarget.querySelectorAll<HTMLButtonElement>("button");const first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div className="modal-head"><div><div className="eyebrow">ПЕРВЫЕ ШАГИ</div><h2 id="help-title">Освоимся в Малении</h2></div><button autoFocus className="icon-btn" aria-label="Закрыть справку" onClick={()=>setShowHelp(false)}><X size={18}/></button></div><ol className="help-steps"><li><b>Расскажите ассистенту о задаче</b><p>Откройте диалог, чтобы разобраться в вопросе, подготовить текст или составить план. Для диалога настройте локальную модель Шерлока.</p></li><li><b>Выберите подходящий инструмент</b><p>В разделе «Инструменты» собраны рабочие действия. Например, разбор ИНВенты — отдельный инструмент с выбором листа и своим прогрессом.</p></li><li><b>Подключите нужные источники</b><p>Каждый инструмент подскажет, какой доступ ему нужен. В разделе «Знания» храните полезные документы и проверенные навыки ассистента.</p></li></ol><button className="primary" onClick={()=>{setShowHelp(false);setPage("tools");}}>Посмотреть инструменты <ArrowUpRight size={16}/></button></section></div>}
+    {showHelp&&<div className="backdrop" onClick={()=>setShowHelp(false)}><section className="modal quick-help" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e=>e.stopPropagation()} onKeyDown={e=>{if(e.key==="Escape")setShowHelp(false);if(e.key==="Tab"){const buttons=e.currentTarget.querySelectorAll<HTMLButtonElement>("button");const first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div className="modal-head"><div><div className="eyebrow">ПЕРВЫЕ ШАГИ</div><h2 id="help-title">Освоимся в Малении</h2></div><button autoFocus className="icon-btn" aria-label="Закрыть справку" onClick={()=>setShowHelp(false)}><X size={18}/></button></div><ol className="help-steps"><li><b>Расскажите ассистенту о задаче</b><p>Откройте диалог, чтобы разобраться в вопросе, подготовить текст или составить план. Для диалога настройте локальную модель Шерлока.</p></li><li><b>Выберите подходящий инструмент</b><p>В разделе «Инструменты» собраны рабочие действия. Для инвентаризации выберите лист и запустите проверку.</p></li><li><b>Подключите нужные источники</b><p>Каждый инструмент подскажет, какой доступ ему нужен. В разделе «Инструкции» опишите рабочее правило и утвердите его для следующих разговоров.</p></li></ol><button className="primary" onClick={()=>{setShowHelp(false);setPage("tools");}}>Посмотреть инструменты <ArrowUpRight size={16}/></button></section></div>}
     {composer&&<div className="backdrop" onClick={()=>setComposer(false)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><div className="eyebrow">НОВЫЙ ПЛАН</div><h2>Что хотите сохранить?</h2></div><button className="icon-btn" onClick={()=>setComposer(false)}><X size={17}/></button></div><label>Название плана<input autoFocus maxLength={200} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Например: проверить новые заказы"/></label><label>Описание <small>необязательно</small><textarea rows={4} maxLength={2000} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Дополнительные детали..."/></label><div className="modal-foot"><span><LockKeyhole size={12}/>Сохранится локально</span><button className="primary" disabled={!connected||!title.trim()||busy} onClick={addTask}>{busy?<LoaderCircle className="spin" size={15}/>:<Plus size={15}/>}Сохранить план</button></div><p className="hint">Пока задача только сохраняется в очереди — автоматическое выполнение ещё не подключено.</p></div></div>}
   </div>;
 }
@@ -175,9 +174,9 @@ function BrowserPage({tabs,audit,job,connected,onRequested,onOpenSources}:{tabs:
     job?.status==="failed"?"Проверка завершилась с ошибкой":
     job?.status==="expired"?"Расширение не ответило вовремя":"Задачи пока нет";
   return <section className="page">
-    <div className="page-head"><div><div className="eyebrow">BROWSER BRIDGE · PREVIEW</div><h1>Браузер</h1><p>Browser Bridge: ручная передача любых HTTPS-вкладок. Автоматическая сверка ИНВенты пока использует три специализированные роли: ИНВента, DataLens и Asgard.</p></div><span className="browser-state"><i className={connected?"":"idle"}/>{connected?"Агент подключён":"Сначала запустите агента"}</span></div>
-    <div className="panel inventa-workbench"><h2>Разбор всего листа</h2><p>Откройте «Инструменты» → «Разбор ИНВенты» и выберите лист. Там доступны запуск и пауза, общий прогресс и результаты.</p><button className="primary" onClick={onOpenSources}>Открыть разбор ИНВенты</button></div>
-    <details><summary>Доступ к сайтам и ограничения</summary>    <div className="browser-safety"><div><ShieldCheck size={19}/></div><section><b>Приватность по умолчанию</b><p>Расширение не читает cookies, пароли и историю браузера. Для разрешённого поиска оно может вводить грузоместо только в строго распознанное поле. Отдельная команда может считать ограниченный видимый текст страницы, а автоматический обход — последовательно прочитать три явно разрешённых домена. Тексты не сохраняются. Диагностика показывает состояние расширения и источников. Рабочий разбор и запись результатов запускаются в инструменте «Разбор ИНВенты».</p></section></div></details>
+    <div className="page-head"><div><div className="eyebrow">BROWSER BRIDGE · PREVIEW</div><h1>Браузер</h1><p>Browser Bridge: ручная передача любых HTTPS-вкладок. Автоматическая сверка инвентаризации пока использует три специализированные роли: Инвентаризация, DataLens и Asgard.</p></div><span className="browser-state"><i className={connected?"":"idle"}/>{connected?"Агент подключён":"Сначала запустите агента"}</span></div>
+    <div className="panel inventa-workbench"><h2>Разбор всего листа</h2><p>Откройте «Инструменты» → «Инвентаризация» и выберите лист. Там доступны запуск и пауза, общий прогресс и результаты.</p><button className="primary" onClick={onOpenSources}>Открыть инвентаризацию</button></div>
+    <details><summary>Доступ к сайтам и ограничения</summary>    <div className="browser-safety"><div><ShieldCheck size={19}/></div><section><b>Приватность по умолчанию</b><p>Расширение не читает cookies, пароли и историю браузера. Для разрешённого поиска оно может вводить грузоместо только в строго распознанное поле. Отдельная команда может считать ограниченный видимый текст страницы, а автоматический обход — последовательно прочитать три явно разрешённых домена. Тексты не сохраняются. Диагностика показывает состояние расширения и источников. Рабочий разбор и запись результатов запускаются в инструменте «Инвентаризация».</p></section></div></details>
     <details><summary>Диагностика источников</summary>
     <div className="panel browser-panel" data-testid="browser-audit-runner">
       <div className="panel-head"><div><h3>Проверить заказы автоматически</h3><p>Только чтение. Расширение использует ранее настроенные сайты и разрешения.</p></div>
@@ -185,13 +184,13 @@ function BrowserPage({tabs,audit,job,connected,onRequested,onOpenSources}:{tabs:
           <Play size={15}/>{sending?"Отправляем…":"Запустить проверку"}</button>
       </div>
       <p role="status">{statusLabel}</p>
-      <p>Настройка в Яндекс Браузере: открой расширение Browser Bridge 1.6.31 или новее → «Найти открытые вкладки» → выбери ИНВенту, DataLens «Заказы» и Asgard «Обратный поток» → «Сохранить и разрешить чтение». Для проверки всей ИНВенты открой «Инструменты» → «Разбор ИНВенты» → выбери лист → «Начать проверку».</p>
+      <p>Настройка в Яндекс Браузере: открой расширение Browser Bridge 1.6.31 или новее → «Найти открытые вкладки» → выбери инвентаризацию, DataLens «Заказы» и Asgard «Обратный поток» → «Передать выбранные вкладки и разрешить чтение». Для проверки всей инвентаризации открой «Инструменты» → «Инвентаризация» → выбери лист → «Начать проверку».</p>
       {job?.status==="running" || job?.status==="completed" || job?.status==="failed" ?
         <div className="batch-summary" data-testid="browser-audit-progress">
           <span>Обработано источников: <b>{job.completed_sources}/3</b></span>
           <span>Требуют внимания: <b>{job.attention_sources}</b></span>
-          {job.current_role?<span>Последний этап: <b>{{inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"}[job.current_role]}</b></span>:null}
-          {job.failed_role?<span>Ошибка при чтении: <b>{{inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"}[job.failed_role]}</b></span>:null}
+          {job.current_role?<span>Последний этап: <b>{{inventory:"Инвентаризация",datalens:"DataLens",asgard:"Asgard"}[job.current_role]}</b></span>:null}
+          {job.failed_role?<span>Ошибка при чтении: <b>{{inventory:"Инвентаризация",datalens:"DataLens",asgard:"Asgard"}[job.failed_role]}</b></span>:null}
         </div>:null}
       {requestError?<p className="alert error" role="alert">{requestError}</p>:null}
       <p className="note">Для выполнения требуется запущенный браузер с установленным Browser Bridge, предварительно настроенными тремя HTTPS-страницами и разрешённым доступом. При отсутствии расширения команда истечёт; повторный запуск возможен вручную.</p>
@@ -216,7 +215,7 @@ function BrowserPage({tabs,audit,job,connected,onRequested,onOpenSources}:{tabs:
 
 type GoogleSheetsStatus = {connected:boolean;status:string;error:string|null;client_id?:string};
 
-function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,connected,onOpenBrowser,runState,runner}:{mode:"work"|"connections";selectedSheet:string;onSelectSheet:(url:string)=>void;onOpenConnections:()=>void;tabs:BrowserTab[];connected:boolean;onOpenBrowser:()=>void;runState:RunState;runner:InventaRun}){
+function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,connected,runState,runner}:{mode:"work"|"connections";selectedSheet:string;onSelectSheet:(url:string)=>void;onOpenConnections:()=>void;tabs:BrowserTab[];connected:boolean;runState:RunState;runner:InventaRun}){
   const [clarifiedYear,setClarifiedYear]=useState("");
   const [sheetOptions,setSheetOptions]=useState<{url:string;title:string}[]>([]);
   const [loadingSheets,setLoadingSheets]=useState(false);
@@ -275,12 +274,12 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
   const analyzeActiveInventa=async()=>{
     setBusy(true);setSheetError("");setSheetNotice("");setInventaReport(null);
     const activeTab=sheetUrl?{url:sheetUrl}:undefined;
-    if(!activeTab){setSheetError("Не найдена переданная вкладка Google Sheets. Открой ИНВенту в браузере и поделись этой вкладкой через Browser Bridge.");setBusy(false);return;}
+    if(!activeTab){setSheetError("Не найдена переданная вкладка Google Sheets. Открой инвентаризацию в браузере и поделись этой вкладкой через Browser Bridge.");setBusy(false);return;}
     const spreadsheetUrl=activeTab.url;
     try{
       const result=await invoke<any>("analyze_active_inventa",{spreadsheetUrl});
       setInventaReport(result);
-      setSheetNotice("ИНВента прочитана. Анализ выполнен без изменения исходной таблицы.");
+      setSheetNotice("Инвентаризация прочитана. Анализ выполнен без изменения исходной таблицы.");
     }catch(error){setSheetError(String(error));}
     finally{setBusy(false);}
   };
@@ -306,19 +305,18 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
     sheetsStatus.status==="agent_stopped"?"Запустите локальный агент":"Не подключён";
 
   return <section className="page sources-page">
-    <div className="page-head"><div><div className="eyebrow">{mode==="work"?"ИНСТРУМЕНТ · ТАБЛИЦЫ И ЗАКАЗЫ":"НАСТРОЙКА РАБОЧЕГО МЕСТА"}</div><h1>{mode==="work"?"Разбор ИНВенты":"Подключения"}</h1><p>{mode==="work"?"Выберите лист. Остальное Маления проверит по порядку.":"Подключите Google и разрешите доступ к рабочим страницам."}</p></div>{mode==="work"?<button className="secondary" onClick={onOpenConnections}><Plug size={16}/>Подключения</button>:null}</div>
-    {mode==="work"?<div className="workflow-steps" aria-label="Этапы работы"><div><span>01</span><b>Подключите источники</b><small>{sheetsAuthorized?"Google подключён":"Начните с Google"}</small></div><div><span>02</span><b>Выберите лист</b><small>{inventaReport?.source.sheet_title||"Ваша ИНВента"}</small></div><div><span>03</span><b>Проверьте результат</b><small>Статусы сохраняются в таблице</small></div></div>:<div className="sources-notice"><ShieldCheck size={17}/><span>Google Sheets подключается отдельно для чтения и редактирования. Маления может записывать результаты проверки заказов в ИНВенту. ChatGPT не передаёт свои подключения Malenia.</span></div>}
+    <div className="page-head"><div><div className="eyebrow">{mode==="work"?"ИНСТРУМЕНТ · ТАБЛИЦЫ И ЗАКАЗЫ":"НАСТРОЙКА РАБОЧЕГО МЕСТА"}</div><h1>{mode==="work"?"Инвентаризация":"Подключения"}</h1><p>{mode==="work"?"Выберите лист. Остальное Маления проверит по порядку.":"Подключите Google и разрешите доступ к рабочим страницам."}</p></div>{mode==="work"?<button className="secondary" onClick={onOpenConnections}><Plug size={16}/>Подключения</button>:null}</div>
     {sheetError?<p className="alert error" role="alert">{sheetError}</p>:null}
     {sheetNotice?<p className="alert success" role="status">{sheetNotice}</p>:null}
-    {mode==="work"?<article className="panel inventa-workbench" aria-label="Разбор ИНВенты">
-      <div className="workbench-heading"><div><h2>Один лист. Одна проверка.</h2><p>Сначала DataLens, затем Asgard для остальных заказов.</p></div><span className={"workbench-status "+(runBusy?"working":"")}>{runBusy?"В процессе":runState.phase==="completed"?"Завершено":"ИНВента"}</span></div>
+    {mode==="work"?<article className="panel inventa-workbench" aria-label="Инвентаризация">
+      <div className="workbench-heading"><div><h2>Проверка листа</h2><p>Сначала DataLens, затем Asgard для остальных заказов.</p></div><span className={"workbench-status "+(runBusy?"working":"")}>{runBusy?"В процессе":runState.phase==="completed"?"Завершено":"Инвентаризация"}</span></div>
       <label>Таблица и лист<select value={sheetUrl} disabled={runBusy} onChange={e=>{onSelectSheet(e.target.value);setClarifiedYear("");}}>
-        {!sheetTabs.length?<option value="">Передай вкладку ИНВенты через расширение</option>:null}
+        {!sheetTabs.length?<option value="">Передай вкладку инвентаризации через расширение</option>:null}
         {sheetTabs.filter(tab=>!sheetOptions.some(sheet=>sheet.url===tab.url)).map(tab=><option value={tab.url} key={tab.id}>{tab.title} · открытый лист</option>)}
         {sheetOptions.map(sheet=><option value={sheet.url} key={sheet.url}>{sheet.title}</option>)}
       </select></label>
       {inventaReport?.analysis.sheet_inventory_date?<p>Дата листа: <b>{inventaReport.analysis.sheet_inventory_date}</b></p>:null}
-      {!sheetsAuthorized?<div className="work-empty"><Plug size={24}/><b>Подключите Google Sheets</b><p>Это нужно для чтения ИНВенты и сохранения результатов.</p><button className="secondary" onClick={onOpenConnections}>Настроить подключение <ArrowUpRight size={15}/></button></div>:!sheetUrl?<div className="work-empty"><Globe2 size={24}/><b>Передайте таблицу из браузера</b><p>Откройте ИНВенту → расширение Малении → «Использовать эту вкладку».</p></div>:null}
+      {!sheetsAuthorized?<div className="work-empty"><Plug size={24}/><b>Подключите Google Sheets</b><p>Это нужно для чтения инвентаризации и сохранения результатов.</p><button className="secondary" onClick={onOpenConnections}>Настроить подключение <ArrowUpRight size={15}/></button></div>:!sheetUrl?<div className="work-empty"><Globe2 size={24}/><b>Передайте таблицу из браузера</b><p>Откройте инвентаризацию → расширение Малении → «Использовать эту вкладку».</p></div>:null}
       {needsYear?<label>Уточни только год для листа «{selectedTitle}»<input type="number" min="1900" max="9999" value={clarifiedYear} onChange={e=>setClarifiedYear(e.target.value)}/><small>День и месяц уже взяты из названия. В данных листа не нашлось однозначного года.</small></label>:null}
       {loadingSheets?<p role="status">Загружаю названия листов и дату…</p>:null}
       <div className="google-actions">
@@ -330,7 +328,7 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
       <div className={"inventa-progress phase-"+runState.phase} role="status" aria-live="polite"><b>{runState.phase==="error"?"Проверка остановлена":runState.phase==="pausing"?"Останавливаю поиск":runState.phase==="paused"?"Проверка на паузе":runState.phase==="completed"?"Проверка завершена":runState.total?`${runState.processed} из ${runState.total} заказов проверено`:runBusy?"Подготавливаю проверку":!sheetsAuthorized?"Нужно подключить Google":!sheetUrl?"Передайте таблицу из браузера":"Готова начать"}</b><p>{runState.message}</p>
         {runState.total>0?<progress aria-label="Прогресс разбора" max={runState.total} value={runState.processed}/>:null}
       </div>
-      <details className="run-details"><summary>Как работает проверка и дополнительные действия</summary><p>Строки со статусом «Найден» пропускаются. В партии до 20 остальных заказов. Каждый сначала проверяется в DataLens: скан OK от СЦ 101366 после даты листа означает «Найден» — Asgard для него пропускается. Asgard открывается только для остальных заказов партии. Партии переходят одна в другую автоматически. При ошибке разбор остановится; проверенная позиция сохранится. Можно переходить между разделами, пока окно Малении открыто. Подтверждённые в DataLens заказы получают статус «Найден» и зелёную заливку; по Asgard записываются статусы и комментарии. «Пауза» отменяет текущий поиск, «Начать заново» отменяет старую задачу и готовит новую очередь.</p><div className="settings-links"><button className="secondary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||runBusy||(needsYear&&!clarifiedDate)} onClick={()=>{if(window.confirm("Начать проверку выбранного листа заново? Сохранённая позиция будет сброшена."))void runner.restart(sheetUrl,clarifiedDate);}}>Начать заново</button><button className="secondary" disabled={!connected||!!lesson||runBusy} onClick={()=>setLesson({id:crypto.randomUUID(),title:"Заметка о проверке ИНВенты",content:"",kind:"memory"})}>Сохранить заметку</button></div></details>
+      <details className="run-details"><summary>Как работает проверка и дополнительные действия</summary><p>Строки со статусом «Найден» пропускаются. В партии до 20 остальных заказов. Каждый сначала проверяется в DataLens: скан OK от СЦ 101366 после даты листа означает «Найден» — Asgard для него пропускается. Asgard открывается только для остальных заказов партии. Партии переходят одна в другую автоматически. При ошибке разбор остановится; проверенная позиция сохранится. Можно переходить между разделами, пока окно Малении открыто. Подтверждённые в DataLens заказы получают статус «Найден» и зелёную заливку; по Asgard записываются статусы и комментарии. «Пауза» отменяет текущий поиск, «Начать заново» отменяет старую задачу и готовит новую очередь.</p><div className="settings-links"><button className="secondary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||runBusy||(needsYear&&!clarifiedDate)} onClick={()=>{if(window.confirm("Начать проверку выбранного листа заново? Сохранённая позиция будет сброшена."))void runner.restart(sheetUrl,clarifiedDate);}}>Начать заново</button><button className="secondary" disabled={!connected||!!lesson||runBusy} onClick={()=>setLesson({id:crypto.randomUUID(),title:"Заметка о проверке инвентаризации",content:"",kind:"memory"})}>Сохранить заметку</button></div></details>
       {lesson?<KnowledgeEditor initial={lesson} connected={connected} onCancel={()=>setLesson(null)} onSaved={()=>{setLesson(null);setSheetNotice("Пояснение сохранено в памяти ассистента. Правила автоматической сверки пока меняются отдельно — пояснение само по себе не изменяет статусы заказов.");}}/>:null}
     </article>:null}
     {mode==="connections"?<div className="source-settings">
@@ -338,7 +336,7 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
     <div className="sources-grid">
       <article className="panel source-card google-source-card">
         <div className="source-card-top"><span className="source-icon sheets"><Database size={19}/></span><span className={"source-state "+(sheetsAuthorized?"ready":"pending")}>{statusLabel}</span></div>
-        <h2>Google Sheets · ИНВента</h2>
+        <h2>Google Sheets · Инвентаризация</h2>
         <p>Отдельная авторизация Malenia. Запрашивается доступ на чтение и редактирование Google Sheets. Результаты проверки можно записывать в исходную таблицу. При запросе подтвердите доступ на редактирование.</p>
         {!connected?<p className="source-help">Нажмите «Запустить Малению» вверху экрана.</p>:null}
         {!sheetsAuthorized?
@@ -358,7 +356,7 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
               <button className="primary" disabled={busy} onClick={()=>void analyzeActiveInventa()}>{busy?"Анализируем…":"Обновить сведения о таблице"}</button>
               <button className="secondary" disabled={busy} onClick={()=>void disconnectSheets()}>Отключить Google</button>
             </div>
-            <small>Маления ищет Google Sheets во вкладках, которыми ты поделился через Browser Bridge. Если gid отсутствует, она определяет лист по заголовкам ИНВенты. Подключение Google разрешает чтение и редактирование. Сам анализ таблицы не изменяет ячейки.</small>
+            <small>Маления ищет Google Sheets во вкладках, которыми ты поделился через Browser Bridge. Если gid отсутствует, она определяет лист по заголовкам инвентаризации. Подключение Google разрешает чтение и редактирование. Сам анализ таблицы не изменяет ячейки.</small>
           </div>
           {inventaReport?<div className="sheet-preview">
             <div className="sheet-preview-head"><b>{inventaReport.source.spreadsheet_title} · {inventaReport.source.sheet_title}</b><small>{inventaReport.analysis.rows_analyzed} строк</small></div>
@@ -375,7 +373,7 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
       </article>
       {[
         {name:"Yandex DataLens",host:"datalens.yandex-team.ru",style:"datalens",icon:<Activity size={19}/>,
-          description:"Адаптер поиска читает историю сканов по грузоместу и проверяет успешные сканы СЦ 101366 после даты ИНВенты.",
+          description:"Адаптер поиска читает историю сканов по грузоместу и проверяет успешные сканы СЦ 101366 после даты инвентаризации.",
           help:"Открой вкладку DataLens «Заказы» → расширение Малении → «Использовать эту вкладку»."},
         {name:"Asgard",host:"asgard.market.yandex-team.ru",style:"asgard",icon:<Globe2 size={19}/>,
           description:"Адаптер ищет штрихкод коробки в «Обратном потоке» и читает статус грузоместа. При необходимости проверяет историю коробки.",
@@ -389,7 +387,7 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
           
         </article>;
       })}
-      <article className="panel source-card"><div className="source-card-top"><span className="source-icon browser"><Plug size={19}/></span><span className={"source-state "+(tabs.length?"ready":"pending")}>{tabs.length ? `Передано вкладок: ${tabs.length}` : "Ожидает передачи"}</span></div><h2>Browser Bridge</h2><p>Расширение связывает Малению с рабочими страницами браузера. Передайте ИНВенту, DataLens и Asgard, выберите их роли в расширении и нажмите «Сохранить и разрешить чтение». Cookies, пароли и история браузера не читаются.</p><small>Для подключения открой нужный сервис → расширение Малении → «Использовать эту вкладку». Повторите для ИНВенты, DataLens и Asgard. Затем откройте «Инструменты» → «Разбор ИНВенты» и нажмите «Начать проверку».</small><button className="secondary source-action" onClick={onOpenBrowser}>Открыть Browser Bridge <ArrowUpRight size={14}/></button></article>
+
     </div>
     </div>:null}
   </section>;

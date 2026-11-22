@@ -331,3 +331,15 @@ nav{gap:7px}.nav-item{height:48px;font-size:14px;border-radius:10px;color:#aebcb
 .browser-setup input{width:100%;min-width:0;padding:12px 14px;background:#111a1b;border:1px solid #455a50;border-radius:9px;color:#edf3ef;font-family:Consolas,monospace;font-size:14px}
 .browser-setup small{font-size:11px;color:#9fb3a7}.setup-footnote{border-top:1px solid var(--line);padding-top:17px;margin:0}
 @media(max-width:850px){.browser-setup{padding:20px}.browser-setup .workbench-heading{flex-direction:column}.browser-setup-steps li{padding-left:37px}.browser-setup button{max-width:100%;white-space:normal;text-align:left}}
+
+/* Work surfaces share the same reading width, spacing and keyboard focus. */
+.content .ai-page,.content .tool-catalog{max-width:850px;margin-inline:auto}
+.ai-page .page-head,.tool-catalog .page-head{margin:clamp(12px,4vh,48px) 0 24px}
+.ai-page .page-head h1,.tool-catalog h1{font-size:clamp(30px,4vw,46px);letter-spacing:-.045em}
+.ai-page .page-head p,.tool-row small,.assistant-install p{font-size:15px;line-height:1.55}
+.assistant-install,.tool-row{display:flex;align-items:flex-start;gap:18px;border:1px solid var(--line);border-radius:16px;padding:22px;background:var(--panel);color:inherit}
+.assistant-install{margin-bottom:20px}.assistant-install>svg,.tool-row>svg{flex-shrink:0;color:var(--accent)}
+.assistant-install h2{margin:0;font-size:19px}.assistant-install p{margin:8px 0 16px}
+.tool-list{display:grid;gap:10px}.tool-row{text-align:left;align-items:center;width:100%}.tool-row:hover{border-color:var(--accent)}
+.tool-row strong,.tool-row small{display:block}.tool-row strong{font-size:18px}.tool-row small{margin-top:5px;color:var(--muted)}.tool-row>svg{margin-left:auto}
+.ai-messages[hidden]{display:none}.ai-page>.ai-composer{border-radius:18px;padding:20px}.ai-page>.ai-composer textarea{font-size:16px;line-height:1.5;min-height:96px}

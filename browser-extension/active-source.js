@@ -5,7 +5,7 @@
   const title=document.getElementById('activeSourceTitle');
   const status=document.getElementById('activeSourceStatus');
   const roles=['inventory','datalens','asgard'];
-  const labels={inventory:'ИНВента',datalens:'DataLens',asgard:'Asgard'};
+  const labels={inventory:'Инвентаризация',datalens:'DataLens',asgard:'Asgard'};
   let active=null;
   const show=text=>{status.textContent=text;};
   const clean=url=>MaleniaAutomation.sourceUrl(url);

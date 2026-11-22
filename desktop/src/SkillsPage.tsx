@@ -28,34 +28,30 @@ export function SkillsPage({connected}:{connected:boolean}){
     try{
       await invoke("skill_action",{action,payload});
       if(action==="draft")setDraft(null);
-      setNotice(action==="draft"?"Черновик сохранён. Проверьте его и утвердите.":action==="approve"?"Навык утверждён и доступен Шерлоку.":"Навык удалён.");
+      setNotice(action==="draft"?"Черновик сохранён. Проверьте его и утвердите.":action==="approve"?"Инструкция активна. Откройте ассистента и опишите подходящую задачу.":"Навык удалён.");
       await refresh();
     }catch{setNotice("Не удалось сохранить изменение. Проверьте данные и попробуйте ещё раз.");}
     finally{active.current=false;setBusy(false);}
   };
   return <section className="page" aria-label="Навыки Malenia">
-    <div className="page-head"><div><div className="eyebrow">РАСШИРЯЕМАЯ СИСТЕМА</div>
-      <h1>Навыки Malenia</h1>
-      <p>Шерлок подбирает подходящие инструкции для разных задач, не только заказов.</p>
+    <div className="page-head"><div><h1>Инструкции</h1>
+      <p>Опишите, как вы решаете задачу. После утверждения Маления сможет применять ваши шаги в подходящих ответах.</p>
     </div></div>
-    <p className="note">Навыки — это сохранённые способы решения задач, а не исполняемые программы. Они помогают модели планировать и рассуждать, но не дают ей новых прав. Новые навыки начинают работать только после вашего утверждения. Веса Qwen не переобучаются.</p>
-    <div className="ai-controls"><button className="primary" disabled={!connected||busy||!!draft} onClick={()=>setDraft(blank())}>Создать навык</button>
+    <div className="ai-controls"><button className="primary" disabled={!connected||busy||!!draft} onClick={()=>setDraft(blank())}>Написать инструкцию</button>
       <button className="secondary" disabled={!connected||busy} onClick={()=>void refresh()}>Обновить</button></div>
     {draft?<div className="panel ai-task-review" aria-label="Новый навык">
-      <h2>Новый навык</h2>
-      <p>Опишите безопасный и повторяемый способ работы. Не вводите пароли, токены или персональные данные заказов.</p>
+      <h2>Новая инструкция</h2>
+      <p>Укажите, когда применять правило, какие шаги выполнить и что считать результатом.</p>
       <label>Название<input maxLength={80} value={draft.title} disabled={busy} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
-      <label>Назначение<input maxLength={200} value={draft.description} disabled={busy} onChange={e=>setDraft({...draft,description:e.target.value})}/></label>
-      <label>Правила выполнения<textarea rows={5} maxLength={1600} value={draft.instructions} disabled={busy} onChange={e=>setDraft({...draft,instructions:e.target.value})}/></label>
-      <label>Ключевые слова<input maxLength={240} value={draft.terms} disabled={busy} onChange={e=>setDraft({...draft,terms:e.target.value})}/></label>
+      <label>Инструкция<textarea placeholder="Например, при разборе аномалии сначала запроси номер обращения и дату, затем составь хронологию событий." rows={5} maxLength={1600} value={draft.instructions} disabled={busy} onChange={e=>setDraft({...draft,instructions:e.target.value})}/></label>
       <div className="ai-controls">
         <button className="secondary" disabled={busy} onClick={()=>setDraft(null)}>Отмена</button>
-        <button className="primary" disabled={busy||!connected||![draft.title,draft.description,draft.instructions,draft.terms].every(v=>v.trim())} onClick={()=>void run("draft",draft)}>Сохранить черновик</button>
+        <button className="primary" disabled={busy||!connected||!draft.title.trim()||!draft.instructions.trim()} onClick={()=>void run("draft",{...draft,description:draft.instructions.trim().slice(0,200),terms:draft.title.trim()})}>Сохранить черновик</button>
       </div>
     </div>:null}
     {notice?<p className="note" role="status">{notice}</p>:null}
     <div className="panel browser-panel">
-      <div className="panel-head"><div><h3>Каталог навыков</h3><p>{items.filter(x=>x.status==="approved").length} активных · {items.filter(x=>x.status==="draft").length} черновиков</p></div></div>
+      <div className="panel-head"><div><h3>Сохранённые инструкции</h3><p>{items.filter(x=>x.status==="approved").length} активных · {items.filter(x=>x.status==="draft").length} черновиков</p></div></div>
       {items.length?items.map(item=><article className="browser-tab" key={item.id}>
         <div className="browser-tab-copy">
           <b>{item.title} · {item.status==="draft"?"Черновик":"Активен"}{item.builtin?" · Встроенный":""}</b>

@@ -89,7 +89,7 @@ async function connect() {
     connected = true;
     setStatus("Malenia подключена. Можно поделиться текущей вкладкой.", "ok");
   } catch (error) {
-    setStatus(diagnostic(error), "error");
+    setStatus(`${diagnostic(error)} В Малении откройте «Подключения». ID этого расширения — ${chrome.runtime.id}.`, "error");
   } finally {
     busy = false;
     updateButtons();
@@ -244,7 +244,7 @@ inspectButton.addEventListener("click", async () => {
       page:{url:page.origin+page.pathname,...summary}});
     if (!response?.ok || response.type!=="capabilities_inspected" || response.persisted!==false)
       throw bridgeError("protocol");
-    const role = /inventa|инвент/i.test(page.hostname+" "+summary.title) ? "ИНВента" :
+    const role = /inventa|инвент/i.test(page.hostname+" "+summary.title) ? "Инвентаризация" :
       /datalens|data.?lens/i.test(page.hostname+" "+summary.title) ? "DataLens" :
       /asgard|асгард/i.test(page.hostname+" "+summary.title) ? "Asgard" : "Неизвестный ресурс";
     auditStatus.textContent = role+": "+(summary.login_required?"похоже, требуется вход": "страница доступна")+

@@ -13,8 +13,8 @@
     [role, document.getElementById("select" + role)]));
   const reasons = {
     inventa_writeback_required:"Для записи результатов обнови Малению и Browser Bridge",
-    inventa_writeback_failed:"Не удалось записать отметки в ИНВенту; позиция не сдвинута",
-    inventa_writeback_source_changed:"Лист или строки ИНВенты изменились; запись остановлена",
+    inventa_writeback_failed:"Не удалось записать отметки в инвентаризацию; позиция не сдвинута",
+    inventa_writeback_source_changed:"Лист или строки инвентаризации изменились; запись остановлена",
     inventa_writeback_formula_protected:"В колонке статуса обнаружена формула; запись остановлена",
     inventa_writeback_reauthorization_required:"Нужно заново подключить Google Sheets в Малении",
     inventa_writeback_permission_denied:"Google не разрешил редактирование выбранного листа",
@@ -85,7 +85,7 @@
   }
   function renderAudit(audit) {
     if (!orderStatus || !audit || !Array.isArray(audit.results)) return;
-    const labels = {inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"};
+    const labels = {inventory:"Инвентаризация",datalens:"DataLens",asgard:"Asgard"};
     const items = audit.results.map(item => {
       const source = labels[item.role];
       if (!source) return null;
@@ -99,13 +99,13 @@
             ` [Вкладка разбора: видимых полей ${item.surface.visible_inputs}, доступных ${item.surface.editable_inputs}, в блоке №13 ${item.surface.bound_inputs}, совпадений ${item.surface.matched_inputs}]`:"") :
         source+": чтение завершено";
     }).filter(Boolean);
-    const end = audit.phase === "reconciled" ? (audit.writeback?.verified===true?"Сверка и запись в ИНВенту завершены.":"Сверка выполнена без изменений сайтов.") :
+    const end = audit.phase === "reconciled" ? (audit.writeback?.verified===true?"Сверка и запись в инвентаризацию завершены.":"Сверка выполнена без изменений сайтов.") :
       audit.phase === "read_only" ? (reasons[audit.reason] || "Только чтение: сверка не подтверждена") :
       audit.phase === "needs_attention" ? "Автоматическая проверка не завершена." : audit.phase === "paused" ? "Задача остановлена." : "Проверка выполняется…";
     const version=typeof audit.bridge_version==='string' && /^\d+\.\d+\.\d+$/.test(audit.bridge_version)?
       "Browser Bridge "+audit.bridge_version:null;
     const written=audit.writeback?.verified===true && Number.isInteger(audit.writeback.written) &&
-      audit.writeback.written>=0 && audit.writeback.written<=20?`В ИНВенте отмечено зелёным: ${audit.writeback.written}`:null;
+      audit.writeback.written>=0 && audit.writeback.written<=20?`В инвентаризации отмечено зелёным: ${audit.writeback.written}`:null;
     const asgardWritten=audit.writeback?.verified===true && Number.isInteger(audit.writeback.asgard_written) && audit.writeback.asgard_written>=0 && audit.writeback.asgard_written<=20?`По Asgard обновлено строк: ${audit.writeback.asgard_written}`:null;
     orderStatus.textContent = [version,...items,written,asgardWritten,end].filter(Boolean).join(" · ");
     orderStatus.className = "status"+(audit.phase === "reconciled" ? " ok" : "");
@@ -118,11 +118,13 @@
     status.textContent = message;
     status.className = "status" + (kind ? " " + kind : "");
   };
+  let selectedPages = new Map();
   discover?.addEventListener("click", async () => {
     discover.disabled = true;
     try {
       const tabs = await chrome.tabs.query({});
       const pages = new Map();
+      selectedPages = new Map();
       for (const tab of tabs) {
         try {
           const url = new URL(tab.url);
@@ -131,6 +133,7 @@
           MaleniaAutomation.normalizeTargets(Object.fromEntries(
             Object.keys(fields).map(role => [role, clean])));
           if (url.username || url.password) continue;
+          if (!pages.has(clean)) selectedPages.set(clean,tab);
           if (!pages.has(clean)) pages.set(clean, {url:clean,
             title:String(tab.title || url.hostname).slice(0,120)});
         } catch { /* Internal browser pages and unsafe targets are omitted. */ }
@@ -157,7 +160,7 @@
         select.value = selected;
         fields[role].value = selected;
       }
-      show(candidates.length ? Object.values(fields).every(field=>field.value) ? "Рабочие вкладки определены. Нажми «Сохранить и разрешить чтение», затем вернись в Малению и продолжи разбор." : "Выбери недостающие рабочие вкладки и нажми «Сохранить и разрешить чтение». Содержимое страниц ещё не читается." :
+      show(candidates.length ? Object.values(fields).every(field=>field.value) ? "Рабочие вкладки определены. Нажми «Передать выбранные вкладки и разрешить чтение», затем вернись в Малению и продолжи разбор." : "Выбери недостающие рабочие вкладки и нажми «Передать выбранные вкладки и разрешить чтение». Содержимое страниц ещё не читается." :
         "Открой рабочие HTTPS-вкладки в этом браузере и повтори поиск.");
     } catch { show("Не удалось получить список вкладок. Повтори поиск.", "error"); }
     finally { discover.disabled = false; }
@@ -191,7 +194,17 @@
       }
       await chrome.storage.local.set({maleniaTargets: targets, maleniaExactGetSearch:true});
       try { await chrome.runtime?.sendMessage?.({type:"poll_desktop_audit"}); } catch { /* periodic poll remains available */ }
-      show("Готово! Запусти «Проверить первый заказ» в Малении.", "ok");
+      const selected=Object.entries(targets).map(([role,url])=>
+        selectors[role]?.value===url && selectedPages.get(url));
+      if(selected.every(Boolean)){
+        try{
+          for(const tab of selected){
+            const response=await sendNativeMessage({type:"share_active_tab",request_id:crypto.randomUUID(),tab:sanitizedTab(tab)});
+            if(!response?.ok)throw Error("share_failed");
+          }
+        }catch{show("Адреса сохранены. Передача вкладок в Малению прервалась. Проверьте подключение и повторите.", "error");return;}
+        show("Три вкладки переданы. Откройте инвентаризацию в Малении.", "ok");
+      }else show("Готово. Адреса сохранены. Чтобы передать вкладки в Малению, выберите их через поиск открытых вкладок.");
     } catch {
       // Never expose rejected URLs, credentials, or browser exception text.
       show("Проверь три HTTPS-адреса без параметров, фрагментов и встроенных паролей.", "error");

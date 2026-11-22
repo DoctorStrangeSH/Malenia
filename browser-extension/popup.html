@@ -19,7 +19,7 @@
     <section class="automation active-source" aria-label="Подключить текущую вкладку">
       <strong>Подключить эту вкладку</strong>
       <p id="activeSourceTitle">Определяю текущую вкладку…</p>
-      <label>Использовать как<select id="activeSourceRole"><option value="">Выбери назначение…</option><option value="inventory">ИНВента</option><option value="datalens">DataLens</option><option value="asgard">Asgard</option></select></label>
+      <label>Использовать как<select id="activeSourceRole"><option value="">Выбери назначение…</option><option value="inventory">Инвентаризация</option><option value="datalens">DataLens</option><option value="asgard">Asgard</option></select></label>
       <button id="useActiveSource" type="button" disabled>Использовать эту вкладку</button>
       <div id="activeSourceStatus" class="status" role="status" aria-live="polite">Загружаю сохранённые источники…</div>
       <p>Один раз для каждого сервиса. Выбор сохраняется после закрытия браузера и перезагрузки компьютера.</p>
@@ -28,15 +28,15 @@
     <button id="share" type="button" disabled>Поделиться вкладкой</button>
     <button id="shareAll" class="secondary" type="button" disabled>Передать открытые вкладки</button>
     <button id="inspect" class="secondary" type="button" disabled>Проверить структуру активной вкладки</button>
-    <div class="automation"><strong>Диагностика рабочей вкладки</strong><p>Открой ИНВенту, DataLens или Asgard в Яндекс Браузере и проверь структуру активной страницы. Передаются только видимые заголовки таблиц и подписи полей поиска; содержимое заказов не сохраняется.</p><div id="auditStatus" class="status" role="status" aria-live="polite">Ожидает проверки активной вкладки.</div></div>
+    <div class="automation"><strong>Диагностика рабочей вкладки</strong><p>Открой инвентаризацию, DataLens или Asgard в Яндекс Браузере и проверь структуру активной страницы. Передаются только видимые заголовки таблиц и подписи полей поиска; содержимое заказов не сохраняется.</p><div id="auditStatus" class="status" role="status" aria-live="polite">Ожидает проверки активной вкладки.</div></div>
     <section class="automation" aria-label="Настройка проверки заказов">
       <strong>Источники проверки заказов</strong>
       <p>Найди открытые вкладки и выбери, где какой сервис. Копировать ссылки не нужно. Разрешения на чтение запрашиваются отдельно по кнопке.</p>
       <button id="discoverTargets" type="button" class="secondary">Найти открытые вкладки</button>
-      <label>ИНВента · Google Sheets<select id="selectinventory" aria-label="Вкладка ИНВенты"></select><input id="targetInventory" type="url" readonly aria-label="Адрес ИНВенты"></label>
+      <label>Инвентаризация · Google Sheets<select id="selectinventory" aria-label="Вкладка инвентаризации"></select><input id="targetInventory" type="url" readonly aria-label="Адрес инвентаризации"></label>
       <label>DataLens<select id="selectdatalens" aria-label="Вкладка DataLens"></select><input id="targetDatalens" type="url" readonly aria-label="Адрес DataLens"></label>
       <label>Asgard<select id="selectasgard" aria-label="Вкладка Asgard"></select><input id="targetAsgard" type="url" readonly aria-label="Адрес Asgard"></label>
-      <button id="saveTargets" type="button" class="secondary">Сохранить и разрешить чтение</button>
+      <button id="saveTargets" type="button" class="secondary">Передать выбранные вкладки и разрешить чтение</button>
       <div id="targetsStatus" class="status" role="status">Источники ещё не настроены.</div>
       <div id="orderAuditStatus" class="status" role="status">Проверка заказов ещё не запускалась в этом сеансе браузера.</div>
     </section>

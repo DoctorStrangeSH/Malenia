@@ -7,16 +7,16 @@ type Batch = {job:Job;queued_orders:number;eligible_orders:number;batch_start:nu
 type Invoke = <T>(command:string,args?:Record<string,unknown>)=>Promise<T>;
 export function auditFailureMessage(job:Job):string {
   const writes:Record<string,string>={
-    inventa_writeback_required:"Обнови Малению и расширение для записи отметок в ИНВенту.",
-    inventa_writeback_failed:"Не удалось записать отметки в ИНВенту. Позиция сохранена.",
+    inventa_writeback_required:"Обнови Малению и расширение для записи отметок в инвентаризацию.",
+    inventa_writeback_failed:"Не удалось записать отметки в инвентаризацию. Позиция сохранена.",
     inventa_writeback_source_changed:"Выбранный лист или строки изменились. Запись остановлена; начни разбор заново.",
     inventa_writeback_formula_protected:"В колонке статуса есть формула. Маления не перезаписывает её.",
     inventa_writeback_reauthorization_required:"Заново подключи Google Sheets в настройках Малении.",
     inventa_writeback_permission_denied:"Google не разрешил редактирование выбранного листа.",
-    inventa_writeback_verification_failed:"Не удалось подтвердить запись статуса и заливки. Проверь отметки в ИНВенте; позиция сохранена.",
+    inventa_writeback_verification_failed:"Не удалось подтвердить запись статуса и заливки. Проверь отметки в инвентаризации; позиция сохранена.",
   };
   if(writes[job.failure_reason||""])return writes[job.failure_reason!];
-  const role=({inventory:"ИНВента",datalens:"DataLens",asgard:"Asgard"} as Record<string,string>)[job.failed_role||""]||"Источник";
+  const role=({inventory:"Инвентаризация",datalens:"DataLens",asgard:"Asgard"} as Record<string,string>)[job.failed_role||""]||"Источник";
   const reasons:Record<string,string>={
     search_field_missing:"Не найдено поле поиска. Открой рабочую страницу сервиса и проверь, что вход выполнен.",
     search_field_ambiguous:"Найдено несколько полей поиска. Маления не смогла выбрать нужное.",
@@ -141,7 +141,7 @@ export class InventaRun {
       }else if(["failed","expired"].includes(current.status)){
         this.fail(current.failure_reason==="sources_not_configured"?"Расширение получило задачу, но источники не настроены. В Browser Bridge выбери рабочие вкладки и сохрани их.":current.failure_reason==="browser_permission_missing"?"Браузер не разрешил чтение источников. В Browser Bridge нажми «Сохранить и разрешить чтение».":current.failure_reason==="agent_restarted"?"Предыдущая проверка прервана перезапуском. Можно начать разбор снова.":current.status==="expired"?"Browser Bridge не ответил. Проверь расширение и разрешения, затем продолжи.":auditFailureMessage(current));
       }else{
-        this.update({phase:current.status==="running"?"running":"waiting",message:current.status==="running"?`Расширение выполняет этап: ${{inventory:"чтение ИНВенты",datalens:"поиск в DataLens",asgard:"проверка карточек Asgard"}[current.current_role||""]||"подготовка"}.`:"Расширение ещё не забрало задачу. Поиск на сайтах не начался."});
+        this.update({phase:current.status==="running"?"running":"waiting",message:current.status==="running"?`Расширение выполняет этап: ${{inventory:"чтение инвентаризации",datalens:"поиск в DataLens",asgard:"проверка карточек Asgard"}[current.current_role||""]||"подготовка"}.`:"Расширение ещё не забрало задачу. Поиск на сайтах не начался."});
         this.schedule();
       }
     }catch(error){if(epoch===this.epoch)this.fail("Связь с агентом прервалась: "+String(error));}

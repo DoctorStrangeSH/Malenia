@@ -25,7 +25,7 @@ async function check(options){
   const submit=()=>{submits++;
    if(options.stale||(options.repeatStale&&submits>1)){setOther(x=>x+1);return;}
    setBusy(true);
-   timer=window.setTimeout(()=>{setResult(options.positive||(options.padding&&value==='0000012345678')?'positive':'empty');setEvidence(value);setGeneration(x=>x+1);setOther(x=>x+1);if(!options.busyForever)setBusy(false);if(options.wrongInput)setValue('OTHER');},200);
+   timer=window.setTimeout(()=>{setResult(options.unassigned||options.positive||(options.padding&&value==='0000012345678')?'positive':'empty');setEvidence(value);setGeneration(x=>x+1);setOther(x=>x+1);if(!options.busyForever)setBusy(false);if(options.wrongInput)setValue('OTHER');},200);
   };
   const empty=React.createElement('div',{key:generation},React.createElement(options.emptyTag||'span',null,'Нет данных'));
   const tableFor=(id,date='2026/10/05 16:51:32')=>{
@@ -33,7 +33,7 @@ async function check(options){
    return React.createElement('table',null,React.createElement('tbody',null,
     React.createElement('tr',null,...headers.map((s,i)=>React.createElement('th',{key:i},s))),
     ...Array.from({length:options.historyRows||1},(_,index)=>React.createElement('tr',{key:index},
-     ...[options.latestLast&&index===(options.historyRows||1)-1?'2026/10/11 16:51:32':date,'101366','OK',id,...(options.wideHistory?Array(29).fill('unused'):[])].map((s,i)=>React.createElement('td',{key:i},s))))));
+     ...[options.latestLast&&index===(options.historyRows||1)-1?'2026/10/11 16:51:32':date,'101366',options.unassigned||'OK',options.unassigned?'null':id,...(options.wideHistory?Array(29).fill('unused'):[])].map((s,i)=>React.createElement('td',{key:i},s))))));
   };
   const table=tableFor(result==='positive'?(options.padding||options.repeat?evidence:'TEST-1'):'OLD');
   return React.createElement(React.Fragment,null,
@@ -85,7 +85,7 @@ async function check(options){
    },async()=>{},{exactGetSearch:true,seedInventory:{columns:['cargo_place','inventory_date'],rows:[['12345678','2026-10-03']]},writebackJobId:'job'});
    assert.equal(result.phase,'reconciled');assert.ok(marked);if(options.lazyMirror)assert.ok(historyScrolls>0);assert.equal(submits,6);assert.equal(window.document.querySelector('input').value,'0000012345678');return;
   }
-  if(options.stale||options.error||options.busyForever||options.wrongInput||options.noTitle||options.duplicateCaption||options.mirrorStale||options.mirrorError||options.mirrorBusy||options.mirrorForeign||options.mirrorUnknown||options.mirrorRemoved||options.lazyNeverLoads||options.historyRows>1000)await assert.rejects(search,/search_results_unconfirmed|unmapped_search_results/);
+  if(options.unassigned==='OK'||options.stale||options.error||options.busyForever||options.wrongInput||options.noTitle||options.duplicateCaption||options.mirrorStale||options.mirrorError||options.mirrorBusy||options.mirrorForeign||options.mirrorUnknown||options.mirrorRemoved||options.lazyNeverLoads||options.historyRows>1000)await assert.rejects(search,/search_results_unconfirmed|unmapped_search_results/);
   else{
    const result=await search();if(options.lazyMirror)assert.ok(historyScrolls>0);assert.equal(result.rows.length,options.positive?(options.mirrorDifferentScan?2:(options.historyRows||1)):0);
    assert.deepEqual(Array.from(api.asgardSearchKeys({columns:['cargo_place','inventory_date'],rows:[['TEST-1','2026-10-03']]},result)),options.positive?[]:['TEST-1']);
@@ -96,6 +96,9 @@ async function check(options){
 const cases=[{repeat:true,positive:true,nativeHeader:true,initialEmpty:true},{repeat:true,repeatStale:true,positive:true,nativeHeader:true,initialEmpty:true},{initialEmpty:true,spacedTitle:true,padding:true},{initialEmpty:true,noWidgetAttributes:true,titleTag:'a',emptyTag:'em',padding:true},{initialEmpty:true,noWidgetAttributes:true,stale:true},{initialEmpty:true,noWidgetAttributes:true,busyForever:true},{initialEmpty:true,noWidgetAttributes:true,error:true},{initialEmpty:true,noWidgetAttributes:true,wrongInput:true},{noWidgetAttributes:true,noTitle:true},{initialEmpty:true,noWidgetAttributes:true,replaceWidget:true},{initialEmpty:true,noWidgetAttributes:true,duplicateCaption:true},{initialEmpty:true,titleTag:'a',emptyTag:'em'},{initialEmpty:true,noWidgetAttributes:true,titleTag:'p'},{}, {initialEmpty:true},{initialEmpty:true,replaceWidget:true},{initialEmpty:true,stale:true},
  {initialEmpty:true,error:true},{initialEmpty:true,busyForever:true},{initialEmpty:true,wrongInput:true},{noTitle:true},{positive:true},{initialEmpty:true,padding:true}];
 cases.push(
+ {initialEmpty:true,nativeHeader:true,unassigned:'ERROR',historyRows:2},
+ {initialEmpty:true,nativeHeader:true,unassigned:'OK'},
+ {initialEmpty:true,nativeHeader:true,unassigned:'ERROR',stale:true},
  {initialEmpty:true,nativeHeader:true,positive:true,historyRows:106,wideHistory:true,latestLast:true},
  {initialEmpty:true,nativeHeader:true,padding:true,historyRows:106,wideHistory:true,latestLast:true},
  {initialEmpty:true,nativeHeader:true,positive:true,historyRows:1000,wideHistory:true,latestLast:true},

@@ -11,7 +11,7 @@ type TaskDraft = {requestId:string; title:string; description:string; submitted?
 type SkillSuggestion = {request_id:string;title:string;description:string;instructions:string;terms:string};
 type Reply = {message: Message; model: string;sources?:Source[];answer_mode?:string;cited_source_ids?:string[];skill_ids?:string[]};
 
-export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCreated:()=>void}) {
+export function AiPage({connected,onTaskCreated,onInstructions}: {onInstructions:()=>void;connected: boolean;onTaskCreated:()=>void}) {
   const [status, setStatus] = useState<Status | null>(null);
   const [model, setModel] = useState("qwen2.5:0.5b");
   const minimal=model==="qwen2.5:0.5b";
@@ -58,25 +58,21 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
     if (connected) void invoke<Status>("get_ai_status").then(result => {
       if (active) {setStatus(result);if(result.models.length)setModel(result.models[0]);}
     }).catch(() => {if(active)setError("Не удалось проверить локальный движок.");});
-    else {setStatus(null);setMessages([]);setTaskDraft(null);setMemoryDraft(null);}
+    else {setStatus(null);}
     return () => {active = false;};
   }, [connected]);
-  const startModel = async () => {
-    if (pending.current) return;
-    pending.current=true;setBusy(true);setError("");
-    setSetupStatus("Подготовка движка… При первом запуске будет скачан архив около 1,6 ГБ.");
-    const timer=setInterval(()=>{void invoke<string>("get_setup_status").then(setSetupStatus).catch(()=>{});},1000);
-    try {await invoke("start_local_ai");await refresh();}
-    catch(reason){setError(String(reason));}
-    finally {clearInterval(timer);setSetupStatus("");pending.current=false;setBusy(false);}
-  };
-  const installSherlock=async()=>{
+  const installSherlock=async(useExisting=false)=>{
     if(pending.current)return;
     pending.current=true;setBusy(true);setError("");
     setSetupStatus("Подготавливаем движок…");
     let preparing=true;
     const timer=setInterval(()=>{if(preparing)void invoke<string>("get_setup_status").then(setSetupStatus).catch(()=>{});},1000);
-    try{await invoke("start_local_ai");preparing=false;setSetupStatus("Скачиваем выбранного Шерлока… Оставьте окно открытым.");await invoke("install_sherlock",{model:installModel});await refresh();setModel(installModel);}
+    try{await invoke("start_local_ai");
+      if(useExisting){
+        const ready=await invoke<Status>("get_ai_status");
+        if(ready.available && ready.models.length){setStatus(ready);setModel(ready.models[0]);return;}
+      }
+      preparing=false;setSetupStatus("Скачиваем выбранного Шерлока… Оставьте окно открытым.");await invoke("install_sherlock",{model:installModel});await refresh();setModel(installModel);}
     catch(reason){setError(String(reason));}
     finally{clearInterval(timer);setSetupStatus("");pending.current=false;setBusy(false);}
   };
@@ -127,68 +123,24 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
     }catch{setFeedbackNotice("Не удалось сохранить оценку навыка.");}
   };
   return <section className="page ai-page" aria-labelledby="ai-title">
-    <div className="page-head"><div><div className="eyebrow">ВАШ ИИ-ПОМОЩНИК</div><h1 id="ai-title">Ассистент</h1><p>Разбирайтесь в вопросах, готовьте тексты и планируйте работу вместе с Шерлоком.</p></div></div>
-
-    <div className={"assistant-status-card "+(connected&&status?.available&&status.models.length?"assistant-ready":"")}>
-      <div className="assistant-avatar"><BrainCircuit size={23}/></div>
-      <div className="assistant-status-copy"><b>{!connected?"Локальное ядро остановлено":!status?"Проверяем подключение":!status.available?"Шерлок пока недоступен":status.models.length?"Шерлок готов к работе":"Нужно установить модель"}</b>
-        <p>{!connected?"Нажмите «Запустить Малению» вверху экрана.":!status?"Проверяем локальный движок…":!status.available?"Локальный агент работает, но движок Ollama не отвечает. Нажмите «Запустить Шерлока» ниже.":status.models.length?"Модель доступна для диалога. Доступ к рабочим сайтам подключается отдельно.":"Движок работает, но модель ещё не установлена. Скачайте её ниже."}</p>
-      </div>
-      <span className={connected&&status?.available&&status.models.length?"assistant-status-dot ready":"assistant-status-dot"} aria-hidden="true"/>
+    <div className="page-head"><div><h1 id="ai-title">Ассистент</h1><p>С чем поработаем сегодня?</p></div>
+      <button className="secondary" onClick={onInstructions}>Мои инструкции</button>
     </div>
-
-    {connected&&(!status?.available||!status.models.length)?<div className="ai-controls" role="group" aria-label="Восстановление Шерлока">
-      {!status?.available?<button className="primary" disabled={busy} onClick={()=>void startModel()}>Подключить движок Шерлока</button>:<button className="primary" disabled={busy} onClick={()=>void installSherlock()}>Установить модель Шерлока</button>}
-      <button className="secondary" disabled={busy} onClick={()=>void refresh()}>Проверить ещё раз</button>
-      <small>Установка скачивает выбранную модель ({modelLabel(installModel)}); нужен интернет и свободное место.</small>
-    </div>:null}
-
+    {connected && status && (!status.available || !status.models.length) ? <section className="assistant-install">
+      <BrainCircuit size={26}/><div><h2>Подготовьте чат к первому разговору</h2>
+      <p>Для локального ИИ нужны движок и модель. При первой установке движок занимает около 1,6 ГБ загрузки. Выбрана модель «{modelLabel(installModel)}».</p>
+      <button className="primary" disabled={busy} onClick={()=>void installSherlock(true)}>Настроить локальный ИИ</button></div>
+    </section>:null}
+    {connected && !status && error?<button className="secondary" disabled={busy} onClick={()=>void refresh()}>Проверить подключение</button>:null}
 
     {error ? <p className="alert error" role="alert">{error}</p> : null}
     {setupStatus?<p role="status" className="alert success">{setupStatus}</p>:null}
 
-    <details className="panel assistant-settings">
-      <summary><span><Settings2 size={16}/> Настройки ассистента</span><small>Модель · память · интернет-поиск</small></summary>
-      <div className="assistant-settings-body">
-        <div className="ai-controls">
-          
-          <label>Модель <select value={model} disabled={busy || !status?.models.length} onChange={e=>setModel(e.target.value)}>{status?.models.length ? status.models.map(name=><option key={name} value={name}>{modelLabel(name)}</option>) : <option value={model}>{modelLabel(model)}</option>}</select></label>
-          <button className="secondary" disabled={!connected || busy} onClick={()=>void refresh()}>Проверить подключение</button>
-          <button className="secondary" disabled={busy || !messages.length} onClick={()=>{setMessages([]);setError("");}}>Очистить чат</button>
-        </div>
-        <p className="assistant-privacy">Сообщения обрабатываются локально. Интернет-поиск выключен по умолчанию: при включении в Bing отправляется только текущий вопрос, без заметок и истории. Полная переписка не сохраняется.</p>
-        <label className="note">Глубина рассуждения Шерлока
-          <select value={reasoningMode} disabled={busy||minimal} onChange={e=>setReasoningMode(e.target.value as "auto"|"fast"|"deep")}>
-            <option value="auto">Автоматически — глубже для сложных задач</option>
-            <option value="fast">Быстро — простые ответы</option>
-            <option value="deep">Глубоко — больше анализа, медленнее</option>
-          </select>
-        </label>
-        {minimal?<p className="note">Минимальный режим: короткие ответы, сокращённая история и освобождение памяти после ответа. Глубокое рассуждение отключено.</p>:null}
-        <label className="note"><input type="checkbox" checked={useKnowledge} disabled={busy || useWeb} onChange={e=>{setUseKnowledge(e.target.checked);if(!e.target.checked)setKnowledgeOnly(false);}}/> Использовать подтверждённую память и заметки</label>
-        <label className="note"><input type="checkbox" aria-label="Только по знаниям" checked={knowledgeOnly} disabled={busy || !useKnowledge || useWeb} onChange={e=>setKnowledgeOnly(e.target.checked)}/> Только по знаниям: отвечать по найденным записям</label>
-        <label className="note"><input type="checkbox" aria-label="Интернет-поиск" checked={useWeb} disabled={busy} onChange={e=>{setUseWeb(e.target.checked);if(e.target.checked)setKnowledgeOnly(false);}}/> Искать в интернете — отправлять текущий вопрос в Bing</label>
-        {useWeb?<p className="note">Ответ строится по выдержкам поиска со ссылками. Полные страницы не загружаются. Память и история чата в этом режиме не используются.</p>:null}
-        {knowledgeOnly?<p className="note">В этом режиме используются текущий вопрос и найденные фрагменты, без истории чата. Если записей нет, генерация не запускается.</p>:null}
-        <details className="assistant-install">
-          <summary>Установить или сменить модель Шерлока</summary>
-          <p>Минимальный Шерлок предназначен для простых вопросов на компьютерах с 1–2 ГБ свободной ОЗУ. Размер модели — около 400 МБ; фактический расход памяти зависит от запроса и других программ. Движок устанавливается отдельно: архив около 1,6 ГБ, для установки нужно около 4 ГБ свободного места на диске.</p>
-          <label>Вариант<select disabled={busy} value={installModel} onChange={e=>setInstallModel(e.target.value)}><option value="qwen2.5:0.5b">Шерлок — минимальный, модель около 400 МБ, от 1 ГБ свободной ОЗУ</option><option value="qwen3:8b">Шерлок — основной, около 5 ГБ</option><option value="qwen3:4b">Шерлок — облегчённый, около 3 ГБ</option><option value="qwen3:14b">Шерлок — расширенный, около 9 ГБ</option></select></label>
-          <button className="secondary" disabled={busy || !connected} onClick={()=>void installSherlock()}>Скачать выбранного Шерлока</button>
-          <small>Оставьте окно открытым до завершения. Модель скачивается только по этой кнопке.</small>
-        </details>
-        <details className="assistant-capability-note"><summary><ShieldCheck size={15}/>Диалог и рабочие инструменты</summary><p>Шерлок помогает с вопросами, текстами и планами. Рабочие действия запускаются отдельно в разделе «Инструменты»: чат сам по себе не выполняет их и не получает содержимое рабочих страниц. Не вставляйте в диалог пароли и токены.</p></details>
-      </div>
-    </details>
 
-    {!messages.length?<div className="prompt-suggestions" aria-label="Примеры запросов">
-      <span>Быстрый старт</span>
-      <button type="button" onClick={()=>setDraft("Помоги мне организовать рабочий день и расставить приоритеты.")}>Спланировать день</button>
-      <button type="button" onClick={()=>setDraft("Помоги разобраться в рабочем вопросе. Сначала уточни необходимые данные.")}>Разобрать вопрос</button>
-      <button type="button" onClick={()=>setDraft("Помоги составить понятную инструкцию по описанию процесса.")}>Составить инструкцию</button>
-    </div>:null}
 
-    <div className="panel ai-messages" role="log" aria-live="polite" aria-label="Переписка с Шерлоком">
+
+
+    <div hidden={!messages.length} className="panel ai-messages" role="log" aria-live="polite" aria-label="Переписка с Шерлоком">
       {!messages.length ? <div className="assistant-empty"><div><Sparkles size={21}/></div><b>Чем помочь сегодня?</b><p>Напишите вопрос или выберите пример выше. Можно вставить небольшой фрагмент таблицы или текста.</p></div> : messages.map((message,index)=><article className={"ai-message "+message.role} key={index}><b>{message.role==="user"?"Вы":"Шерлок"}</b><p>{message.content}</p>{message.answer_mode==="web"?<small>Режим: выдержки интернет-поиска</small>:null}{message.answer_mode==="knowledge_only"?<small>Режим: только по знаниям</small>:null}{message.sources?.length?<details className="ai-sources"><summary>Переданы модели: {message.sources.length} источников</summary>{message.sources.map(source=><div key={source.id}><b>{source.title}</b>{source.url && /^https?:\/\//.test(source.url)?<p><a href={source.url} target="_blank" rel="noopener noreferrer" onClick={event=>{event.preventDefault();void invoke("open_search_source",{url:source.url}).catch(()=>setError("Не удалось открыть источник в браузере. Скопируйте ссылку ниже."));}}>Открыть источник</a></p>:null}<small> · {source.source}{source.start!==undefined?` · символы ${source.start+1}–${source.end}`:""}{message.cited_source_ids?.includes(source.id)?" · модель сослалась на эту запись":""}</small><p>{source.excerpt}</p></div>)}</details>:null}{message.role==="assistant"&&message.skill_ids?.length?<div className="ai-controls">
         <small>Навык: {message.skill_ids.join(", ")}</small>
         {message.skill_ids.map(skillId=><span key={skillId}>
@@ -222,5 +174,38 @@ export function AiPage({connected,onTaskCreated}: {connected: boolean;onTaskCrea
       <textarea id="ai-draft" rows={3} maxLength={2000} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)} placeholder="Опишите задачу или вставьте фрагмент данных…"/>
       <div className="ai-composer-footer"><small>До 2 000 символов · локальная обработка</small><button className="primary" type="submit" disabled={busy || !connected || !draft.trim() || !status?.models.includes(model)}>{busy?"Ожидаем ответ": "Отправить"} <Sparkles size={14}/></button></div>
     </form>
+    <details className="panel assistant-settings">
+      <summary><span><Settings2 size={16}/> Настройки ассистента</span><small>Модель · память · интернет-поиск</small></summary>
+      <div className="assistant-settings-body">
+        <div className="ai-controls">
+          
+          <label>Модель <select value={model} disabled={busy || !status?.models.length} onChange={e=>setModel(e.target.value)}>{status?.models.length ? status.models.map(name=><option key={name} value={name}>{modelLabel(name)}</option>) : <option value={model}>{modelLabel(model)}</option>}</select></label>
+          <button className="secondary" disabled={!connected || busy} onClick={()=>void refresh()}>Проверить подключение</button>
+          <button className="secondary" disabled={busy || !messages.length} onClick={()=>{setMessages([]);setError("");}}>Очистить чат</button>
+        </div>
+        <p className="assistant-privacy">Сообщения обрабатываются локально. Интернет-поиск выключен по умолчанию: при включении в Bing отправляется только текущий вопрос, без заметок и истории. Полная переписка не сохраняется.</p>
+        <label className="note">Глубина рассуждения Шерлока
+          <select value={reasoningMode} disabled={busy||minimal} onChange={e=>setReasoningMode(e.target.value as "auto"|"fast"|"deep")}>
+            <option value="auto">Автоматически — глубже для сложных задач</option>
+            <option value="fast">Быстро — простые ответы</option>
+            <option value="deep">Глубоко — больше анализа, медленнее</option>
+          </select>
+        </label>
+        {minimal?<p className="note">Минимальный режим: короткие ответы, сокращённая история и освобождение памяти после ответа. Глубокое рассуждение отключено.</p>:null}
+        <label className="note"><input type="checkbox" checked={useKnowledge} disabled={busy || useWeb} onChange={e=>{setUseKnowledge(e.target.checked);if(!e.target.checked)setKnowledgeOnly(false);}}/> Использовать подтверждённую память и заметки</label>
+        <label className="note"><input type="checkbox" aria-label="Только по знаниям" checked={knowledgeOnly} disabled={busy || !useKnowledge || useWeb} onChange={e=>setKnowledgeOnly(e.target.checked)}/> Только по знаниям: отвечать по найденным записям</label>
+        <label className="note"><input type="checkbox" aria-label="Интернет-поиск" checked={useWeb} disabled={busy} onChange={e=>{setUseWeb(e.target.checked);if(e.target.checked)setKnowledgeOnly(false);}}/> Искать в интернете — отправлять текущий вопрос в Bing</label>
+        {useWeb?<p className="note">Ответ строится по выдержкам поиска со ссылками. Полные страницы не загружаются. Память и история чата в этом режиме не используются.</p>:null}
+        {knowledgeOnly?<p className="note">В этом режиме используются текущий вопрос и найденные фрагменты, без истории чата. Если записей нет, генерация не запускается.</p>:null}
+        <details className="assistant-install">
+          <summary>Установить или сменить модель Шерлока</summary>
+          <p>Минимальный Шерлок предназначен для простых вопросов на компьютерах с 1–2 ГБ свободной ОЗУ. Размер модели — около 400 МБ; фактический расход памяти зависит от запроса и других программ. Движок устанавливается отдельно: архив около 1,6 ГБ, для установки нужно около 4 ГБ свободного места на диске.</p>
+          <label>Вариант<select disabled={busy} value={installModel} onChange={e=>setInstallModel(e.target.value)}><option value="qwen2.5:0.5b">Шерлок — минимальный, модель около 400 МБ, от 1 ГБ свободной ОЗУ</option><option value="qwen3:8b">Шерлок — основной, около 5 ГБ</option><option value="qwen3:4b">Шерлок — облегчённый, около 3 ГБ</option><option value="qwen3:14b">Шерлок — расширенный, около 9 ГБ</option></select></label>
+          <button className="secondary" disabled={busy || !connected} onClick={()=>void installSherlock()}>Скачать выбранного Шерлока</button>
+          <small>Оставьте окно открытым до завершения. Модель скачивается только по этой кнопке.</small>
+        </details>
+        <details className="assistant-capability-note"><summary><ShieldCheck size={15}/>Диалог и рабочие инструменты</summary><p>Шерлок помогает с вопросами, текстами и планами. Рабочие действия запускаются отдельно в разделе «Инструменты»: чат сам по себе не выполняет их и не получает содержимое рабочих страниц. Не вставляйте в диалог пароли и токены.</p></details>
+      </div>
+    </details>
   </section>;
 }

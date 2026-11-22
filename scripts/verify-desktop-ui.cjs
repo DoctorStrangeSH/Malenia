@@ -51,26 +51,27 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByRole("button",{name:"Запустить Малению",exact:true}).click();
   await page.locator(".connection-banner").waitFor({state:"detached"});
   const mainNav=page.getByRole("navigation",{name:"Основные разделы"});
-  assert.deepEqual(await mainNav.getByRole("button").allTextContents(),["Ассистент","Инструменты","Знания","Подключения"]);
+  assert.deepEqual(await mainNav.getByRole("button").allTextContents(),["Ассистент","Инструменты","Инструкции","Подключения"]);
   await page.getByLabel("Сообщение",{exact:true}).fill("Помоги составить план рабочего дня");
   await page.getByRole("button",{name:"Отправить",exact:true}).click();
   await page.getByText("Вот план работы по вашей задаче.",{exact:true}).waitFor();
   await page.getByLabel("Сообщение",{exact:true}).fill("Несохранённый черновик");
   const openInventory=async()=>{
     await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
-    await page.getByRole("button",{name:"Открыть: Разбор ИНВенты",exact:true}).click();
+    await page.getByRole("button",{name:/^Инвентаризация/}).click();
   };
   await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
-  assert.equal(await page.locator(".tool-card").count(),5);
-  await page.getByLabel("Поиск инструментов",{exact:true}).fill("инв");
-  assert.equal(await page.locator(".tool-card").count(),1);
-  await page.getByRole("button",{name:"Очистить поиск инструментов",exact:true}).click();
-  await page.getByRole("button",{name:"Знания и навыки",exact:true}).click();
-  assert.equal(await page.locator(".tool-card").count(),2);
-  await page.getByRole("button",{name:"Все",exact:true}).click();
-  await page.getByLabel("Поиск инструментов",{exact:true}).fill("несуществующий инструмент");
-  await page.getByText("Инструмент не найден",{exact:true}).waitFor();
-  await page.getByRole("button",{name:"Показать все инструменты",exact:true}).click();
+  assert.equal(await page.locator(".tool-row").count(),2);
+  await mainNav.getByRole("button",{name:"Инструкции",exact:true}).click();
+  await page.getByRole("button",{name:"Написать инструкцию"}).click();
+  await page.getByLabel("Название",{exact:true}).fill("Аномалии");
+  await page.getByLabel("Инструкция",{exact:true}).fill("Сначала запроси номер обращения.");
+  await page.getByRole("button",{name:"Сохранить черновик"}).click();
+  await page.getByText("Черновик сохранён. Проверьте его и утвердите.").waitFor();
+  const saved=await page.evaluate(()=>window.__uiMock.calls.find(x=>x.command==="skill_action").args.payload);
+  assert.equal(saved.terms,"Аномалии");
+  assert.equal(saved.instructions,"Сначала запроси номер обращения.");
+  await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
   await page.screenshot({path:path.join(output,"02-tools.png"),fullPage:true});
   await mainNav.getByRole("button",{name:"Подключения",exact:true}).click();
   await page.getByRole("button",{name:"Открыть папку расширения",exact:true}).click();
@@ -125,7 +126,7 @@ fs.mkdirSync(output,{recursive:true});
   assert.ok(queued.every(x=>x.args.spreadsheetUrl.endsWith("gid=2")));
   for(const width of [1440,1080,850]){
    await page.setViewportSize({width,height:900});
-   for(const destination of ["Ассистент","Инструменты","Знания"]){
+   for(const destination of ["Ассистент","Инструменты","Инструкции"]){
     await mainNav.getByRole("button",{name:destination,exact:true}).click();
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), destination+" horizontal overflow at "+width);
     await page.screenshot({path:path.join(output,destination+"-"+width+".png"),fullPage:true});

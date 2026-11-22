@@ -938,7 +938,8 @@ var MaleniaAutomation = (() => {
                 const id=row[col('place_external_id')];
                 return id!=='' && id!=='null';
               });
-              if(!identified.length || identified.some(row=>row[col('place_external_id')]!==code)){
+              const onlyUnassignedErrors=!identified.length && rows.every(row=>row[col('result')]==='ERROR');
+              if((!identified.length && !onlyUnassignedErrors) || identified.some(row=>row[col('place_external_id')]!==code)){
                 readFailure='scan_table_identity_mismatch';return null;
               }
               candidateTables.push(table);

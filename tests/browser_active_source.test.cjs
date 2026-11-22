@@ -33,7 +33,7 @@ test('bind current tab without scanning other tabs and persist each role across 
  }
  assert.equal(Object.keys(saved).length,3);
  const reopened=await popup('https://asgard.market.yandex-team.ru/',saved);
- assert.match(reopened.nodes.activeSourceStatus.textContent,/ИНВента: сохранён/);
+ assert.match(reopened.nodes.activeSourceStatus.textContent,/Инвентаризация: сохранён/);
  assert.match(reopened.nodes.activeSourceStatus.textContent,/DataLens: сохранён/);
 });
 test('denied permission, unsafe tab and missing role never save a source',async()=>{
