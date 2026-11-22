@@ -165,19 +165,18 @@ test('model download first installs/starts runtime and stops if preparation fail
 });
 
 
-test('quick-start prompts populate the composer without sending a request',async()=>{
-  const calls=[];
+test('opening instructions preserves the composer and sends no request',async()=>{
+  const calls=[];let opened=0;
   const h=harness(async(command,args)=>{
     calls.push({command,args});
     if(command==='get_ai_status')return {available:true,models:['qwen3:8b']};
     throw Error(command);
-  });
+  },"AiPage",{onInstructions:()=>opened++});
   h.render();await tick();
-  const prompt=h.find('button',p=>p.children==='Разобрать вопрос')[0];
-  assert.ok(prompt);
-  prompt.props.onClick();
-  assert.equal(h.find('textarea',p=>p.id==='ai-draft')[0].props.value,
-    'Помоги разобраться в рабочем вопросе. Сначала уточни необходимые данные.');
+  h.find('textarea',p=>p.id==='ai-draft')[0].props.onChange({target:{value:'Мой черновик'}});
+  h.find('button',p=>p.children==='Мои инструкции')[0].props.onClick();
+  assert.equal(opened,1);
+  assert.equal(h.find('textarea',p=>p.id==='ai-draft')[0].props.value,'Мой черновик');
   assert.equal(calls.filter(call=>call.command==='chat_ai').length,0);
   const settings=h.find('details',p=>(p.className||'').includes('assistant-settings'))[0];
   assert.ok(settings);

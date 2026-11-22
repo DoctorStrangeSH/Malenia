@@ -26,25 +26,25 @@ test('daily navigation separates tools, knowledge and connections without a task
   assert.match(app, /aria-label="Знания и навыки"/);
   assert.match(app, /Дополнительные инструменты/);
   assert.match(app, /label="Инструменты"/);
-  assert.match(app, /label="Знания"/);
+  assert.match(app, /label="Инструкции"/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Проверка ИНВенты"/);
 });
 
 test('sources page is reachable and shows truthful connection state', () => {
   assert.match(app, /<Nav[^\n]*label="Подключения"/);
-  assert.match(app, /Google Sheets · ИНВента/);
-  assert.match(app, /ChatGPT не передаёт свои подключения Malenia/);
+  assert.match(app, /Google Sheets · Инвентаризация/);
+  assert.match(app, /Отдельная авторизация Malenia/);
   assert.match(app, /Вкладка передана · требуется тест/);
   assert.doesNotMatch(app, /Дашборд пока не читается приложением/);
   assert.match(app, /ручная передача любых HTTPS-вкладок/);
   assert.match(app, /автоматический обход — последовательно прочитать три явно разрешённых домена/);
-  assert.match(app, /Открыть Browser Bridge/);
+  assert.match(app, /<BrowserSetup/);
 });
 
 
 test('Google Sheets onboarding explains editor access and calls the native connector', () => {
   assert.match(app, /Google OAuth Desktop Client ID/);
-  assert.match(app, /Google Sheets подключается отдельно для чтения и редактирования/);
+  assert.match(app, /Запрашивается доступ на чтение и редактирование Google Sheets/);
   assert.match(app, /connect_google_sheets/);
   assert.match(app, /get_google_sheets_status/);
   assert.doesNotMatch(app, /invoke[^\n]*read_google_sheet/);
@@ -155,14 +155,14 @@ test('whole-sheet review has one primary start and an explicit confirmed restart
 });
 
 test('skills are a first-class reviewed workspace not an inventory-only workflow',()=>{
-  assert.match(app,/onClick=\{\(\)=>setPage\("skills"\)\}>Навыки/);
-  assert.match(app,/<SkillsPage connected=\{connected\}\/>/);
+  assert.match(app,/onClick=\{\(\)=>setPage\("skills"\)\}>Инструкции/);
+  assert.match(app,/<SkillsPage connected=\{connected\} onApply=/);
   const skills=fs.readFileSync(path.resolve(__dirname,'../desktop/src/SkillsPage.tsx'),'utf8');
   assert.match(skills,/get_skills/);
   assert.match(skills,/skill_action/);
   assert.match(skills,/Сохранить черновик/);
   assert.match(skills,/Утвердить/);
-  assert.match(skills,/Веса Qwen не переобучаются/);
+  assert.match(skills,/Применить в чате/);
   const ai=fs.readFileSync(path.resolve(__dirname,'../desktop/src/AiPage.tsx'),'utf8');
   assert.match(ai,/skill_ids:reply\.skill_ids/);
   assert.match(ai,/Полезен/);
