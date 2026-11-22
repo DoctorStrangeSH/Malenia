@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { BrainCircuit, Settings2, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowUp, BrainCircuit, Settings2, ShieldCheck } from "lucide-react";
 import {KnowledgeEditor,type KnowledgeDraft} from "./KnowledgePage";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -126,12 +126,12 @@ export function AiPage({connected,onTaskCreated,onInstructions,instruction,onCle
     }catch{setFeedbackNotice("Не удалось сохранить оценку навыка.");}
   };
   return <section className="page ai-page" aria-labelledby="ai-title">
-    <div className="page-head"><div><h1 id="ai-title">Ассистент</h1><p>С чем поработаем сегодня?</p></div>
+    <div className="page-head"><div><h1 id="ai-title">Ассистент</h1></div>
       <button className="secondary" onClick={onInstructions}>Мои инструкции</button>
     </div>
     {connected && status && (!status.available || !status.models.length) ? <section className="assistant-install">
-      <BrainCircuit size={26}/><div><h2>Подготовьте чат к первому разговору</h2>
-      <p>Для локального ИИ нужны движок и модель. При первой установке движок занимает около 1,6 ГБ загрузки. Выбрана модель «{modelLabel(installModel)}».</p>
+      <BrainCircuit size={26}/><div><h2>Подключите локальную модель</h2>
+      <p>Маления скачает движок (около 1,6 ГБ при первой установке) и модель «{modelLabel(installModel)}».</p>
       <button className="primary" disabled={busy} onClick={()=>void installSherlock(true)}>Настроить локальный ИИ</button></div>
     </section>:null}
     {connected && !status && error?<button className="secondary" disabled={busy} onClick={()=>void refresh()}>Проверить подключение</button>:null}
@@ -144,7 +144,7 @@ export function AiPage({connected,onTaskCreated,onInstructions,instruction,onCle
 
 
     <div hidden={!messages.length} className="panel ai-messages" role="log" aria-live="polite" aria-label="Переписка с Шерлоком">
-      {!messages.length ? <div className="assistant-empty"><div><Sparkles size={21}/></div><b>Чем помочь сегодня?</b><p>Напишите вопрос или выберите пример выше. Можно вставить небольшой фрагмент таблицы или текста.</p></div> : messages.map((message,index)=><article className={"ai-message "+message.role} key={index}><b>{message.role==="user"?"Вы":"Шерлок"}</b><p>{message.content}</p>{message.answer_mode==="web"?<small>Режим: выдержки интернет-поиска</small>:null}{message.answer_mode==="knowledge_only"?<small>Режим: только по знаниям</small>:null}{message.sources?.length?<details className="ai-sources"><summary>Переданы модели: {message.sources.length} источников</summary>{message.sources.map(source=><div key={source.id}><b>{source.title}</b>{source.url && /^https?:\/\//.test(source.url)?<p><a href={source.url} target="_blank" rel="noopener noreferrer" onClick={event=>{event.preventDefault();void invoke("open_search_source",{url:source.url}).catch(()=>setError("Не удалось открыть источник в браузере. Скопируйте ссылку ниже."));}}>Открыть источник</a></p>:null}<small> · {source.source}{source.start!==undefined?` · символы ${source.start+1}–${source.end}`:""}{message.cited_source_ids?.includes(source.id)?" · модель сослалась на эту запись":""}</small><p>{source.excerpt}</p></div>)}</details>:null}{message.role==="assistant"&&message.skill_ids?.length?<div className="ai-controls">
+      {messages.map((message,index)=><article className={"ai-message "+message.role} key={index}><b>{message.role==="user"?"Вы":"Шерлок"}</b><p>{message.content}</p>{message.answer_mode==="web"?<small>Режим: выдержки интернет-поиска</small>:null}{message.answer_mode==="knowledge_only"?<small>Режим: только по знаниям</small>:null}{message.sources?.length?<details className="ai-sources"><summary>Переданы модели: {message.sources.length} источников</summary>{message.sources.map(source=><div key={source.id}><b>{source.title}</b>{source.url && /^https?:\/\//.test(source.url)?<p><a href={source.url} target="_blank" rel="noopener noreferrer" onClick={event=>{event.preventDefault();void invoke("open_search_source",{url:source.url}).catch(()=>setError("Не удалось открыть источник в браузере. Скопируйте ссылку ниже."));}}>Открыть источник</a></p>:null}<small> · {source.source}{source.start!==undefined?` · символы ${source.start+1}–${source.end}`:""}{message.cited_source_ids?.includes(source.id)?" · модель сослалась на эту запись":""}</small><p>{source.excerpt}</p></div>)}</details>:null}{message.role==="assistant"&&message.skill_ids?.length?<div className="ai-controls">
         <small>Навык: {message.skill_ids.join(", ")}</small>
         {message.skill_ids.map(skillId=><span key={skillId}>
           <button className="secondary" disabled={!!ratedSkills[index+":"+skillId]} onClick={()=>void rateSkill(skillId,true,index+":"+skillId)}>Полезен</button>
@@ -174,9 +174,9 @@ export function AiPage({connected,onTaskCreated,onInstructions,instruction,onCle
     {taskDraft ? <section className="panel ai-task-review" aria-labelledby="task-review-title"><h2 id="task-review-title">Проверьте план перед сохранением</h2><p>Отредактируйте текст перед сохранением. План останется заметкой и не запустит автоматические действия.</p><label>Название<input autoFocus maxLength={200} disabled={taskBusy || taskDraft.submitted} value={taskDraft.title} onChange={e=>setTaskDraft({...taskDraft,title:e.target.value})}/></label><label>Описание<textarea rows={5} maxLength={2000} disabled={taskBusy || taskDraft.submitted} value={taskDraft.description} onChange={e=>setTaskDraft({...taskDraft,description:e.target.value})}/><small>{taskDraft.description.length}/2000{taskDraft.description.length>2000?" — сократите описание перед сохранением":""}</small></label><div><button className="secondary" disabled={taskBusy} onClick={()=>setTaskDraft(null)}>Отмена</button><button className="primary" disabled={taskBusy || !connected || !taskDraft.title.trim() || taskDraft.description.length>2000} onClick={()=>void saveTask()}>{taskBusy?"Сохраняем…":"Сохранить план"}</button></div></section> : null}
     <form className="ai-composer" onSubmit={event=>{event.preventDefault();void send();}}>
       {instruction?<div className="instruction-chip"><span>Инструкция · <b>{instruction.title}</b></span><button type="button" className="secondary" onClick={onClearInstruction}>Убрать</button></div>:null}
-      <label htmlFor="ai-draft">Сообщение</label>
-      <textarea id="ai-draft" rows={3} maxLength={remaining} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)} placeholder="Опишите задачу или вставьте фрагмент данных…"/>
-      <div className="ai-composer-footer"><small>{draft.length>remaining?`Сократите сообщение на ${draft.length-remaining} симв.`:`До ${remaining} символов · локальная обработка`}</small><button className="primary" type="submit" disabled={busy || !connected || !draft.trim() || draft.trim().length>remaining || !status?.models.includes(model)}>{busy?"Ожидаем ответ": "Отправить"} <Sparkles size={14}/></button></div>
+      <label className="visually-hidden" htmlFor="ai-draft">Сообщение</label>
+      <textarea id="ai-draft" rows={3} maxLength={remaining} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)} placeholder="Напишите, с чем помочь…"/>
+      <div className="ai-composer-footer"><small>{draft.length>remaining?`Сократите сообщение на ${draft.length-remaining} симв.`:`${draft.length} / ${remaining}`}</small><button className="primary" type="submit" disabled={busy || !connected || !draft.trim() || draft.trim().length>remaining || !status?.models.includes(model)}>{busy?"Ожидаем ответ": "Отправить"} <ArrowUp size={16}/></button></div>
     </form>
     <details className="panel assistant-settings">
       <summary><span><Settings2 size={16}/> Настройки ассистента</span><small>Модель · память · интернет-поиск</small></summary>

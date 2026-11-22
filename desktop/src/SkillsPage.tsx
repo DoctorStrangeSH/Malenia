@@ -33,15 +33,15 @@ export function SkillsPage({connected,onApply}:{connected:boolean;onApply:(item:
     }catch{setNotice("Не удалось сохранить изменение. Проверьте данные и попробуйте ещё раз.");}
     finally{active.current=false;setBusy(false);}
   };
-  return <section className="page" aria-label="Навыки Malenia">
+  return <section className="page instructions-page" aria-label="Инструкции Малении">
     <div className="page-head"><div><h1>Инструкции</h1>
-      <p>Опишите, как вы решаете задачу. После утверждения Маления сможет применять ваши шаги в подходящих ответах.</p>
+      <p>Сохраните свой порядок действий и применяйте его в чате.</p>
     </div></div>
     <div className="ai-controls"><button className="primary" disabled={!connected||busy||!!draft} onClick={()=>setDraft(blank())}>Написать инструкцию</button>
 </div>
     {draft?<div className="panel ai-task-review" aria-label="Новый навык">
       <h2>Новая инструкция</h2>
-      <p>Укажите, когда применять правило, какие шаги выполнить и что считать результатом.</p>
+      <p>Опишите задачу, шаги и ожидаемый результат.</p>
       <label>Название<input maxLength={80} value={draft.title} disabled={busy} onChange={e=>setDraft({...draft,title:e.target.value})}/></label>
       <label>Инструкция<textarea placeholder="Например, при разборе аномалии сначала запроси номер обращения и дату, затем составь хронологию событий." rows={5} maxLength={1600} value={draft.instructions} disabled={busy} onChange={e=>setDraft({...draft,instructions:e.target.value})}/></label>
       <div className="ai-controls">
@@ -54,9 +54,9 @@ export function SkillsPage({connected,onApply}:{connected:boolean;onApply:(item:
       <div className="panel-head"><div><h3>Сохранённые инструкции</h3><p>{items.filter(x=>x.status==="approved").length} активных · {items.filter(x=>x.status==="draft").length} черновиков</p></div></div>
       {items.length?items.map(item=><article className="browser-tab" key={item.id}>
         <div className="browser-tab-copy">
-          <b>{item.title} · {item.status==="draft"?"Черновик":"Активен"}{item.builtin?" · Встроенный":""}</b>
-          <p>{item.description}</p>
-          <details><summary>Инструкции и ключевые слова</summary><p>{item.instructions}</p><small>{item.terms}</small></details>
+          <header className="instruction-title"><b>{item.title}</b><small>{item.status==="draft"?"Черновик":item.builtin?"Встроенная":"Активна"}</small></header>
+          {item.builtin?<p>{item.description}</p>:null}
+          <details><summary>Показать шаги</summary><p>{item.instructions}</p><small>{item.terms}</small></details>
           {item.status==="approved"?<button className="secondary" onClick={()=>onApply({title:item.title,instructions:item.instructions})}>Применить в чате</button>:null}
           {!item.builtin?<div className="ai-controls">
             {item.status==="draft"?<button className="primary" disabled={busy} onClick={()=>void run("approve",{id:item.id})}>Утвердить</button>:null}
