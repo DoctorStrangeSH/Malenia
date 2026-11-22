@@ -34,6 +34,7 @@ export default function App(){
   const [inventaRun]=useState(()=>new InventaRun(invoke,setRunState));
   useEffect(()=>()=>inventaRun.dispose(),[inventaRun]);
   const [page,setPage]=useState<Page>("ai");
+  const [instruction,setInstruction]=useState<{title:string;instructions:string}|null>(null);
   const [selectedSheet,setSelectedSheet]=useState("");
   const [showHelp,setShowHelp]=useState(false);
   const [data,setData]=useState<Dashboard|null>(null);
@@ -127,8 +128,8 @@ export default function App(){
         {page==="orders"&&<OrderCheckPage connected={connected}/>}
         {page==="order_batch"&&<OrderBatchPage connected={connected}/>}
         {page==="knowledge"&&<KnowledgePage connected={connected}/>}
-        {page==="skills"&&<SkillsPage connected={connected}/>}
-        <div hidden={page!=="ai"}><AiPage onInstructions={()=>setPage("skills")} connected={connected} onTaskCreated={()=>void refresh()}/></div>
+        {page==="skills"&&<SkillsPage connected={connected} onApply={item=>{setInstruction(item);setPage("ai");}}/>}
+        <div hidden={page!=="ai"}><AiPage instruction={instruction} onClearInstruction={()=>setInstruction(null)} onInstructions={()=>setPage("skills")} connected={connected} onTaskCreated={()=>void refresh()}/></div>
         {page==="settings"&&<section className="page"><div className="page-head"><div><div className="eyebrow">КОНФИГУРАЦИЯ</div><h1>Настройки</h1><p>Подключение Малении и защита ваших данных.</p></div></div><div className="settings-links"><button className="secondary" onClick={()=>setPage("connections")}><Plug size={16}/>Рабочие подключения</button><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p><div className="settings-links"><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Работает только на вашем компьютере. Модель для диалога настраивается в разделе «Ассистент». Для проверки инвентаризации модель не требуется." value={connected?"Запущен":"Остановлен"} action={<button className={connected?"danger":"primary"} onClick={connected?stopAgent:runAgent} disabled={busy}>{connected?<Square size={14}/>:<Play size={14}/>} {connected?"Остановить":"Запустить"}</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Доступ к рабочим страницам предоставляется через расширение браузера. Важные изменения требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение в разделе «Подключения»." value="Browser Bridge"/></div></section>}
       </div>
       <footer className="statusbar"><span><i className={connected?"":"idle"}/>{connected?"Локальный агент активен":"Локальный агент остановлен"}</span><span><LockKeyhole size={12}/>Локальная среда　·　Маления 0.8.0</span></footer>

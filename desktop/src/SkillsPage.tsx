@@ -8,7 +8,7 @@ type Skill={
 type Draft={request_id:string;title:string;description:string;instructions:string;terms:string};
 const blank=():Draft=>({request_id:crypto.randomUUID(),title:"",description:"",instructions:"",terms:""});
 
-export function SkillsPage({connected}:{connected:boolean}){
+export function SkillsPage({connected,onApply}:{connected:boolean;onApply:(item:Pick<Skill,"title"|"instructions">)=>void}){
   const [items,setItems]=useState<Skill[]>([]);
   const [draft,setDraft]=useState<Draft|null>(null);
   const [busy,setBusy]=useState(false);
@@ -38,7 +38,7 @@ export function SkillsPage({connected}:{connected:boolean}){
       <p>Опишите, как вы решаете задачу. После утверждения Маления сможет применять ваши шаги в подходящих ответах.</p>
     </div></div>
     <div className="ai-controls"><button className="primary" disabled={!connected||busy||!!draft} onClick={()=>setDraft(blank())}>Написать инструкцию</button>
-      <button className="secondary" disabled={!connected||busy} onClick={()=>void refresh()}>Обновить</button></div>
+</div>
     {draft?<div className="panel ai-task-review" aria-label="Новый навык">
       <h2>Новая инструкция</h2>
       <p>Укажите, когда применять правило, какие шаги выполнить и что считать результатом.</p>
@@ -57,12 +57,13 @@ export function SkillsPage({connected}:{connected:boolean}){
           <b>{item.title} · {item.status==="draft"?"Черновик":"Активен"}{item.builtin?" · Встроенный":""}</b>
           <p>{item.description}</p>
           <details><summary>Инструкции и ключевые слова</summary><p>{item.instructions}</p><small>{item.terms}</small></details>
+          {item.status==="approved"?<button className="secondary" onClick={()=>onApply({title:item.title,instructions:item.instructions})}>Применить в чате</button>:null}
           {!item.builtin?<div className="ai-controls">
             {item.status==="draft"?<button className="primary" disabled={busy} onClick={()=>void run("approve",{id:item.id})}>Утвердить</button>:null}
             <button className="secondary" disabled={busy} onClick={()=>void run("delete",{id:item.id})}>Удалить</button>
           </div>:null}
         </div>
-      </article>):<p className="note">Каталог не загружен. Запустите локального агента.</p>}
+      </article>):<p className="note">Пока нет инструкций.</p>}
     </div>
   </section>;
 }

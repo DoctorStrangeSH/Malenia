@@ -11,7 +11,7 @@ type TaskDraft = {requestId:string; title:string; description:string; submitted?
 type SkillSuggestion = {request_id:string;title:string;description:string;instructions:string;terms:string};
 type Reply = {message: Message; model: string;sources?:Source[];answer_mode?:string;cited_source_ids?:string[];skill_ids?:string[]};
 
-export function AiPage({connected,onTaskCreated,onInstructions}: {onInstructions:()=>void;connected: boolean;onTaskCreated:()=>void}) {
+export function AiPage({connected,onTaskCreated,onInstructions,instruction,onClearInstruction}: {instruction:{title:string;instructions:string}|null;onClearInstruction:()=>void;onInstructions:()=>void;connected: boolean;onTaskCreated:()=>void}) {
   const [status, setStatus] = useState<Status | null>(null);
   const [model, setModel] = useState("qwen2.5:0.5b");
   const minimal=model==="qwen2.5:0.5b";
@@ -76,10 +76,13 @@ export function AiPage({connected,onTaskCreated,onInstructions}: {onInstructions
     catch(reason){setError(String(reason));}
     finally{clearInterval(timer);setSetupStatus("");pending.current=false;setBusy(false);}
   };
+  const instructionPrefix=instruction?`Следуй инструкции «${instruction.title}».\n${instruction.instructions}\n\nЗадача пользователя\n`:"";
+  const remaining=2000-instructionPrefix.length;
   const send = async () => {
-    if (pending.current || !connected || !draft.trim() || !status?.models.includes(model)) return;
+    if (pending.current || !connected || !draft.trim() || draft.trim().length>remaining || !status?.models.includes(model)) return;
     pending.current = true;setBusy(true);setError("");
-    const text = draft.trim();
+    const originalDraft=draft;
+    const text = instructionPrefix+draft.trim();
     let history = messages.slice(-6);
     while(history.length && history.reduce((sum,item)=>sum+item.content.length,0)+text.length>8000) history=history.slice(2);
     const request: Message[] = [...history.map(({role,content})=>({role,content})), {role:"user",content:text}];
@@ -87,7 +90,7 @@ export function AiPage({connected,onTaskCreated,onInstructions}: {onInstructions
     try {
       const reply = await invoke<Reply>("chat_ai", {model,messages:request,useKnowledge,knowledgeOnly,useWeb,reasoningMode});
       setMessages([...history,{role:"user",content:text}, {...reply.message,sources:reply.sources,answer_mode:reply.answer_mode,cited_source_ids:reply.cited_source_ids,skill_ids:reply.skill_ids}]);
-    } catch(reason) {setMessages(history);setDraft(text);setError(String(reason));}
+    } catch(reason) {setMessages(history);setDraft(originalDraft);setError(String(reason));}
     finally {pending.current=false;setBusy(false);}
   };
   const suggestFrom=async(index:number)=>{
@@ -170,9 +173,10 @@ export function AiPage({connected,onTaskCreated,onInstructions}: {onInstructions
     {taskNotice ? <p role="status" className="note">{taskNotice}</p> : null}
     {taskDraft ? <section className="panel ai-task-review" aria-labelledby="task-review-title"><h2 id="task-review-title">Проверьте план перед сохранением</h2><p>Отредактируйте текст перед сохранением. План останется заметкой и не запустит автоматические действия.</p><label>Название<input autoFocus maxLength={200} disabled={taskBusy || taskDraft.submitted} value={taskDraft.title} onChange={e=>setTaskDraft({...taskDraft,title:e.target.value})}/></label><label>Описание<textarea rows={5} maxLength={2000} disabled={taskBusy || taskDraft.submitted} value={taskDraft.description} onChange={e=>setTaskDraft({...taskDraft,description:e.target.value})}/><small>{taskDraft.description.length}/2000{taskDraft.description.length>2000?" — сократите описание перед сохранением":""}</small></label><div><button className="secondary" disabled={taskBusy} onClick={()=>setTaskDraft(null)}>Отмена</button><button className="primary" disabled={taskBusy || !connected || !taskDraft.title.trim() || taskDraft.description.length>2000} onClick={()=>void saveTask()}>{taskBusy?"Сохраняем…":"Сохранить план"}</button></div></section> : null}
     <form className="ai-composer" onSubmit={event=>{event.preventDefault();void send();}}>
+      {instruction?<div className="instruction-chip"><span>Инструкция · <b>{instruction.title}</b></span><button type="button" className="secondary" onClick={onClearInstruction}>Убрать</button></div>:null}
       <label htmlFor="ai-draft">Сообщение</label>
-      <textarea id="ai-draft" rows={3} maxLength={2000} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)} placeholder="Опишите задачу или вставьте фрагмент данных…"/>
-      <div className="ai-composer-footer"><small>До 2 000 символов · локальная обработка</small><button className="primary" type="submit" disabled={busy || !connected || !draft.trim() || !status?.models.includes(model)}>{busy?"Ожидаем ответ": "Отправить"} <Sparkles size={14}/></button></div>
+      <textarea id="ai-draft" rows={3} maxLength={remaining} value={draft} disabled={busy} onChange={e=>setDraft(e.target.value)} placeholder="Опишите задачу или вставьте фрагмент данных…"/>
+      <div className="ai-composer-footer"><small>{draft.length>remaining?`Сократите сообщение на ${draft.length-remaining} симв.`:`До ${remaining} символов · локальная обработка`}</small><button className="primary" type="submit" disabled={busy || !connected || !draft.trim() || draft.trim().length>remaining || !status?.models.includes(model)}>{busy?"Ожидаем ответ": "Отправить"} <Sparkles size={14}/></button></div>
     </form>
     <details className="panel assistant-settings">
       <summary><span><Settings2 size={16}/> Настройки ассистента</span><small>Модель · память · интернет-поиск</small></summary>

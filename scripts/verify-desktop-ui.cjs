@@ -17,7 +17,7 @@ fs.mkdirSync(output,{recursive:true});
   const errors=[];page.on("pageerror",e=>errors.push(String(e)));
   await page.addInitScript(()=>{
    const base="https://docs.google.com/spreadsheets/d/demo/edit";
-   const state=window.__uiMock={running:false,authorized:false,extensionId:null,calls:[],job:null};
+   const state=window.__uiMock={running:false,authorized:false,extensionId:null,skills:[],calls:[],job:null};
    window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
     state.calls.push({command,args});
     if(command==="start_agent"){state.running=true;return "Маления запущена";}
@@ -38,7 +38,13 @@ fs.mkdirSync(output,{recursive:true});
     if(command==="open_browser_extension_folder")return null;
     if(command==="register_browser_bridge"){state.extensionId=args.extensionId;return null;}
     if(command==="get_ai_status")return {available:true,models:["qwen3:8b"]};
-    if(command==="chat_ai")return {message:{role:"assistant",content:"Вот план работы по вашей задаче."},model:"qwen3:8b"};
+    if(command==="chat_ai")return {message:{role:"assistant",content:args.messages.at(-1).content.includes("Следуй инструкции")?"Пришлите номер обращения.":"Вот план работы по вашей задаче."},model:"qwen3:8b"};
+    if(command==="get_skills")return {skills:state.skills};
+    if(command==="skill_action"){
+      if(args.action==="draft")state.skills.push({...args.payload,id:"test-skill",status:"draft"});
+      if(args.action==="approve")state.skills.find(x=>x.id===args.payload.id).status="approved";
+      return {};
+    }
     if(command==="get_knowledge")return {records:[]};
     // Non-workflow screens can ask for optional status data.
     return {available:true,models:["qwen3:8b"],items:[],entries:[],skills:[]};
@@ -69,6 +75,15 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByRole("button",{name:"Сохранить черновик"}).click();
   await page.getByText("Черновик сохранён. Проверьте его и утвердите.").waitFor();
   const saved=await page.evaluate(()=>window.__uiMock.calls.find(x=>x.command==="skill_action").args.payload);
+  await page.getByRole("button",{name:"Утвердить",exact:true}).click();
+  await page.getByRole("button",{name:"Применить в чате"}).click();
+  await page.locator(".instruction-chip").getByText("Аномалии").waitFor();
+  assert.equal(await page.getByLabel("Сообщение",{exact:true}).inputValue(),"Несохранённый черновик");
+  await page.getByRole("button",{name:"Отправить",exact:true}).click();
+  await page.getByText("Пришлите номер обращения.",{exact:true}).waitFor();
+  assert.match(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="chat_ai").at(-1).args.messages.at(-1).content),/Сначала запроси номер обращения/);
+  await page.getByRole("button",{name:"Убрать",exact:true}).click();
+  await page.getByLabel("Сообщение",{exact:true}).fill("Несохранённый черновик");
   assert.equal(saved.terms,"Аномалии");
   assert.equal(saved.instructions,"Сначала запроси номер обращения.");
   await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();

@@ -343,3 +343,6 @@ nav{gap:7px}.nav-item{height:48px;font-size:14px;border-radius:10px;color:#aebcb
 .tool-list{display:grid;gap:10px}.tool-row{text-align:left;align-items:center;width:100%}.tool-row:hover{border-color:var(--accent)}
 .tool-row strong,.tool-row small{display:block}.tool-row strong{font-size:18px}.tool-row small{margin-top:5px;color:var(--muted)}.tool-row>svg{margin-left:auto}
 .ai-messages[hidden]{display:none}.ai-page>.ai-composer{border-radius:18px;padding:20px}.ai-page>.ai-composer textarea{font-size:16px;line-height:1.5;min-height:96px}
+
+.instruction-chip{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 0 12px;margin-bottom:12px;border-bottom:1px solid var(--line);font-size:14px;color:var(--accent)}
+.instruction-chip .secondary{padding:5px 10px;min-height:30px}
