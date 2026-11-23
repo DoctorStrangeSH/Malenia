@@ -37,8 +37,25 @@ fs.mkdirSync(output,{recursive:true});
     if(command==="get_browser_bridge_setup")return {available:true,saved_extension_id:state.extensionId};
     if(command==="open_browser_extension_folder")return null;
     if(command==="register_browser_bridge"){state.extensionId=args.extensionId;return null;}
-    if(command==="get_ai_status")return {available:true,models:["qwen3:8b"]};
-    if(command==="chat_ai")return {message:{role:"assistant",content:args.messages.at(-1).content.includes("Следуй инструкции")?"Пришлите номер обращения.":"Вот план работы по вашей задаче."},model:"qwen3:8b"};
+    if(command==="agent_api"){
+     const p=args.path;state.conversations=state.conversations||{};
+     if(p==="/v1/ai/providers")return {mode:"auto",learning:true,auto_web:true,local_model:null,order:["gemini","ollama"],providers:[{id:"gemini",name:"Google Gemini",kind:"cloud",hint:"",key_url:"",base_url:"",has_key:true,enabled:true,model:null}]};
+     if(p==="/v1/assistant/conversations")return {conversations:Object.values(state.conversations).map(c=>({id:c.id,title:c.title,created_at:"2026-11-23",updated_at:"2026-11-23"}))};
+     if(p.startsWith("/v1/assistant/conversations/")){const c=state.conversations[p.split("/").pop()];return {conversation:{...c,messages:[...c.messages]}};}
+     if(p==="/v1/assistant/chat"){
+      const body=args.body;const id=body.conversation_id||"00000000-0000-4000-8000-000000000001";
+      const c=state.conversations[id]||(state.conversations[id]={id,title:body.message.slice(0,60),messages:[]});
+      const n=c.messages.length;
+      const user={id:"u"+n,conversation_id:id,role:"user",content:body.message,created_at:"",provider:null,model:null,feedback:0,meta:{}};
+      const answer={id:"a"+n,conversation_id:id,role:"assistant",content:(body.instruction||"").includes("Сначала запроси номер обращения")?"Пришлите номер обращения.":"Вот план работы по вашей задаче.",created_at:"",provider:"gemini",model:"gemini-flash",feedback:0,meta:{}};
+      c.messages.push(user,answer);
+      return {conversation_id:id,user_message:user,message:answer,provider:"gemini",model:"gemini-flash"};
+     }
+     if(p.startsWith("/v1/ai/hardware"))return {hardware:{ram_gb:16,gpu:null,vram_gb:0,cpu_threads:8,os:"Windows",recommendation:{tier:"cpu-16",label:"16 ГБ",models:["qwen3.5:4b"],note:""}},installed:[],ollama_running:false,pull:{status:"idle",model:null,completed:0,total:0,error:null}};
+     if(p==="/v1/assistant/memories")return {memories:[]};
+     if(p==="/v1/server")return {enabled:false,running:false,port:8766,token:"mln-test",error:null,requests_served:0,addresses:[]};
+     return {};
+    }
     if(command==="get_skills")return {skills:state.skills};
     if(command==="skill_action"){
       if(args.action==="draft")state.skills.push({...args.payload,id:args.payload.request_id,status:"draft"});
@@ -57,7 +74,8 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByRole("button",{name:"Запустить Малению",exact:true}).click();
   await page.locator(".connection-banner").waitFor({state:"detached"});
   const mainNav=page.getByRole("navigation",{name:"Основные разделы"});
-  assert.deepEqual(await mainNav.getByRole("button").allTextContents(),["Ассистент","Инструменты","Инструкции","Подключения"]);
+  assert.deepEqual(await mainNav.getByRole("button").allTextContents(),["Чат","Инструменты","Память","Настройки"]);
+  const openSkills=async()=>{await mainNav.getByRole("button",{name:"Память",exact:true}).click();await page.getByRole("navigation",{name:"Знания и навыки"}).getByRole("button",{name:"Инструкции",exact:true}).click();};
   await page.getByLabel("Сообщение",{exact:true}).fill("Помоги составить план рабочего дня");
   await page.getByRole("button",{name:"Отправить",exact:true}).click();
   await page.getByText("Вот план работы по вашей задаче.",{exact:true}).waitFor();
@@ -68,7 +86,7 @@ fs.mkdirSync(output,{recursive:true});
   };
   await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
   assert.equal(await page.locator(".tool-row").count(),1);
-  await mainNav.getByRole("button",{name:"Инструкции",exact:true}).click();
+  await openSkills();
   await page.getByText("1–20 из 1000").waitFor();
   await page.getByRole("button",{name:"Далее",exact:true}).click();
   await page.getByText("21–40 из 1000").waitFor();
@@ -88,14 +106,19 @@ fs.mkdirSync(output,{recursive:true});
   assert.equal(await page.getByLabel("Сообщение",{exact:true}).inputValue(),"Несохранённый черновик");
   await page.getByRole("button",{name:"Отправить",exact:true}).click();
   await page.getByText("Пришлите номер обращения.",{exact:true}).waitFor();
-  assert.match(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="chat_ai").at(-1).args.messages.at(-1).content),/Сначала запроси номер обращения/);
+  assert.match(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="agent_api"&&x.args.path==="/v1/assistant/chat").at(-1).args.body.instruction),/Сначала запроси номер обращения/);
   await page.getByRole("button",{name:"Убрать",exact:true}).click();
   await page.getByLabel("Сообщение",{exact:true}).fill("Несохранённый черновик");
   assert.equal(saved.terms,"Аномалии");
   assert.equal(saved.instructions,"Сначала запроси номер обращения.");
   await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
   await page.screenshot({path:path.join(output,"02-tools.png"),fullPage:true});
-  await mainNav.getByRole("button",{name:"Подключения",exact:true}).click();
+  await mainNav.getByRole("button",{name:"Настройки",exact:true}).click();
+  await page.getByRole("heading",{name:"Какие модели использовать"}).waitFor();
+  await page.screenshot({path:path.join(output,"02-models.png"),fullPage:true});
+  await page.getByRole("navigation",{name:"Разделы настроек"}).getByRole("button",{name:"Сервер",exact:true}).click();
+  await page.getByText("Сервер выключен").waitFor();
+  await page.getByRole("navigation",{name:"Разделы настроек"}).getByRole("button",{name:"Подключения",exact:true}).click();
   await page.getByRole("button",{name:/Яндекс Браузер/}).click();
   await page.getByRole("button",{name:"Открыть папку расширения",exact:true}).click();
   await page.getByLabel(/^ID расширения/).fill("wrong-id");
@@ -131,7 +154,7 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByText("Проверка на паузе",{exact:true}).first().waitFor();
   const cancel=await page.evaluate(()=>window.__uiMock.calls.find(x=>x.command==="cancel_browser_audit"));
   assert.deepEqual(cancel.args,{jobId:"ui-job"});
-  await mainNav.getByRole("button",{name:"Ассистент",exact:true}).click();
+  await mainNav.getByRole("button",{name:"Чат",exact:true}).click();
   await page.getByRole("heading",{name:"Ассистент",exact:true}).waitFor();
   await page.getByText("Вот план работы по вашей задаче.",{exact:true}).waitFor();
   assert.equal(await page.getByLabel("Сообщение",{exact:true}).inputValue(),"Несохранённый черновик");
@@ -152,7 +175,7 @@ fs.mkdirSync(output,{recursive:true});
   assert.ok(queued.every(x=>x.args.spreadsheetUrl.endsWith("gid=2")));
   for(const width of [1440,1080,850]){
    await page.setViewportSize({width,height:900});
-   for(const destination of ["Ассистент","Инструменты","Инструкции"]){
+   for(const destination of ["Чат","Инструменты","Память","Настройки"]){
     await mainNav.getByRole("button",{name:destination,exact:true}).click();
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), destination+" horizontal overflow at "+width);
     await page.screenshot({path:path.join(output,destination+"-"+width+".png"),fullPage:true});

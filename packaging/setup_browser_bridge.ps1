@@ -20,8 +20,8 @@ function Get-VerifiedRegistration {
     try { $hash = [BitConverter]::ToString($hasher.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
     finally { $hasher.Dispose() }
     # Exact known LF and CRLF byte representations of the same pinned source.
-    if ($hash -notin @('f80ece220c84267ba9f0bb5ebdbaa47e8e43046cb674a552983187a2275a7392',
-                      '4ab34717c8f21093bd23a600d58f7ffe7fac8751bafb0b751c4d922faea6c1dc')) {
+    if ($hash -notin @('7f8bc952e1e6544683a02d2603506067ebe96b082ff9dcd372b156561f6e8bce',
+                      'e70d2f5b19a9aaa3ffd70c23f00f1e81af660698b3ab8c79e0d0c3d2e20cfd56')) {
         throw 'Registration script SHA256 mismatch. Nothing executed.'
     }
     $tokens = $null; $errors = $null

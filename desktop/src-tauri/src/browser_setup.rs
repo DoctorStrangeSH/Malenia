@@ -4,6 +4,10 @@ use tauri::{path::BaseDirectory, Manager};
 
 static REGISTRATION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// Fixed ID of the bundled extension: manifest.json carries a public "key",
+/// so every computer gets the same ID and registration needs no manual input.
+pub const EXTENSION_ID: &str = "cbalbbednlnkjakimgigdnfmkgdpccbi";
+
 fn valid_id(id: &str) -> bool {
     id.len() == 32 && id.bytes().all(|value| (b'a'..=b'p').contains(&value))
 }
@@ -12,8 +16,8 @@ fn trusted_registration(source: &[u8]) -> bool {
     if source.is_empty() || !source.is_ascii() { return false; }
     let checksum = format!("{:x}", Sha256::digest(source));
     matches!(checksum.as_str(),
-        "f80ece220c84267ba9f0bb5ebdbaa47e8e43046cb674a552983187a2275a7392" |
-        "4ab34717c8f21093bd23a600d58f7ffe7fac8751bafb0b751c4d922faea6c1dc")
+        "7f8bc952e1e6544683a02d2603506067ebe96b082ff9dcd372b156561f6e8bce" |
+        "e70d2f5b19a9aaa3ffd70c23f00f1e81af660698b3ab8c79e0d0c3d2e20cfd56")
 }
 
 fn resource(app: &tauri::AppHandle, relative: &str) -> Result<PathBuf, String> {
@@ -37,7 +41,30 @@ pub fn status(app: &tauri::AppHandle) -> Result<serde_json::Value, String> {
     let available = host.is_file() && manifest.is_file() &&
         fs::read(script).map(|source| trusted_registration(&source)).unwrap_or(false);
     // A saved ID is not proof that the extension is running or may read sites.
-    Ok(serde_json::json!({"available":available, "saved_extension_id":saved_id()}))
+    Ok(serde_json::json!({"available":available, "saved_extension_id":saved_id(), "bundled_extension_id": EXTENSION_ID}))
+}
+
+/// Register the native host for the bundled extension on every start when
+/// it is missing or points to another ID. This is what fixes "host not found"
+/// on a colleague's computer where nobody ran the manual registration.
+pub fn ensure_registered(app: &tauri::AppHandle) -> Result<bool, String> {
+    if !cfg!(windows) { return Ok(false); }
+    let manifest_ok = std::env::var_os("LOCALAPPDATA")
+        .map(|base| PathBuf::from(base).join("Malenia").join("browser-bridge").join("com.malenia.browser.json"))
+        .and_then(|path| fs::read(path).ok())
+        .and_then(|raw| serde_json::from_slice::<serde_json::Value>(&raw).ok())
+        .map(|manifest| {
+            let origin = format!("chrome-extension://{EXTENSION_ID}/");
+            let allowed = manifest.get("allowed_origins").and_then(|v| v.as_array())
+                .map(|items| items.iter().any(|item| item.as_str() == Some(origin.as_str()))).unwrap_or(false);
+            let host = manifest.get("path").and_then(|v| v.as_str())
+                .map(|path| PathBuf::from(path).is_file()).unwrap_or(false);
+            allowed && host
+        })
+        .unwrap_or(false);
+    if manifest_ok && saved_id().as_deref() == Some(EXTENSION_ID) { return Ok(false); }
+    register(app, EXTENSION_ID)?;
+    Ok(true)
 }
 
 pub fn open_folder(app: &tauri::AppHandle) -> Result<(), String> {
@@ -85,6 +112,11 @@ pub fn register(app: &tauri::AppHandle, id: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bundled_extension_id_is_valid() {
+        assert!(valid_id(EXTENSION_ID));
+    }
+
     #[test]
     fn accepts_only_extension_ids_not_paths_or_commands() {
         assert!(valid_id(&"a".repeat(32)));

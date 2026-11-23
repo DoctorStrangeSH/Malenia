@@ -433,8 +433,8 @@ fn start_local_ai_impl(state: &AgentState) -> Result<String, String> {
     command.arg("serve")
         .env("OLLAMA_HOST", "127.0.0.1:11434").env("OLLAMA_MODELS", root.join("models"))
         .env("OLLAMA_NO_CLOUD", "1").env("OLLAMA_NUM_PARALLEL", "1")
-        .env("OLLAMA_MAX_LOADED_MODELS", "1").env("OLLAMA_CONTEXT_LENGTH", "2048")
-        .env("OLLAMA_KEEP_ALIVE", "30s")
+        .env("OLLAMA_MAX_LOADED_MODELS", "1").env("OLLAMA_CONTEXT_LENGTH", "8192")
+        .env("OLLAMA_KEEP_ALIVE", "5m")
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     { use std::os::windows::process::CommandExt; command.creation_flags(0x08000000); }
@@ -453,6 +453,46 @@ fn get_ai_status(state: State<'_, AgentState>) -> Result<Value, String> {
     let token = state.token.lock().map_err(|_| "Состояние агента недоступно".to_string())?
         .clone().ok_or_else(|| "Сначала запустите агента".to_string())?;
     api_get(&token, "/v1/ai/status")
+}
+
+fn valid_agent_path(path: &str) -> bool {
+    const PREFIXES: [&str; 3] = ["/v1/assistant", "/v1/ai/", "/v1/server"];
+    path.len() <= 200 && !path.contains("..")
+        && PREFIXES.iter().any(|prefix| path.starts_with(prefix))
+        && path.chars().all(|c| c.is_ascii_alphanumeric() || "/-_?=&.".contains(c))
+}
+
+/// Generic bridge for the assistant UI. Only assistant/AI/server routes of the
+/// local agent are reachable; the token never leaves the Rust process.
+#[tauri::command]
+async fn agent_api(state: State<'_, AgentState>, method: String, path: String, body: Option<Value>) -> Result<Value, String> {
+    if !valid_agent_path(&path) { return Err("Некорректный адрес запроса".to_string()); }
+    let token = state.token.lock().map_err(|_| "Состояние агента недоступно".to_string())?
+        .clone().ok_or_else(|| "Маления ещё запускается. Подождите пару секунд".to_string())?;
+    let timeout = if path.ends_with("/chat") { 300 } else { 30 };
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(timeout)).no_proxy()
+            .redirect(reqwest::redirect::Policy::none()).build()
+            .map_err(|_| "Не удалось создать HTTP-клиент".to_string())?;
+        let url = format!("http://{API_HOST}:{API_PORT}{path}");
+        let request = match method.as_str() {
+            "GET" => client.get(url),
+            "POST" => client.post(url).json(&body.unwrap_or_else(|| serde_json::json!({}))),
+            "DELETE" => client.delete(url),
+            _ => return Err("Некорректный метод".to_string()),
+        };
+        let response = request.header("Authorization", format!("Bearer {token}")).send()
+            .map_err(|_| "Маления не ответила. Проверьте, что приложение запущено".to_string())?;
+        let status = response.status();
+        let value = response.json::<Value>().map_err(|_| "Некорректный ответ агента".to_string())?;
+        if !status.is_success() {
+            let message = value.get("message").and_then(Value::as_str).filter(|text| !text.is_empty())
+                .or_else(|| value.get("error").and_then(Value::as_str)).unwrap_or("Ошибка запроса");
+            return Err(message.to_string());
+        }
+        Ok(value)
+    }).await.map_err(|_| "Ошибка обработки запроса".to_string())?
 }
 
 #[tauri::command]
@@ -789,13 +829,29 @@ fn main() {
             tauri::async_runtime::spawn_blocking(move || {
                 let state = handle.state::<AgentState>();
                 let _ = start_agent(handle.clone(), state);
+                // Silent, idempotent: fixes "Malenia host not found" in the extension.
+                let _ = browser_setup::ensure_registered(&handle);
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_browser_bridge_setup, open_browser_extension_folder, register_browser_bridge, start_agent, stop_agent, get_dashboard,
+        .invoke_handler(tauri::generate_handler![get_browser_bridge_setup, open_browser_extension_folder, register_browser_bridge, agent_api, start_agent, stop_agent, get_dashboard,
             request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
         .run(tauri::generate_context!())
         .expect("error while running Malenia");
+}
+
+#[cfg(test)]
+mod agent_api_tests {
+    use super::valid_agent_path;
+    #[test]
+    fn only_assistant_routes_are_bridged() {
+        assert!(valid_agent_path("/v1/assistant/chat"));
+        assert!(valid_agent_path("/v1/ai/hardware?refresh=1"));
+        assert!(valid_agent_path("/v1/server"));
+        assert!(!valid_agent_path("/v1/integrations/google-sheets/edit-approve"));
+        assert!(!valid_agent_path("/v1/assistant/../tasks"));
+        assert!(!valid_agent_path("/v1/assistant/x y"));
+    }
 }
 
 #[cfg(test)]

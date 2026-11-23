@@ -30,7 +30,7 @@ function bridgeError(code) {
 
 function diagnostic(error, sharing = false) {
   switch (error.bridgeCode) {
-    case "not_found": return "Хост Malenia не найден. Выполните проверенную регистрацию Browser Bridge и перезапустите браузер.";
+    case "not_found": return "Связь с Маленией не найдена. Откройте приложение Маления (версии 0.9 или новее) на этом компьютере — связь настроится сама. Затем полностью закройте и снова откройте браузер.";
     case "forbidden": return "Браузер запретил подключение. Проверьте ID расширения и политики Native Messaging; не меняйте политики организации самостоятельно.";
     case "timeout": return sharing
       ? "Ответ не получен за 5 секунд. Вкладка могла сохраниться — проверьте раздел «Браузер» в Malenia перед повторной передачей."
@@ -89,7 +89,7 @@ async function connect() {
     connected = true;
     setStatus("Malenia подключена. Можно поделиться текущей вкладкой.", "ok");
   } catch (error) {
-    setStatus(`${diagnostic(error)} В Малении откройте «Подключения». ID этого расширения — ${chrome.runtime.id}.`, "error");
+    setStatus(`${diagnostic(error)} Если не помогло: Маления → «Настройки» → «Браузер». ID этого расширения — ${chrome.runtime.id}.`, "error");
   } finally {
     busy = false;
     updateButtons();

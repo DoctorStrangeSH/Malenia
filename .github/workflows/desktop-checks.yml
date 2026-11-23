@@ -69,8 +69,10 @@ jobs:
         run: node --test tests/browser_desktop_dispatch.test.cjs
       - name: Test permission panel rendering
         run: node --test tests/permissions_ui.test.cjs
-      - name: Test AI task review and retry
+      - name: Test knowledge UI review and retry
         run: node --test tests/ai_ui.test.cjs
+      - name: Test chat composer, private mode and errors
+        run: node --test tests/chat_ui.test.cjs
       - name: Test primary assistant navigation and task labels
         run: node --test tests/navigation_ui.test.cjs
       - name: Check Tauri host

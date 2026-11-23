@@ -19,6 +19,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the local Malenia agent.")
     parser.add_argument("--host", default="127.0.0.1", help="Loopback address only.")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--lan", action="store_true",
+                        help="Share this computer's local model with your other computers (port 8766).")
     return parser
 
 
@@ -51,7 +53,16 @@ def main() -> int:
     if "MALENIA_API_TOKEN" not in os.environ:
         print("Temporary API token (keep private; valid for this run only):")
         print(token)
-    print("Press Ctrl+C to stop. No browser or desktop actions are enabled in this MVP.")
+    if args.lan:
+        status = server.services.lan.configure(True)
+        if status["running"]:
+            print("Server mode: other computers can use this model.")
+            for item in status["addresses"]:
+                print(f"  Address ({item['kind']}): {item['url']}")
+            print(f"  Pairing key (keep private): {status['token']}")
+        else:
+            print(f"Server mode failed: {status['error']}", file=sys.stderr)
+    print("Press Ctrl+C to stop.")
 
     run_server(server)
     return 0

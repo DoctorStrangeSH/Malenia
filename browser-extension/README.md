@@ -32,7 +32,7 @@ There is no `history` or `cookies` permission, no persistent content script, and
    & {
        $ErrorActionPreference = "Stop"
        $sha = "87b63a70708115309acdb4fa9ab12d6249f38dcb"
-       $expected = "f80ece220c84267ba9f0bb5ebdbaa47e8e43046cb674a552983187a2275a7392"
+       $expected = "7f8bc952e1e6544683a02d2603506067ebe96b082ff9dcd372b156561f6e8bce"
        $fresh = Join-Path $env:TEMP ("malenia-register-" + [guid]::NewGuid() + ".ps1")
        $url = "https://raw.githubusercontent.com/DoctorStrangeSH/WorkPilot/$sha/packaging/register_browser_bridge.ps1"
        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $fresh -ErrorAction Stop

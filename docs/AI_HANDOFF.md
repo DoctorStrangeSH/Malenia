@@ -593,7 +593,7 @@ See LOCAL_AI.md. main must stay unchanged and PR #2 unmerged.
   User model/settings/tasks/extension registration were not removed or replaced.
 - GitHub API, commit-pinned raw and cache-busted branch raw registration script
   were fetched again and are identical ASCII. SHA256 remains
-  f80ece220c84267ba9f0bb5ebdbaa47e8e43046cb674a552983187a2275a7392.
+  7f8bc952e1e6544683a02d2603506067ebe96b082ff9dcd372b156561f6e8bce.
 - Task creation queues only reviewed text. No automatic execution, browser DOM
   access or automatic context was added. User click-through remains a user test.
 - main must remain 712d0a8e1885cca402eaa4fdda041bb09b50e397; PR #2 draft/unmerged.
