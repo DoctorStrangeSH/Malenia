@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from .attachments import AttachmentError, prepare as prepare_attachments
 from .knowledge import KnowledgeBase, KnowledgeError, words
 from .providers import ModelRouter, ProviderError
 from .store import TaskStore, _now
@@ -32,6 +33,9 @@ SYSTEM_PROMPT = """Ты — Шерлок, персональный ИИ-асси
 Если для ответа нужны свежие данные (новости, цены, курсы, расписания, факты после твоего обучения) — используй инструмент web_search.
 Если пользователь сообщает о себе что-то долговременное (имя, должность, предпочтения, правила работы) или просит запомнить — вызови remember.
 Если вопрос может касаться заметок или документов пользователя — используй search_notes.
+Ты не только отвечаешь, но и действуешь: считай через calculate, сохраняй планы, читай и создавай файлы в рабочей папке, читай и правь Google-таблицы, открывай и запускай инвентаризацию. Если задачу можно выполнить инструментом — выполни, а не объясняй пользователю, как сделать самому.
+Действия, которые меняют файлы или таблицы, требуют подтверждения: вызови инструмент, и пользователь увидит кнопку «Выполнить». Не утверждай, что такое действие уже сделано.
+Пользователь — твой учитель. Когда он объясняет, как что-то делать, или поправляет тебя («делай так», «в следующий раз…», «запомни порядок»), вызови learn_skill и подтверди, что выучил. Применяй выученные навыки.
 Не выдумывай факты и не утверждай, что выполнил действие, если не выполнял. Если чего-то не знаешь — скажи прямо.
 Сегодня {today}."""
 
@@ -86,7 +90,8 @@ def _similar(a: str, b: str) -> bool:
 
 class Assistant:
     def __init__(self, store: TaskStore, router: ModelRouter, knowledge: KnowledgeBase | None = None,
-                 skills=None, web: PublicSearch | None = None, background: bool = True):
+                 skills=None, web: PublicSearch | None = None, background: bool = True, toolbox=None):
+        self.toolbox = toolbox
         self.store = store
         self.router = router
         self.knowledge = knowledge
@@ -123,6 +128,10 @@ class Assistant:
             messages = [self._message(dict(m)) for m in db.execute(
                 "SELECT * FROM chat_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
                 (conversation_id,))]
+        if self.toolbox is not None:
+            for message in messages:
+                if message["meta"].get("actions"):
+                    message["meta"]["actions"] = self.toolbox.for_message(message["id"])
         return {**dict(row), "messages": messages}
 
     @staticmethod
@@ -228,6 +237,11 @@ class Assistant:
         instruction = payload.get("instruction")
         if instruction is not None and (not isinstance(instruction, str) or len(instruction) > 4000):
             raise AssistantError("invalid_instruction")
+        try:
+            file_text, images, files_meta = prepare_attachments(payload.get("attachments"))
+        except AttachmentError as error:
+            raise AssistantError(str(error)) from None
+        model_text = text.strip() + file_text
 
         conversation_id = payload.get("conversation_id")
         with self.store._session() as db:
@@ -238,10 +252,20 @@ class Assistant:
                 conversation_id = str(uuid.uuid4())
                 title = re.sub(r"\s+", " ", text).strip()[:60]
                 db.execute("INSERT INTO conversations VALUES (?, ?, ?, ?)", (conversation_id, title, _now(), _now()))
-            history = [dict(r) for r in db.execute(
-                "SELECT role, content FROM chat_messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30",
-                (conversation_id,))][::-1]
-            user_message = self._add_message(db, conversation_id, "user", text.strip())
+            history = []
+            for row in db.execute(
+                    "SELECT role, content, meta FROM chat_messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30",
+                    (conversation_id,)):
+                try:
+                    stored = json.loads(row["meta"] or "{}").get("model_content")
+                except ValueError:
+                    stored = None
+                history.append({"role": row["role"], "content": stored or row["content"]})
+            history.reverse()
+            user_meta = {"attachments": files_meta} if files_meta else {}
+            if file_text:
+                user_meta["model_content"] = model_text
+            user_message = self._add_message(db, conversation_id, "user", text.strip(), meta=user_meta)
 
         memories = self.relevant_memories(text)
         system = SYSTEM_PROMPT.format(today=datetime.now().strftime("%d.%m.%Y, %A"))
@@ -260,18 +284,25 @@ class Assistant:
         if instruction:
             system += "\n\nВ этом сообщении пользователь попросил следовать инструкции:\n" + instruction.strip()
 
-        budget = 6000 if private else 40000
-        kept, used = [], len(text)
+        budget = 12000 if private else 120000
+        kept, used = [], len(model_text)
         for message in reversed(history):
             if used + len(message["content"]) > budget:
                 break
             kept.insert(0, {"role": message["role"], "content": message["content"]})
             used += len(message["content"])
-        messages = [{"role": "system", "content": system}] + kept + [{"role": "user", "content": text.strip()}]
+        user_content: Any = model_text
+        if images:
+            user_content = [{"type": "text", "text": model_text}] + images
+        messages = [{"role": "system", "content": system}] + kept + [{"role": "user", "content": user_content}]
 
         tools = [t for t in TOOLS if allow_web or t["function"]["name"] != "web_search"]
+        if self.toolbox is not None:
+            tools += self.toolbox.specs()
         sources: list[dict] = []
         learned: list[dict] = []
+        actions: list[dict] = []
+        skills_learned: list[dict] = []
         result = None
         try:
             for _ in range(5):
@@ -283,7 +314,7 @@ class Assistant:
                      "function": {"name": c["name"], "arguments": json.dumps(c["arguments"], ensure_ascii=False)}}
                     for c in result.tool_calls]})
                 for call in result.tool_calls:
-                    output = self._run_tool(call, allow_web, sources, learned)
+                    output = self._run_tool(call, allow_web, sources, learned, conversation_id, actions, skills_learned)
                     messages.append({"role": "tool", "tool_call_id": call["id"], "name": call["name"],
                                      "content": output})
             else:
@@ -297,9 +328,12 @@ class Assistant:
 
         answer = (result.content or "").strip() or "Не удалось сформулировать ответ. Попробуйте переформулировать вопрос."
         meta = {"sources": sources, "memory_ids": [m["id"] for m in memories],
-                "skill_ids": [s["id"] for s in skills], "learned": learned, "private": private}
+                "skill_ids": [s["id"] for s in skills], "learned": learned, "private": private,
+                "actions": actions, "skills_learned": skills_learned}
         with self.store._session() as db:
             reply = self._add_message(db, conversation_id, "assistant", answer, result.provider, result.model, meta)
+        if self.toolbox is not None and actions:
+            self.toolbox.attach([a["id"] for a in actions], reply["id"])
             if memories:
                 db.executemany("UPDATE memories SET uses = uses + 1, last_used_at = ? WHERE id = ?",
                                [(_now(), m["id"]) for m in memories])
@@ -313,8 +347,23 @@ class Assistant:
         return {"conversation_id": conversation_id, "user_message": user_message, "message": reply,
                 "provider": result.provider, "model": result.model}
 
-    def _run_tool(self, call: dict, allow_web: bool, sources: list, learned: list) -> str:
+    def _run_tool(self, call: dict, allow_web: bool, sources: list, learned: list,
+                  conversation_id: str = "", actions: list | None = None, skills_learned: list | None = None) -> str:
         name, args = call["name"], call.get("arguments") or {}
+        if self.toolbox is not None and name in self.toolbox.tools:
+            outcome = self.toolbox.run(name, args, conversation_id)
+            if outcome["status"] == "done":
+                if isinstance(outcome["result"], dict) and "learned_skill" in outcome["result"] and skills_learned is not None:
+                    skills_learned.append(outcome["result"]["learned_skill"])
+                return json.dumps(outcome["result"], ensure_ascii=False, default=str)[:20000]
+            if outcome["status"] == "error":
+                return "Ошибка: " + outcome["error"]
+            if actions is not None:
+                actions.append(outcome["action"])
+            if outcome["status"] == "pending":
+                return ("Действие подготовлено и ждёт подтверждения пользователя (кнопка «Выполнить» под ответом): "
+                        + outcome["action"]["summary"] + ". Не говори, что оно уже выполнено.")
+            return "Приложение открыло: " + outcome["action"]["summary"]
         try:
             if name == "web_search" and allow_web:
                 query = str(args.get("query") or "")[:300]

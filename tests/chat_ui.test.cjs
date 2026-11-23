@@ -27,8 +27,8 @@ function harness(invoke, props = {}) {
   const src = path.resolve(__dirname, '../desktop/src');
   const api = load(path.join(src, 'api.ts'), {'@tauri-apps/api/core': {invoke}});
   const chat = load(path.join(src, 'Chat.tsx'), {react: hooks, '@tauri-apps/api/core': {invoke}, 'lucide-react': icons, './api': api, './Markdown': {Markdown: () => null}});
-  const events = {conversation: []};
-  const base = {connected: true, conversationId: null, onConversation: id => events.conversation.push(id), onChanged() {}, instruction: null, onClearInstruction() {}, onOpenSettings() {}, onOpenTools() {}};
+  const events = {conversation: [], ui: []};
+  const base = {connected: true, conversationId: null, onConversation: id => events.conversation.push(id), onChanged() {}, instruction: null, onClearInstruction() {}, onOpenSettings() {}, onOpenTools() {}, onUiAction: action => events.ui.push(action)};
   const render = () => { cursor = 0; return chat.Chat({...base, ...props}); };
   const all = (tree, predicate) => {
     if (!tree || typeof tree !== 'object') return [];
@@ -84,4 +84,24 @@ test('empty input never calls the model', async () => {
   h.render(); await tick();
   h.find('button', p => p['aria-label'] === 'Отправить')[0].props.onClick(); await tick();
   assert.ok(!calls.includes('/v1/assistant/chat'));
+});
+
+test('an app action chosen by Sherlock is handed to the app and attachments are sent', async () => {
+  const bodies = [];
+  const h = harness(async (command, args) => {
+    if (args?.path === '/v1/ai/providers') return providers;
+    if (args?.path === '/v1/assistant/chat') {
+      bodies.push(args.body);
+      const r = reply();
+      r.message.meta = {actions: [{id: 'x', tool: 'open_inventory', status: 'ui', summary: 'Запустить проверку инвентаризации', arguments: {start: true}, result: {ui: 'open_inventory', start: true}}]};
+      return r;
+    }
+    throw Error(args?.path);
+  });
+  h.render(); await tick();
+  h.find('textarea', p => p['aria-label'] === 'Сообщение')[0].props.onChange({target: {value: 'Проверь инвентаризацию'}});
+  h.find('button', p => p['aria-label'] === 'Отправить')[0].props.onClick(); await tick();
+  assert.deepEqual(bodies[0].attachments, []);
+  assert.equal(h.events.ui.length, 1);
+  assert.equal(h.events.ui[0].result.start, true);
 });

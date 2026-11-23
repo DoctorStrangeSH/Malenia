@@ -253,7 +253,15 @@ class OllamaProvider:
     def _convert(messages: list[dict]) -> list[dict]:
         converted = []
         for message in messages:
-            item = {"role": message["role"], "content": message.get("content") or ""}
+            content = message.get("content") or ""
+            images = []
+            if isinstance(content, list):
+                images = [part["image_url"]["url"].split(",", 1)[-1] for part in content
+                          if isinstance(part, dict) and part.get("type") == "image_url"]
+                content = "".join(part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text")
+            item = {"role": message["role"], "content": content}
+            if images:
+                item["images"] = images
             if message.get("tool_calls"):
                 item["tool_calls"] = [{"function": {"name": c["function"]["name"],
                                        "arguments": _parse_arguments(c["function"].get("arguments"))}}

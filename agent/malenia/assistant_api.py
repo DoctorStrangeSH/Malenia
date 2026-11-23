@@ -8,6 +8,8 @@ import re
 from urllib.parse import parse_qs
 
 from . import hardware
+from . import training
+from .agent_tools import ToolBox, ToolError
 from .assistant import Assistant, AssistantError
 from .knowledge import KnowledgeBase
 from .lan import LanServer
@@ -48,8 +50,10 @@ class AssistantServices:
         self.hardware_profile = hardware_profile or hardware.profile
         self.router = router or ModelRouter(self.settings, secrets or _LazySecrets(),
                                             hardware_recommendation=lambda: self.hardware_profile()["recommendation"]["models"])
-        self.assistant = Assistant(store, self.router, KnowledgeBase(store), SkillRegistry(store),
-                                   web=web, background=background)
+        knowledge, skills = KnowledgeBase(store), SkillRegistry(store)
+        self.toolbox = ToolBox(store, self.settings, skills=skills, knowledge=knowledge)
+        self.assistant = Assistant(store, self.router, knowledge, skills, web=web, background=background,
+                                   toolbox=self.toolbox)
         self.lan = LanServer(self.settings, self.router)
         self.puller = ModelPuller()
 
@@ -89,7 +93,7 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
                 return False
             return True
         if method == "POST" and path == "/v1/assistant/chat":
-            payload = handler._read_json(64 * 1024)
+            payload = handler._read_json(18 * 1024 * 1024)
             if payload is not None:
                 handler._send(200, assistant.chat(payload))
             return True
@@ -99,6 +103,51 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
                 if not isinstance(payload.get("message_id"), str) or not re.fullmatch(UUID, payload["message_id"]):
                     raise AssistantError("invalid_feedback")
                 handler._send(200, assistant.feedback(payload["message_id"], payload.get("rating"), payload.get("comment")))
+            return True
+
+        # ---- agent actions & workspace ------------------------------------
+        match = re.fullmatch(rf"/v1/assistant/actions/({UUID})", path)
+        if match and method == "POST":
+            payload = handler._read_json(1024)
+            if payload is not None:
+                try:
+                    handler._send(200, {"action": services.toolbox.decide(match.group(1), bool(payload.get("approve")))})
+                except ToolError as error:
+                    handler._send(404, {"error": "action_not_found", "message": str(error)})
+            return True
+        if path == "/v1/assistant/workspace":
+            if method == "GET":
+                handler._send(200, {"path": str(services.toolbox.workspace.root())})
+            elif method == "POST":
+                payload = handler._read_json(2048)
+                if payload is not None:
+                    try:
+                        handler._send(200, {"path": services.toolbox.workspace.set_root(str(payload.get("path") or ""))})
+                    except (ToolError, OSError) as error:
+                        handler._send(422, {"error": "invalid_workspace", "message": str(error)})
+            else:
+                return False
+            return True
+
+        # ---- own model ----------------------------------------------------
+        if method == "GET" and path == "/v1/assistant/training":
+            handler._send(200, {"stats": training.stats(assistant), "personal_model": training.PERSONAL_MODEL})
+            return True
+        if method == "POST" and path == "/v1/assistant/training/export":
+            if int(handler.headers.get("Content-Length", "0") or 0):
+                handler._read_json(1024)
+            handler._send(200, training.export_dataset(assistant))
+            return True
+        if method == "POST" and path == "/v1/ai/local/personal":
+            payload = handler._read_json(1024)
+            if payload is not None:
+                base = payload.get("base") or router.model_for("ollama")
+                created = training.create_personal_model(assistant, base)
+                config = router.config()
+                config["local_model"] = created["model"]
+                router.save_config(config)
+                router._model_cache.pop("ollama", None)
+                handler._send(200, created)
             return True
 
         # ---- memories -----------------------------------------------------

@@ -53,6 +53,8 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
     ai_client.knowledge = knowledge
     ai_client.skills = skills
     sheets = google_sheets if google_sheets is not None else GoogleSheetsConnector()
+    services.toolbox.sheets = sheets
+    services.toolbox.web = ai_client.web
     pending_sheet_edits: dict[str, dict] = {}
 
     class Handler(BaseHTTPRequestHandler):

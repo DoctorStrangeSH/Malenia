@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, Cloud, Cpu, ExternalLink, HardDrive, KeyRound, LoaderCircle, RefreshCw, Server, X } from "lucide-react";
+import { Check, Cloud, Cpu, ExternalLink, FolderOpen, HardDrive, KeyRound, LoaderCircle, RefreshCw, Server, X } from "lucide-react";
 import { api, type HardwareInfo, type ProviderInfo, type ProvidersInfo } from "./api";
 
 const open = (url: string) => { void invoke("open_search_source", { url }).catch(() => undefined); };
@@ -52,6 +52,8 @@ export function AiSettings({ connected }: { connected: boolean }) {
         <span><b>Интернет-поиск по необходимости</b><small>Модель сама ищет свежие данные, когда это нужно для ответа.</small></span></label>
       <p className="muted small">Порядок сейчас: {info.order.map(id => info.providers.find(p => p.id === id)?.name ?? "Локальная модель").join(" → ")}</p>
     </section>
+
+    <Workspace onError={setError} />
 
     <section className="card">
       <h3><Cloud size={17} /> Бесплатные облачные модели</h3>
@@ -157,5 +159,25 @@ function LocalModels({ info, hardware, onRefresh, onSave, onError }: { info: Pro
       </div>}
     {pull?.status === "failed" ? <p className="bad-text">Не удалось скачать: {pull.error}</p> : null}
     {pull?.status === "done" ? <p className="ok-text">Модель {pull.model} установлена.</p> : null}
+  </section>;
+}
+
+function Workspace({ onError }: { onError: (text: string) => void }) {
+  const [path, setPath] = useState("");
+  const [saved, setSaved] = useState("");
+  useEffect(() => {
+    api<{ path: string }>("GET", "/v1/assistant/workspace").then(result => { setPath(result.path ?? ""); setSaved(result.path ?? ""); }).catch(() => undefined);
+  }, []);
+  const save = async () => {
+    try { const result = await api<{ path: string }>("POST", "/v1/assistant/workspace", { path }); setPath(result.path); setSaved(result.path); }
+    catch (reason) { onError(String(reason)); }
+  };
+  return <section className="card">
+    <h3><FolderOpen size={17} /> Что Маления делает сама</h3>
+    <p className="muted">Сама: считает, ищет в интернете, сохраняет планы, учит навыки, читает файлы рабочей папки и Google-таблицы, открывает и запускает инвентаризацию. <b>С вашего подтверждения</b>: создаёт и меняет файлы, записывает в таблицы.</p>
+    <label className="field">Рабочая папка (Маления видит только её)
+      <div className="row tight"><input className="text-input" aria-label="Рабочая папка" value={path} onChange={event => setPath(event.target.value)} />
+        <button className="secondary" disabled={!path.trim() || path === saved} onClick={() => void save()}>Сохранить</button></div>
+    </label>
   </section>;
 }

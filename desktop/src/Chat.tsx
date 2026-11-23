@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  ArrowUp, Bookmark, Brain, Check, Copy, Globe2, LoaderCircle, Lock, Mail, ListChecks,
-  Lightbulb, Sparkles, ThumbsDown, ThumbsUp, Wrench, X,
+  ArrowUp, Bookmark, Brain, Check, Copy, FileText, GraduationCap, Globe2, Image as ImageIcon, LoaderCircle, Lock,
+  Mail, ListChecks, Lightbulb, Paperclip, Play, Sparkles, ThumbsDown, ThumbsUp, Wrench, X,
 } from "lucide-react";
-import { api, providerLabel, type ChatMessage, type ChatReply, type ConversationDetail, type ProvidersInfo } from "./api";
+import { api, providerLabel, type AgentAction, type Attachment, type ChatMessage, type ChatReply, type ConversationDetail, type ProvidersInfo } from "./api";
 import { Markdown } from "./Markdown";
 
 type Props = {
@@ -16,9 +16,25 @@ type Props = {
   onClearInstruction: () => void;
   onOpenSettings: () => void;
   onOpenTools: () => void;
+  onUiAction: (action: AgentAction) => void;
 };
 
+const MAX_FILES = 6;
+const MAX_TOTAL = 12 * 1024 * 1024;
+const ACCEPT = "image/*,.txt,.md,.csv,.tsv,.json,.xlsx,.xlsm,.docx,.pptx,.pdf,.log,.xml,.html";
+
+function readFile(file: File): Promise<Attachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Не удалось прочитать " + file.name));
+    reader.onload = () => resolve({ name: file.name || "вставка.png", mime: file.type, size: file.size,
+      data: String(reader.result).split(",", 2)[1] ?? "" });
+    reader.readAsDataURL(file);
+  });
+}
+
 const SUGGESTIONS = [
+  { icon: <GraduationCap size={18} />, title: "Научить навыку", text: "Запомни, как я делаю ежедневный отчёт: " },
   { icon: <ListChecks size={18} />, title: "Спланировать день", text: "Помоги составить план рабочего дня с приоритетами" },
   { icon: <Mail size={18} />, title: "Написать письмо", text: "Напиши вежливое письмо коллеге с просьбой прислать отчёт до пятницы" },
   { icon: <Lightbulb size={18} />, title: "Объяснить простыми словами", text: "Объясни простыми словами, как работает " },
@@ -37,6 +53,21 @@ export function Chat(props: Props) {
   const [useWeb, setUseWeb] = useState(true);
   const [providers, setProviders] = useState<ProvidersInfo | null>(null);
   const [pendingText, setPendingText] = useState("");
+  const [files, setFiles] = useState<Attachment[]>([]);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const addFiles = async (list: FileList | File[]) => {
+    const incoming = Array.from(list);
+    if (!incoming.length) return;
+    try {
+      const read = await Promise.all(incoming.map(readFile));
+      setFiles(current => {
+        const next = [...current, ...read].slice(0, MAX_FILES);
+        if (next.reduce((sum, f) => sum + f.size, 0) > MAX_TOTAL) { setError("Вложения больше 12 МБ"); return current; }
+        if (current.length + read.length > MAX_FILES) setError(`Можно приложить до ${MAX_FILES} файлов`);
+        return next;
+      });
+    } catch (reason) { setError(String(reason)); }
+  };
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const key = conversationId ?? "new";
@@ -62,22 +93,25 @@ export function Chat(props: Props) {
 
   const cloudReady = !!providers?.providers.some(p => p.enabled);
   const send = async (textOverride?: string) => {
-    const text = (textOverride ?? draft).trim();
+    const sending = files;
+    const text = (textOverride ?? draft).trim() || (sending.length ? "Посмотри вложения" : "");
     if (!text || busy || !connected) return;
-    setBusy(true); setError(""); setPendingText(text); setDraft("");
+    setBusy(true); setError(""); setPendingText(text); setDraft(""); setFiles([]);
     try {
       const reply = await api<ChatReply>("POST", "/v1/assistant/chat", {
         message: text, conversation_id: conversationId, private: privateMode, use_web: useWeb,
         instruction: instruction ? `${instruction.title}\n${instruction.instructions}` : null,
+        attachments: sending.map(({ name, mime, data }) => ({ name, mime, data })),
       });
       setMessages(current => [...current, reply.user_message, reply.message]);
+      for (const action of reply.message.meta?.actions ?? []) if (action.status === "ui") props.onUiAction(action);
       if (reply.conversation_id !== conversationId) {
         setDrafts(current => ({ ...current, [reply.conversation_id]: "" }));
         onConversation(reply.conversation_id);
       }
       onChanged();
     } catch (reason) {
-      setError(String(reason)); setDraft(text);
+      setError(String(reason)); setDraft(text); setFiles(sending);
     } finally { setBusy(false); setPendingText(""); inputRef.current?.focus(); }
   };
 
@@ -86,6 +120,13 @@ export function Chat(props: Props) {
     try {
       await api("POST", "/v1/assistant/feedback", { message_id: message.id, rating: next, comment: comment ?? null });
       setMessages(current => current.map(m => m.id === message.id ? { ...m, feedback: next } : m));
+    } catch (reason) { setError(String(reason)); }
+  };
+
+  const decide = async (action: AgentAction, approve: boolean) => {
+    try {
+      const result = await api<{ action: AgentAction }>("POST", `/v1/assistant/actions/${action.id}`, { approve });
+      setMessages(current => current.map(m => ({ ...m, meta: { ...m.meta, actions: m.meta?.actions?.map(a => a.id === action.id ? result.action : a) } })));
     } catch (reason) { setError(String(reason)); }
   };
 
@@ -106,7 +147,7 @@ export function Chat(props: Props) {
           <button onClick={props.onOpenTools}><Wrench size={18} /><b>Рабочие инструменты</b><small>Инвентаризация, проверка заказов</small></button>
         </div>
       </div> : <div className="chat-thread">
-        {messages.map(message => <Message key={message.id} message={message} onRate={rate} />)}
+        {messages.map(message => <Message key={message.id} message={message} onRate={rate} onDecide={decide} />)}
         {busy ? <>
           <div className="msg user"><div className="bubble">{pendingText}</div></div>
           <div className="msg assistant"><div className="avatar"><Sparkles size={15} /></div><div className="thinking"><span /><span /><span /></div></div>
@@ -117,33 +158,46 @@ export function Chat(props: Props) {
     <div className="composer-wrap">
       {error ? <div className="chat-error" role="alert"><span>{error}</span>{/настро|ключ|модел/i.test(error) ? <button onClick={props.onOpenSettings}>Открыть настройки</button> : null}<button aria-label="Скрыть ошибку" onClick={() => setError("")}><X size={14} /></button></div> : null}
       {instruction ? <div className="instruction-chip"><ListChecks size={14} /><span>Инструкция: <b>{instruction.title}</b></span><button onClick={onClearInstruction}>Убрать</button></div> : null}
-      <div className={"composer" + (privateMode ? " private" : "")}>
+      <div className={"composer" + (privateMode ? " private" : "")}
+        onDragOver={event => event.preventDefault()}
+        onDrop={event => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>
+        {files.length ? <div className="attachments">{files.map((file, index) => <span key={index} className="attachment">
+          {file.mime.startsWith("image/") ? <img src={`data:${file.mime};base64,${file.data}`} alt="" /> : <FileText size={14} />}
+          <span>{file.name}</span>
+          <button aria-label={`Убрать ${file.name}`} onClick={() => setFiles(current => current.filter((_, i) => i !== index))}><X size={12} /></button>
+        </span>)}</div> : null}
         <textarea ref={inputRef} aria-label="Сообщение" rows={1} value={draft} disabled={!connected}
           placeholder={connected ? (privateMode ? "Приватный вопрос — останется на ваших компьютерах…" : "Спросите что угодно…") : "Маления запускается…"}
           onChange={event => setDraft(event.target.value)}
+          onPaste={event => { const pasted = Array.from(event.clipboardData.files); if (pasted.length) { event.preventDefault(); void addFiles(pasted); } }}
           onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
         <div className="composer-bar">
+          <input ref={fileRef} type="file" multiple accept={ACCEPT} hidden onChange={event => { if (event.target.files) void addFiles(event.target.files); event.target.value = ""; }} />
+          <button className="icon-btn" aria-label="Приложить файл" title="Фото, Excel, Word, PDF, текст — до 12 МБ" disabled={!connected} onClick={() => fileRef.current?.click()}><Paperclip size={17} /></button>
           <button className={"chip-toggle" + (useWeb && !privateMode ? " on" : "")} disabled={privateMode} aria-pressed={useWeb && !privateMode}
             title="Разрешить искать в интернете, когда нужно" onClick={() => setUseWeb(value => !value)}><Globe2 size={14} />Интернет</button>
           <button className={"chip-toggle" + (privateMode ? " on private" : "")} aria-pressed={privateMode}
             title="Только локальная модель или ваш сервер, без облака" onClick={() => setPrivateMode(value => !value)}><Lock size={14} />Приватно</button>
           <span className="composer-model">{privateMode ? "Локально" : providers ? (cloudReady && providers.mode !== "local" ? "Облако + резерв" : "Локальная модель") : ""}</span>
-          <button className="send" aria-label="Отправить" disabled={!draft.trim() || busy || !connected} onClick={() => void send()}>
+          <button className="send" aria-label="Отправить" disabled={(!draft.trim() && !files.length) || busy || !connected} onClick={() => void send()}>
             {busy ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
           </button>
         </div>
       </div>
-      <small className="composer-note">Шерлок может ошибаться. Важные факты проверяйте. Enter — отправить, Shift+Enter — новая строка.</small>
+      <small className="composer-note">Шерлок может ошибаться. Важные факты проверяйте. Enter — отправить, Shift+Enter — новая строка. Файлы можно перетащить или вставить.</small>
     </div>
   </section>;
 }
 
-function Message({ message, onRate }: { message: ChatMessage; onRate: (m: ChatMessage, rating: number, comment?: string) => void }) {
+function Message({ message, onRate, onDecide }: { message: ChatMessage; onRate: (m: ChatMessage, rating: number, comment?: string) => void; onDecide: (a: AgentAction, approve: boolean) => Promise<void> }) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState<"" | "ok" | "error">("");
   const [asking, setAsking] = useState(false);
   const [comment, setComment] = useState("");
-  if (message.role === "user") return <div className="msg user"><div className="bubble">{message.content}</div></div>;
+  if (message.role === "user") return <div className="msg user"><div className="bubble">
+    {message.meta?.attachments?.length ? <div className="bubble-files">{message.meta.attachments.map(file =>
+      <span key={file.name}>{file.kind === "image" ? <ImageIcon size={13} /> : <FileText size={13} />}{file.name}</span>)}</div> : null}
+    {message.content}</div></div>;
   const sources = message.meta?.sources ?? [];
   const learned = message.meta?.learned ?? [];
   return <div className="msg assistant">
@@ -152,6 +206,8 @@ function Message({ message, onRate }: { message: ChatMessage; onRate: (m: ChatMe
       <Markdown text={message.content} onLink={openLink} />
       {sources.length ? <div className="sources">{sources.map(source =>
         <button key={source.url} onClick={() => openLink(source.url)} title={source.url}><Globe2 size={12} />{source.title || new URL(source.url).hostname}</button>)}</div> : null}
+      {(message.meta?.actions ?? []).map(action => <ActionCard key={action.id} action={action} onDecide={onDecide} />)}
+      {(message.meta?.skills_learned ?? []).map(skill => <div className="learned skill" key={skill.id}><GraduationCap size={13} />Выучил навык: <b>{skill.title}</b> — посмотреть и изменить можно в «Память → Инструкции»</div>)}
       {learned.length ? <div className="learned"><Brain size={13} />Запомнил: {learned.map(item => item.content).join("; ")}</div> : null}
       <div className="msg-actions">
         <button title="Копировать" aria-label="Копировать ответ" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check size={14} /> : <Copy size={14} />}</button>
@@ -171,5 +227,26 @@ function Message({ message, onRate }: { message: ChatMessage; onRate: (m: ChatMe
         <button type="button" className="secondary" onClick={() => setAsking(false)}>Отмена</button>
       </form> : null}
     </div>
+  </div>;
+}
+
+const STATUS: Record<AgentAction["status"], string> = {
+  pending: "Ждёт вашего подтверждения", running: "Выполняется…", done: "Выполнено", failed: "Не удалось",
+  cancelled: "Отменено", ui: "Открыто в приложении",
+};
+
+function ActionCard({ action, onDecide }: { action: AgentAction; onDecide: (a: AgentAction, approve: boolean) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const preview = typeof action.arguments?.content === "string" ? action.arguments.content as string
+    : Array.isArray(action.arguments?.values) ? (action.arguments.values as unknown[][]).map(row => row.join(" | ")).join("\n") : "";
+  const decide = async (approve: boolean) => { setBusy(true); try { await onDecide(action, approve); } finally { setBusy(false); } };
+  return <div className={"action-card " + action.status}>
+    <div className="action-head"><Play size={14} /><b>{action.summary}</b><span>{STATUS[action.status]}</span></div>
+    {preview && action.status === "pending" ? <pre>{preview.slice(0, 1500)}{preview.length > 1500 ? "\n…" : ""}</pre> : null}
+    {action.status === "failed" && action.result?.error ? <p className="bad-text">{String(action.result.error)}</p> : null}
+    {action.status === "pending" ? <div className="action-buttons">
+      <button className="primary" disabled={busy} onClick={() => void decide(true)}>{busy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}Выполнить</button>
+      <button className="secondary" disabled={busy} onClick={() => void decide(false)}>Отмена</button>
+    </div> : null}
   </div>;
 }

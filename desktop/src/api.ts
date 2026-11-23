@@ -8,10 +8,19 @@ export function api<T>(method: Method, path: string, body?: unknown): Promise<T>
 }
 
 export type Source = { title: string; url: string };
+export type AgentAction = {
+  id: string; tool: string; summary: string; status: "pending" | "running" | "done" | "failed" | "cancelled" | "ui";
+  arguments: Record<string, unknown>; result: ({ ui?: string; start?: boolean; error?: string } & Record<string, unknown>) | null;
+};
+export type Attachment = { name: string; mime: string; data: string; size: number };
 export type ChatMessage = {
   id: string; conversation_id: string; role: "user" | "assistant"; content: string;
   created_at: string; provider: string | null; model: string | null; feedback: number;
-  meta: { sources?: Source[]; learned?: { id: string; content: string }[]; private?: boolean };
+  meta: {
+    sources?: Source[]; learned?: { id: string; content: string }[]; private?: boolean;
+    attachments?: { name: string; kind: "image" | "file"; size: number }[];
+    actions?: AgentAction[]; skills_learned?: { id: string; title: string }[];
+  };
 };
 export type Conversation = { id: string; title: string; created_at: string; updated_at: string };
 export type ConversationDetail = Conversation & { messages: ChatMessage[] };
@@ -40,3 +49,5 @@ export type ServerStatus = {
 export const providerLabel = (provider: string | null | undefined): string =>
   ({ ollama: "Локальная модель", gemini: "Gemini", groq: "Groq", openrouter: "OpenRouter",
      cerebras: "Cerebras", malenia: "Сервер Малении", custom: "Свой сервер" } as Record<string, string>)[provider ?? ""] ?? (provider || "");
+
+export type TrainingStats = { conversations: number; answers: number; liked: number; disliked: number; memories: number; lessons: number; skills: number; ready_for_finetune: boolean };

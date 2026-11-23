@@ -53,6 +53,8 @@ fs.mkdirSync(output,{recursive:true});
      }
      if(p.startsWith("/v1/ai/hardware"))return {hardware:{ram_gb:16,gpu:null,vram_gb:0,cpu_threads:8,os:"Windows",recommendation:{tier:"cpu-16",label:"16 ГБ",models:["qwen3.5:4b"],note:""}},installed:[],ollama_running:false,pull:{status:"idle",model:null,completed:0,total:0,error:null}};
      if(p==="/v1/assistant/memories")return {memories:[]};
+     if(p==="/v1/assistant/workspace")return {path:"C:\\Users\\demo\\Documents\\Маления"};
+     if(p==="/v1/assistant/training")return {stats:{conversations:1,answers:2,liked:1,disliked:0,memories:0,lessons:0,skills:0,ready_for_finetune:false},personal_model:"sherlock-personal"};
      if(p==="/v1/server")return {enabled:false,running:false,port:8766,token:"mln-test",error:null,requests_served:0,addresses:[]};
      return {};
     }
@@ -175,6 +177,9 @@ fs.mkdirSync(output,{recursive:true});
   assert.ok(queued.every(x=>x.args.spreadsheetUrl.endsWith("gid=2")));
   for(const width of [1440,1080,850]){
    await page.setViewportSize({width,height:900});
+   await mainNav.getByRole("button",{name:"Память",exact:true}).click();
+   await page.getByRole("navigation",{name:"Знания и навыки"}).getByRole("button",{name:"Своя модель",exact:true}).click();
+   await page.getByText("Чему Шерлок уже научился").waitFor();
    for(const destination of ["Чат","Инструменты","Память","Настройки"]){
     await mainNav.getByRole("button",{name:destination,exact:true}).click();
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), destination+" horizontal overflow at "+width);

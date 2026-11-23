@@ -9,6 +9,7 @@ import { Chat } from "./Chat";
 import { AiSettings } from "./AiSettings";
 import { ServerSettings } from "./ServerSettings";
 import { Memories } from "./Memories";
+import { OwnModel } from "./OwnModel";
 import { api, type Conversation } from "./api";
 import { OrderCheckPage } from "./OrderCheckPage";
 import { invoke } from "@tauri-apps/api/core";
@@ -27,7 +28,7 @@ type BrowserAudit = { checked_at:string; total:number; summary:{found:number;in_
 type BrowserAuditJob = { job_id:string; status:"pending"|"running"|"completed"|"failed"|"expired"; created_at:string; updated_at:string; current_role:"inventory"|"datalens"|"asgard"|null; completed_sources:number; attention_sources:number; failed_role:"inventory"|"datalens"|"asgard"|null };
 type Resources = { total_memory_bytes:number; available_memory_bytes:number; used_memory_percent:number; logical_processors:number; cpu_usage_percent:number; mode:"normal"|"economy"|"emergency"; recommended_parallel_jobs:number; };
 type Dashboard = { running:boolean; resources:Resources; tasks:Task[]; events:EventItem[]; browser_tabs:BrowserTab[]; browser_audit:BrowserAudit|null; browser_audit_job:BrowserAuditJob|null; permissions:PermissionRequest[]; };
-type Page = "overview"|"tasks"|"browser"|"sources"|"tools"|"connections"|"orders"|"ai"|"settings"|"permissions"|"knowledge"|"skills"|"memory"|"models"|"server";
+type Page = "overview"|"tasks"|"browser"|"sources"|"tools"|"connections"|"orders"|"ai"|"settings"|"permissions"|"knowledge"|"skills"|"memory"|"models"|"server"|"ownmodel";
 
 const bytes=(n:number)=>n ? (n/1024/1024/1024).toFixed(1)+" ГБ" : "—";
 const time=(v:string)=>{try{return new Intl.DateTimeFormat("ru-RU",{hour:"2-digit",minute:"2-digit"}).format(new Date(v));}catch{return v;}};
@@ -38,6 +39,7 @@ export default function App(){
   useEffect(()=>()=>inventaRun.dispose(),[inventaRun]);
   const [page,setPage]=useState<Page>("ai");
   const [conversationId,setConversationId]=useState<string|null>(null);
+  const [autoStart,setAutoStart]=useState(0);
   const [conversations,setConversations]=useState<Conversation[]>([]);
   const [instruction,setInstruction]=useState<{title:string;instructions:string}|null>(null);
   const [selectedSheet,setSelectedSheet]=useState("");
@@ -78,7 +80,7 @@ export default function App(){
   const modeLabel=mode==="normal"?"Обычный":mode==="economy"?"Экономия":mode==="emergency"?"Защита":"—";
 
   const settingsPages:Page[]=["settings","models","server","connections","permissions","browser","overview","tasks"];
-  const memoryPages:Page[]=["memory","knowledge","skills"];
+  const memoryPages:Page[]=["memory","knowledge","skills","ownmodel"];
   const pendingPermissions=data?.permissions.filter(p=>p.status==="pending").length;
   const openChat=(id:string|null)=>{setConversationId(id);setPage("ai");};
   const removeConversation=async(id:string)=>{if(!window.confirm("Удалить этот диалог?"))return;try{await api("DELETE",`/v1/assistant/conversations/${id}`);if(conversationId===id)setConversationId(null);await loadConversations();}catch(e){setError(String(e));}};
@@ -104,14 +106,14 @@ export default function App(){
       <div className="side-foot">
         <span className={"dot"+(connected?" on":"")}/>{connected?"Маления работает":"Запуск…"}
         <button className="icon-btn tiny" title="С чего начать?" aria-label="Открыть справку" onClick={()=>setShowHelp(true)}><CircleHelp size={15}/></button>
-        <span className="side-version">0.9.0</span>
+        <span className="side-version">0.10.0</span>
       </div>
     </aside>
 
     <main className={"main"+(page==="ai"?" main-chat":"")}>
       <div className={page==="ai"?"content content-chat":"content"}>
         {!connected&&<div className="connection-banner"><div><b>Маления готова к запуску</b><p>Нажмите «Запустить Малению», чтобы открыть чат и инструменты.</p></div><button className="primary" onClick={()=>void runAgent()} disabled={busy}>{busy?<LoaderCircle className="spin" size={16}/>:<Play size={16}/>}Запустить Малению</button></div>}
-        {memoryPages.includes(page)?<><div className="page-title"><h1>Память</h1><p>Что Шерлок знает о вас, ваши документы и рабочие инструкции.</p></div><nav className="section-tabs" aria-label="Знания и навыки"><button aria-current={page==="memory"?"page":undefined} onClick={()=>setPage("memory")}>О вас</button><button aria-current={page==="knowledge"?"page":undefined} onClick={()=>setPage("knowledge")}>Документы</button><button aria-current={page==="skills"?"page":undefined} onClick={()=>setPage("skills")}>Инструкции</button></nav></>:null}
+        {memoryPages.includes(page)?<><div className="page-title"><h1>Память</h1><p>Что Шерлок знает о вас, чему вы его научили и ваша собственная модель.</p></div><nav className="section-tabs" aria-label="Знания и навыки"><button aria-current={page==="memory"?"page":undefined} onClick={()=>setPage("memory")}>О вас</button><button aria-current={page==="knowledge"?"page":undefined} onClick={()=>setPage("knowledge")}>Документы</button><button aria-current={page==="skills"?"page":undefined} onClick={()=>setPage("skills")}>Инструкции</button><button aria-current={page==="ownmodel"?"page":undefined} onClick={()=>setPage("ownmodel")}>Своя модель</button></nav></>:null}
         {settingsPages.includes(page)?<><div className="page-title"><h1>Настройки</h1></div><nav className="section-tabs" aria-label="Разделы настроек"><button aria-current={page==="models"?"page":undefined} onClick={()=>setPage("models")}>Модели ИИ</button><button aria-current={page==="server"?"page":undefined} onClick={()=>setPage("server")}>Сервер</button><button aria-current={page==="connections"?"page":undefined} onClick={()=>setPage("connections")}>Подключения</button><button aria-current={page==="permissions"?"page":undefined} onClick={()=>setPage("permissions")}>Разрешения{pendingPermissions?` (${pendingPermissions})`:""}</button><button aria-current={["settings","browser","overview","tasks"].includes(page)?"page":undefined} onClick={()=>setPage("settings")}>Система</button></nav></>:null}
         {["sources","orders"].includes(page)?<button className="tool-back" onClick={()=>setPage("tools")}>← Все инструменты</button>:null}
         {page==="tools"?<ToolCatalog onOpen={setPage}/>:null}
@@ -135,14 +137,15 @@ export default function App(){
 
         {page==="permissions"&&<PermissionsPage requests={data?.permissions??[]} connected={connected} busy={busy} onDecide={decidePermission}/>}
         {page==="browser"&&<BrowserPage tabs={data?.browser_tabs??[]} audit={data?.browser_audit??null} job={data?.browser_audit_job??null} connected={connected} onRequested={()=>void refresh()} onOpenSources={()=>setPage("sources")}/>}
-        {(page==="sources"||page==="connections")&&<SourcesPage mode={page==="sources"?"work":"connections"} selectedSheet={selectedSheet} onSelectSheet={setSelectedSheet} onOpenConnections={()=>setPage("connections")} tabs={data?.browser_tabs??[]} connected={connected} runState={runState} runner={inventaRun}/>} 
+        {(page==="sources"||page==="connections")&&<SourcesPage autoStart={page==="sources"?autoStart:0} onAutoStarted={started=>{setAutoStart(0);if(!started)setNotice("Шерлок открыл инвентаризацию. Выберите лист и нажмите «Начать проверку» — запустить автоматически не удалось.");}} mode={page==="sources"?"work":"connections"} selectedSheet={selectedSheet} onSelectSheet={setSelectedSheet} onOpenConnections={()=>setPage("connections")} tabs={data?.browser_tabs??[]} connected={connected} runState={runState} runner={inventaRun}/>} 
         {page==="orders"&&<OrderCheckPage connected={connected}/>}
         {page==="memory"&&<Memories connected={connected}/>}
+        {page==="ownmodel"&&<OwnModel connected={connected} onOpenModels={()=>setPage("models")}/>}
         {page==="models"&&<AiSettings connected={connected}/>}
         {page==="server"&&<ServerSettings connected={connected} onOpenModels={()=>setPage("models")}/>}
         {page==="knowledge"&&<KnowledgePage connected={connected}/>}
         {page==="skills"&&<SkillsPage connected={connected} onApply={item=>{setInstruction(item);setPage("ai");}}/>}
-        <div hidden={page!=="ai"} className="chat-host"><Chat connected={connected} conversationId={conversationId} onConversation={setConversationId} onChanged={()=>void loadConversations()} instruction={instruction} onClearInstruction={()=>setInstruction(null)} onOpenSettings={()=>setPage("models")} onOpenTools={()=>setPage("tools")}/></div>
+        <div hidden={page!=="ai"} className="chat-host"><Chat connected={connected} conversationId={conversationId} onConversation={setConversationId} onChanged={()=>void loadConversations()} instruction={instruction} onClearInstruction={()=>setInstruction(null)} onOpenSettings={()=>setPage("models")} onOpenTools={()=>setPage("tools")} onUiAction={action=>{if(action.result?.ui==="open_inventory"){setPage("sources");if(action.result.start)setAutoStart(Date.now());}}}/></div>
         {page==="settings"&&<section className="page"><div className="settings-links"><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Ядро Малении на этом компьютере: хранит диалоги, память и подключения. Модели настраиваются во вкладке «Модели ИИ»." value={connected?"Запущен":"Остановлен"} action={<button className={connected?"danger":"primary"} onClick={connected?stopAgent:runAgent} disabled={busy}>{connected?<Square size={14}/>:<Play size={14}/>} {connected?"Остановить":"Запустить"}</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Диалоги, память и ключи хранятся на этом компьютере. В режиме «Приватно» запросы не уходят в облако. Важные изменения в рабочих системах требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение во вкладке «Подключения»." value="Browser Bridge"/></div></section>}
       </div>
     </main>
@@ -228,7 +231,7 @@ function BrowserPage({tabs,audit,job,connected,onRequested,onOpenSources}:{tabs:
 
 type GoogleSheetsStatus = {connected:boolean;status:string;error:string|null;client_id?:string};
 
-function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,connected,runState,runner}:{mode:"work"|"connections";selectedSheet:string;onSelectSheet:(url:string)=>void;onOpenConnections:()=>void;tabs:BrowserTab[];connected:boolean;runState:RunState;runner:InventaRun}){
+function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,connected,runState,runner,autoStart=0,onAutoStarted}:{autoStart?:number;onAutoStarted?:(started:boolean)=>void;mode:"work"|"connections";selectedSheet:string;onSelectSheet:(url:string)=>void;onOpenConnections:()=>void;tabs:BrowserTab[];connected:boolean;runState:RunState;runner:InventaRun}){
   const [clarifiedYear,setClarifiedYear]=useState("");
   const [sheetOptions,setSheetOptions]=useState<{url:string;title:string}[]>([]);
   const [loadingSheets,setLoadingSheets]=useState(false);
@@ -297,6 +300,16 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
     finally{setBusy(false);}
   };
   const sheetsAuthorized=sheetsStatus.status==="authorized"||sheetsStatus.connected;
+  // Started by Sherlock from the chat: begin as soon as the sheet and access are ready.
+  const autoStartDone=useRef(0);
+  useEffect(()=>{
+    if(!autoStart||mode!=="work"||autoStartDone.current===autoStart)return;
+    const ready=connected&&sheetsAuthorized&&!!sheetUrl&&!runBusy&&!needsYear&&!loadingSheets;
+    if(ready){autoStartDone.current=autoStart;void runner.start(sheetUrl,clarifiedDate);onAutoStarted?.(true);return;}
+    const timer=window.setTimeout(()=>{if(autoStartDone.current!==autoStart){autoStartDone.current=autoStart;onAutoStarted?.(false);}},8000);
+    return()=>window.clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[autoStart,connected,sheetsAuthorized,sheetUrl,runBusy,needsYear,loadingSheets]);
   useEffect(()=>{
     if(!sheetUrl||!sheetsAuthorized||!connected)return;
     let cancelled=false;setLoadingSheets(true);
