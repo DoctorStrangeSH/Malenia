@@ -76,3 +76,16 @@ class BundledIdConsistencyTests(unittest.TestCase):
         digest = hashlib.sha256(base64.b64decode(key)).hexdigest()[:32]
         self.assertEqual("".join(chr(ord("a") + int(c, 16)) for c in digest), BUNDLED_EXTENSION_ID)
         self.assertIn("http://127.0.0.1:8765/*", json.loads((root / "browser-extension/manifest.json").read_text("utf-8"))["host_permissions"])
+
+
+class GoogleErrorClassificationTests(unittest.TestCase):
+    def test_actionable_codes(self):
+        from malenia.google_sheets import _classify_api_error
+        disabled = {"code": 403, "status": "PERMISSION_DENIED", "message": "Google Sheets API has not been used in project 123 before or it is disabled.",
+                    "details": [{"reason": "SERVICE_DISABLED"}]}
+        self.assertEqual(_classify_api_error(403, disabled), "google_api_disabled")
+        self.assertEqual(_classify_api_error(403, {"status": "PERMISSION_DENIED", "message": "The caller does not have permission"}), "google_no_access")
+        self.assertEqual(_classify_api_error(403, {"details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}), "google_reauthorization_required")
+        self.assertEqual(_classify_api_error(404, {}), "google_sheet_not_found")
+        self.assertEqual(_classify_api_error(429, {}), "google_rate_limited")
+        self.assertEqual(_classify_api_error(500, {}), "google_request_failed")
