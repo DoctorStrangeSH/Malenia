@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Malenia Browser Bridge",
-  "version": "1.7.0",
-  "description": "Read explicitly authorized resource pages with a bounded read-only background task.",
+  "name": "Маления",
+  "version": "1.8.0",
+  "description": "Связывает рабочие вкладки с приложением Маления: инвентаризация, DataLens, Asgard. Только чтение разрешённых страниц.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -18,8 +18,11 @@
     "storage",
     "alarms"
   ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*"
+  ],
   "action": {
-    "default_title": "Malenia Browser Bridge",
+    "default_title": "Маления — помощник в браузере",
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

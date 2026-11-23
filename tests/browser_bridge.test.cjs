@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../browser-extension/popup.js'), 'utf8');
 const flush = () => new Promise(resolve => setImmediate(resolve));
-function popup(url = 'https://example.com/orders?secret=remove#private', pageDocument = null) {
+function popup(url = 'https://example.com/orders?secret=remove#private', pageDocument = null, fetchImpl = undefined) {
   const nodes = Object.fromEntries(['status', 'share', 'shareAll', 'retry', 'inspect', 'auditStatus'].map(id => [id, {
     disabled: true, textContent: '', className: '', handlers: {},
     addEventListener(type, callback) { this.handlers[type] = callback; }
@@ -18,7 +18,7 @@ function popup(url = 'https://example.com/orders?secret=remove#private', pageDoc
     scripting: {async executeScript({func}) {if (pageDocument) return [{result:vm.runInNewContext("("+func.toString()+")()", {document:pageDocument})}];return [{result:{title:'Orders',table_headers:['Order ID','Status'],search_labels:['Search'],has_aria_grid:true,virtualized:false,login_required:false}}];}}
   };
   vm.runInNewContext(source, {document: {getElementById: id => nodes[id]}, chrome, URL, URLSearchParams,
-    crypto: {randomUUID: () => 'request-id'},
+    crypto: {randomUUID: () => 'request-id'}, ...(fetchImpl ? {fetch: fetchImpl, AbortController} : {}),
     setTimeout: callback => {timers.set(++sequence, callback); return sequence;},
     clearTimeout: id => timers.delete(id)});
   return {nodes, calls, timers, get queries() {return queries;},
@@ -106,7 +106,7 @@ test('missing host is actionable and explicit reconnect recovers', async () => {
 test('forbidden host is distinguished without printing raw errors', async () => {
   const p = popup();
   await p.reply(0, null, 'Access to the specified native messaging host is forbidden. secret=value');
-  assert.match(p.nodes.status.textContent, /ID расширения/);
+  assert.match(p.nodes.status.textContent, /Браузер запретил/);
   assert.doesNotMatch(p.nodes.status.textContent, /secret=value/);
 });
 
@@ -198,4 +198,23 @@ test('structural diagnostics resolve the full native DataLens caption without re
  await p.reply(0,hello);await p.click('inspect');
  assert.equal(p.calls[1].message.page.search_labels[0],'ID заказа / ЛОТа / ТОТа / Тележки');
  assert.equal(p.calls[1].message.page.structure.unlabelled_inputs,0);
+});
+
+test('when the browser blocks the native host, the popup talks to the running app', async () => {
+  const requests = [];
+  const fetchImpl = async (url, init) => { requests.push({url, init}); return {ok: true, status: 200, async json() { return {...hello, transport: 'http'}; }}; };
+  const p = popup(undefined, null, fetchImpl);
+  await p.reply(0, null, 'Specified native messaging host not found.');
+  await flush();
+  assert.equal(requests[0].url, 'http://127.0.0.1:8765/v1/extension/message');
+  assert.equal(JSON.parse(requests[0].init.body).type, 'hello');
+  assert.match(p.nodes.status.textContent, /через приложение/);
+  assert.equal(p.nodes.share.disabled, false);
+});
+
+test('app fallback failure keeps the original actionable message', async () => {
+  const p = popup(undefined, null, async () => { throw new TypeError('Failed to fetch'); });
+  await p.reply(0, null, 'Specified native messaging host not found.');
+  await flush();
+  assert.match(p.nodes.status.textContent, /не найдена/);
 });

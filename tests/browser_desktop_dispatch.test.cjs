@@ -230,3 +230,33 @@ test('independent cancellation channel aborts a worker even while a write reply 
  assert.ok(!traffic.some(x=>x.type==='finish_browser_audit'));
  assert.deepEqual(closed.sort(),[1,2]);
 });
+
+test('background falls back to the running app when the native host is unavailable', async () => {
+  const fetched = [];
+  const context = vm.createContext({
+    URL, AbortController, setTimeout, clearTimeout, crypto: require('node:crypto').webcrypto,
+    importScripts() {},
+    fetch: async (url, init) => { const body = JSON.parse(init.body); fetched.push({url, body});
+      return {ok: true, status: 200, async json() { return {ok: true, type: 'hello', host: 'com.malenia.browser', request_id: body.request_id}; }}; },
+    chrome: {
+      runtime: {
+        onMessage: {addListener() {}}, onInstalled: {addListener() {}}, onStartup: {addListener() {}},
+        connectNative() {
+          let disconnect;
+          return {onMessage: {addListener() {}}, onDisconnect: {addListener(listener) { disconnect = listener; }},
+            postMessage() { setTimeout(() => disconnect(), 0); }, disconnect() {}};
+        }
+      },
+      alarms: {create() {}, onAlarm: {addListener() {}}},
+      storage: {local: {async get() { return {}; }}, session: {async set() {}}},
+      permissions: {async contains() { return true; }}
+    },
+    MaleniaAutomation: {}
+  });
+  vm.runInContext(source, context);
+  const hello = await vm.runInContext('nativeSession().send({type:"hello"})', context);
+  assert.equal(hello.ok, true);
+  assert.equal(fetched[0].url, 'http://127.0.0.1:8765/v1/extension/message');
+  assert.equal(fetched[0].body.type, 'hello');
+  assert.ok(fetched[0].body.request_id);
+});

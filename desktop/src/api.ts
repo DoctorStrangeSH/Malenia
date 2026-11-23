@@ -37,7 +37,7 @@ export type ProvidersInfo = {
 };
 export type PullState = { status: "idle" | "running" | "done" | "failed"; model: string | null; completed: number; total: number; error: string | null };
 export type CatalogModel = { tag: string; name: string; size: number; moe: boolean; note: string; fit: "fast" | "ok" | "slow" | "no" };
-export type EngineState = { installed: boolean; running: boolean; status: string };
+export type EngineState = { installed: boolean; running: boolean; installing?: boolean; status: string };
 export type HardwareInfo = {
   hardware: { ram_gb: number; gpu: string | null; vram_gb: number; cpu_threads: number; os: string;
     recommendation: { tier: string; label: string; models: string[]; note: string }; catalog?: CatalogModel[] };

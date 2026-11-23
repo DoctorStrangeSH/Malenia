@@ -425,7 +425,8 @@ fn installed_engine() -> Option<PathBuf> {
 /// State of the local engine for the settings screen (no side effects).
 #[tauri::command]
 fn local_ai_engine() -> Value {
-    serde_json::json!({"installed": installed_engine().is_some(), "running": ollama_ready(), "status": runtime_setup::status()})
+    serde_json::json!({"installed": installed_engine().is_some(), "running": ollama_ready(),
+        "installing": runtime_setup::installing(), "status": runtime_setup::status()})
 }
 
 #[tauri::command]

@@ -125,6 +125,7 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByRole("navigation",{name:"Разделы настроек"}).getByRole("button",{name:"Подключения",exact:true}).click();
   await page.getByRole("button",{name:/Яндекс Браузер/}).click();
   await page.getByRole("button",{name:"Открыть папку расширения",exact:true}).click();
+  await page.getByText(/Дополнительно: если расширение пишет/).click();
   await page.getByLabel(/^ID расширения/).fill("wrong-id");
   assert.equal(await page.getByRole("button",{name:"Настроить связь с браузером",exact:true}).isDisabled(),true);
   assert.equal(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="register_browser_bridge").length),0);

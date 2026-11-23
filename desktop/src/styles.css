@@ -673,3 +673,11 @@ details.card[open]>summary{margin-bottom:14px}
 .brand svg{flex-shrink:0;border-radius:9px}
 .chat-logo{display:block;margin:0 auto 18px;border-radius:16px;background:none!important;width:56px;height:56px}
 .msg svg.avatar{background:none;border-radius:8px;width:28px;height:28px;flex-shrink:0;margin-top:2px}
+.advanced-setup{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.advanced-setup summary{cursor:pointer;color:var(--muted);font-size:13.5px}
+.advanced-setup[open] summary{margin-bottom:10px}
+.advanced-setup p{color:var(--muted);font-size:13px;margin:0 0 10px}
+.advanced-setup label{display:grid;gap:6px;font-size:13px;color:var(--muted);margin:12px 0 10px}
+.advanced-setup input{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:9px 12px;font-size:13.5px;color:var(--text);font-family:Consolas,monospace}
+.advanced-row{display:flex;gap:8px}
+.browser-setup-steps code{font-family:Consolas,monospace;font-size:12.5px;background:#24252d;border-radius:5px;padding:1px 5px}

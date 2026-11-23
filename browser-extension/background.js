@@ -3,18 +3,67 @@ importScripts("automation.js");
 const HOST = "com.malenia.browser";
 let running = false;
 
+const APP_BRIDGE_URL = "http://127.0.0.1:8765/v1/extension/message";
+
+// Fallback transport: the running Malenia app on loopback. Used when the
+// browser cannot start the native host (often disabled by organisation policy).
+function httpSession() {
+  let closed = false;
+  return {
+    async send(message) {
+      if (closed) throw new Error("host_not_ready");
+      const id = crypto.randomUUID();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(),
+        ['mark_inventa_found','mark_inventa_asgard'].includes(message.type)?120000:10000);
+      try {
+        const response = await fetch(APP_BRIDGE_URL, {method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({...message, request_id:id}), signal:controller.signal, cache:"no-store"});
+        if (!response.ok) throw new Error(response.status === 403 ? "app_forbidden" : "app_unavailable");
+        const value = await response.json();
+        if (!value || value.request_id !== id) throw new Error("host_protocol");
+        return value;
+      } catch (error) {
+        throw new Error(error?.name === "AbortError" ? "host_timeout" : error?.message || "app_unavailable");
+      } finally { clearTimeout(timer); }
+    },
+    close() { closed = true; }
+  };
+}
+
+// Native Messaging first; if the browser cannot reach the native host at all,
+// transparently switch to the running app. Call sites see one session.
 function nativeSession() {
+  let active = portSession(), usingHttp = false;
+  return {
+    async send(message) {
+      if (!usingHttp) {
+        try { return await active.send(message); }
+        catch (error) {
+          if (active.everOk || !["host_disconnected","host_not_ready"].includes(error?.message)) throw error;
+          usingHttp = true;
+          active = httpSession();
+        }
+      }
+      return active.send(message);
+    },
+    close() { active.close(); }
+  };
+}
+
+function portSession() {
   // A native messaging port keeps the MV3 worker alive while the job is active.
   const port = chrome.runtime.connectNative(HOST);
   let pending = null;
   let closed = false;
+  let everOk = false;
   port.onMessage.addListener(response => {
     if (!pending) return;
     const active = pending;
     pending = null;
     clearTimeout(active.timer);
     if (!response || response.request_id !== active.id) active.reject(new Error("host_protocol"));
-    else active.resolve(response);
+    else { everOk = true; active.resolve(response); }
   });
   port.onDisconnect.addListener(() => {
     closed = true;
@@ -26,6 +75,7 @@ function nativeSession() {
     }
   });
   return {
+    get everOk() { return everOk; },
     send(message) {
       if (closed || pending) return Promise.reject(new Error("host_not_ready"));
       return new Promise((resolve, reject) => {

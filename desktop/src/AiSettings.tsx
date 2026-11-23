@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Check, ChevronDown, Cloud, Cpu, Download, ExternalLink, FolderOpen, HardDrive, KeyRound,
@@ -206,25 +206,25 @@ function ProviderCard({ provider, onChanged, onError, withUrl }: { provider: Pro
 function useEngine() {
   const [engine, setEngine] = useState<EngineState | null>(null);
   const [starting, setStarting] = useState(false);
-  const poll = useRef<number | null>(null);
   const refresh = useCallback(async () => {
-    try { setEngine(await invoke<EngineState>("local_ai_engine")); } catch { /* older backend */ }
+    try { const state = await invoke<EngineState>("local_ai_engine"); setEngine(state); return state; } catch { return null; }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  /** Install (first time, ~1.6 GB) and start; progress comes from get_setup_status. */
+  // The download runs in the app, not in this screen: keep showing its progress
+  // after switching tabs and coming back.
+  const busy = starting || !!engine?.installing;
+  useEffect(() => {
+    if (!busy) return;
+    const id = window.setInterval(() => void refresh(), 1000);
+    return () => window.clearInterval(id);
+  }, [busy, refresh]);
+  /** Install (first time, ~1.6 GB) and start. */
   const start = useCallback(async () => {
     setStarting(true);
-    poll.current = window.setInterval(() => {
-      invoke<string>("get_setup_status").then(status => setEngine(current => ({ installed: current?.installed ?? false, running: false, status }))).catch(() => undefined);
-    }, 1000);
     try { await invoke<string>("start_local_ai"); }
-    finally {
-      if (poll.current) window.clearInterval(poll.current);
-      setStarting(false);
-      await refresh();
-    }
+    finally { setStarting(false); await refresh(); }
   }, [refresh]);
-  return { engine, starting, start };
+  return { engine, starting: busy, start };
 }
 
 function LocalModels({ info, hardware, onRefresh, onSave, onError, onOpenOwnModel }: {
@@ -238,7 +238,7 @@ function LocalModels({ info, hardware, onRefresh, onSave, onError, onOpenOwnMode
   const installed = hardware?.installed ?? [];
   const running = !!engine?.running || !!hardware?.ollama_running;
   const startEngine = async () => {
-    try { await start(); await onRefresh(); } catch (reason) { onError(String(reason)); }
+    try { await startOrWait(); await onRefresh(); } catch (reason) { onError(String(reason)); }
   };
   const download = async (model: string) => {
     try {
@@ -257,6 +257,7 @@ function LocalModels({ info, hardware, onRefresh, onSave, onError, onOpenOwnMode
   const current = info.local_model ?? installed[0] ?? null;
   const visible = showAll ? catalog : catalog.filter(item => item.tag === recommended || isInstalled(item.tag) || item.fit === "fast" || item.fit === "ok").slice(0, 7);
   const setupStatus = starting ? engine?.status ?? "" : "";
+  const startOrWait = async () => { if (!engine?.installing) await start(); };
   const notInstalled = !!engine && !engine.installed;
 
   return <section className="card">

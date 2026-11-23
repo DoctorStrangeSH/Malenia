@@ -83,6 +83,7 @@ jobs:
         run: >-
           python -m PyInstaller --clean --onedir
           --name malenia-agent
+          --icon desktop/src-tauri/icons/icon.ico
           --distpath desktop/src-tauri/resources
           --workpath "$env:RUNNER_TEMP/malenia-pyinstaller"
           --paths agent
@@ -113,6 +114,7 @@ jobs:
         run: >-
           python -m PyInstaller --clean --onedir
           --name malenia-native-host
+          --icon desktop/src-tauri/icons/icon.ico
           --distpath desktop/src-tauri/resources
           --workpath "$env:RUNNER_TEMP/malenia-native-host-pyinstaller"
           --paths agent

@@ -23,7 +23,7 @@ from .permission_inbox import PermissionInbox
 from .permissions import PermissionGate
 from .resources import ResourceManager
 from .store import TaskStore, SubmissionConflict
-from . import assistant_api
+from . import assistant_api, extension_bridge
 from .assistant_api import AssistantServices
 
 
@@ -202,7 +202,14 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
             # This removes only Malenia's shared-tab record; it never closes the browser tab.
             self._send(200, {"removed": True, "browser_tab_closed": False})
 
+        def do_OPTIONS(self) -> None:
+            if not extension_bridge.handle(self, "OPTIONS", urlsplit(self.path).path, store, sheets):
+                self._send(404, {"error": "not_found"})
+
         def do_POST(self) -> None:
+            # The browser extension authenticates by its Origin, not the desktop token.
+            if extension_bridge.handle(self, "POST", urlsplit(self.path).path, store, sheets):
+                return
             if not self._require_access():
                 return
             parsed = urlsplit(self.path)

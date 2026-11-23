@@ -3,26 +3,26 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Malenia Browser Bridge</title>
+  <title>Маления</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
   <main>
     <header>
-      <img class="mark" src="icons/icon-48.png" alt="" width="34" height="34">
+      <img class="mark" src="icons/icon-48.png" alt="" width="40" height="40">
       <div>
-        <strong>Malenia</strong>
-        <span>Browser Bridge</span>
+        <strong>Маления</strong>
+        <span>Помощник в браузере</span>
       </div>
     </header>
     <div id="status" class="status" role="status" aria-live="polite">Проверяем соединение…</div>
     <section class="automation active-source" aria-label="Подключить текущую вкладку">
-      <strong>Подключить эту вкладку</strong>
+      <strong>Эта вкладка</strong>
       <p id="activeSourceTitle">Определяю текущую вкладку…</p>
       <label>Использовать как<select id="activeSourceRole"><option value="">Выбери назначение…</option><option value="inventory">Инвентаризация</option><option value="datalens">DataLens</option><option value="asgard">Asgard</option></select></label>
       <button id="useActiveSource" type="button" disabled>Использовать эту вкладку</button>
       <div id="activeSourceStatus" class="status" role="status" aria-live="polite">Загружаю сохранённые источники…</div>
-      <p>Один раз для каждого сервиса. Выбор сохраняется после закрытия браузера и перезагрузки компьютера.</p>
+      <p class="hint">Один раз для каждого сервиса — Маления запомнит выбор.</p>
     </section>
     <details><summary>Дополнительные настройки и диагностика</summary>
     <button id="share" type="button" disabled>Поделиться вкладкой</button>
@@ -42,7 +42,7 @@
     </section>
     <button id="retry" class="secondary" type="button" disabled>Повторить подключение</button>
     </details>
-    <p class="privacy">Передача вкладок отправляет заголовки и адреса HTTP(S)-страниц; для Google Sheets сохраняется только числовой ID листа (gid). Остальные параметры удаляются. Диагностика передаёт видимые заголовки таблиц, подписи поиска и структурные признаки. Проверка заказов читает результаты в разрешённых источниках; строки не сохраняются. Cookies и пароли не передаются.</p>
+    <details class="privacy-box"><summary>Что передаётся</summary><p class="privacy">Передача вкладок отправляет заголовки и адреса HTTP(S)-страниц; для Google Sheets сохраняется только числовой ID листа (gid). Остальные параметры удаляются. Диагностика передаёт видимые заголовки таблиц, подписи поиска и структурные признаки. Проверка заказов читает результаты в разрешённых источниках; строки не сохраняются. Cookies и пароли не передаются.</p></details>
   </main>
   <script src="automation.js"></script>
   <script src="popup.js"></script>
