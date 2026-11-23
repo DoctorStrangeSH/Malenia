@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowUp, Bookmark, Brain, Check, Copy, FileText, GraduationCap, Globe2, Image as ImageIcon, LoaderCircle, Lock,
-  Mail, ListChecks, Lightbulb, Paperclip, Play, Sparkles, ThumbsDown, ThumbsUp, Wrench, X,
+  Mail, ListChecks, Lightbulb, Paperclip, Play, ThumbsDown, ThumbsUp, Wrench, X,
 } from "lucide-react";
 import { api, providerLabel, type AgentAction, type Attachment, type ChatMessage, type ChatReply, type ConversationDetail, type ProvidersInfo } from "./api";
 import { Markdown } from "./Markdown";
+import { Logo } from "./Logo";
 
 type Props = {
   connected: boolean;
@@ -74,8 +75,13 @@ export function Chat(props: Props) {
   const draft = drafts[key] ?? "";
   const setDraft = (value: string) => setDrafts(current => ({ ...current, [key]: value }));
 
+  const [localReady, setLocalReady] = useState(true);
   const loadProviders = useCallback(async () => {
     try { setProviders(await api<ProvidersInfo>("GET", "/v1/ai/providers")); } catch { /* agent starting */ }
+    try {
+      const hw = await api<{ installed: string[]; ollama_running: boolean }>("GET", "/v1/ai/hardware");
+      setLocalReady(hw.ollama_running && hw.installed.length > 0);
+    } catch { /* optional */ }
   }, []);
   useEffect(() => { if (connected) void loadProviders(); }, [connected, loadProviders]);
 
@@ -135,11 +141,11 @@ export function Chat(props: Props) {
     <h1 className="visually-hidden">Ассистент</h1>
     <div className="chat-scroll" ref={listRef}>
       {empty ? <div className="chat-welcome">
-        <div className="chat-logo"><Sparkles size={26} /></div>
+        <Logo size={56} className="chat-logo" />
         <h2>Чем помочь?</h2>
-        <p>Я Шерлок — ваш помощник для работы и не только. Пишите, спрашивайте, поручайте.</p>
-        {connected && providers && !cloudReady && providers.mode !== "local" ? <button className="setup-hint" onClick={props.onOpenSettings}>
-          <Brain size={18} /><span><b>Подключите бесплатную умную модель</b><small>2 минуты: ключ Gemini или Groq без карты. Сейчас используется только локальная модель.</small></span>
+        <p>Я Маления — ваша помощница для работы и не только. Пишите, спрашивайте, поручайте.</p>
+        {connected && providers && !cloudReady && !localReady ? <button className="setup-hint" onClick={props.onOpenSettings}>
+          <Brain size={18} /><span><b>Настройте модель для Малении</b><small>Скачайте локальную модель под вашу видеокарту или подключите бесплатный GigaChat — это пара минут.</small></span>
         </button> : null}
         <div className="suggestions">
           {SUGGESTIONS.map(item => <button key={item.title} onClick={() => { setDraft(item.text); inputRef.current?.focus(); }}>
@@ -150,7 +156,7 @@ export function Chat(props: Props) {
         {messages.map(message => <Message key={message.id} message={message} onRate={rate} onDecide={decide} />)}
         {busy ? <>
           <div className="msg user"><div className="bubble">{pendingText}</div></div>
-          <div className="msg assistant"><div className="avatar"><Sparkles size={15} /></div><div className="thinking"><span /><span /><span /></div></div>
+          <div className="msg assistant"><Logo size={28} className="avatar" /><div className="thinking"><span /><span /><span /></div></div>
         </> : null}
       </div>}
     </div>
@@ -178,13 +184,13 @@ export function Chat(props: Props) {
             title="Разрешить искать в интернете, когда нужно" onClick={() => setUseWeb(value => !value)}><Globe2 size={14} />Интернет</button>
           <button className={"chip-toggle" + (privateMode ? " on private" : "")} aria-pressed={privateMode}
             title="Только локальная модель или ваш сервер, без облака" onClick={() => setPrivateMode(value => !value)}><Lock size={14} />Приватно</button>
-          <span className="composer-model">{privateMode ? "Локально" : providers ? (cloudReady && providers.mode !== "local" ? "Облако + резерв" : "Локальная модель") : ""}</span>
+          <span className="composer-model">{privateMode ? "Локально" : providers ? (cloudReady && providers.mode !== "local" ? "Облако + резерв" : providers.local_model ? providers.local_model.replace(/:latest$/, "") : "Локальная модель") : ""}</span>
           <button className="send" aria-label="Отправить" disabled={(!draft.trim() && !files.length) || busy || !connected} onClick={() => void send()}>
             {busy ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
           </button>
         </div>
       </div>
-      <small className="composer-note">Шерлок может ошибаться. Важные факты проверяйте. Enter — отправить, Shift+Enter — новая строка. Файлы можно перетащить или вставить.</small>
+      <small className="composer-note">Маления может ошибаться. Важные факты проверяйте. Enter — отправить, Shift+Enter — новая строка. Файлы можно перетащить или вставить.</small>
     </div>
   </section>;
 }
@@ -201,14 +207,14 @@ function Message({ message, onRate, onDecide }: { message: ChatMessage; onRate: 
   const sources = message.meta?.sources ?? [];
   const learned = message.meta?.learned ?? [];
   return <div className="msg assistant">
-    <div className="avatar"><Sparkles size={15} /></div>
+    <Logo size={28} className="avatar" />
     <div className="msg-body">
       <Markdown text={message.content} onLink={openLink} />
       {sources.length ? <div className="sources">{sources.map(source =>
         <button key={source.url} onClick={() => openLink(source.url)} title={source.url}><Globe2 size={12} />{source.title || new URL(source.url).hostname}</button>)}</div> : null}
       {(message.meta?.actions ?? []).map(action => <ActionCard key={action.id} action={action} onDecide={onDecide} />)}
-      {(message.meta?.skills_learned ?? []).map(skill => <div className="learned skill" key={skill.id}><GraduationCap size={13} />Выучил навык: <b>{skill.title}</b> — посмотреть и изменить можно в «Память → Инструкции»</div>)}
-      {learned.length ? <div className="learned"><Brain size={13} />Запомнил: {learned.map(item => item.content).join("; ")}</div> : null}
+      {(message.meta?.skills_learned ?? []).map(skill => <div className="learned skill" key={skill.id}><GraduationCap size={13} />Выучила навык: <b>{skill.title}</b> — посмотреть и изменить можно в «Память → Инструкции»</div>)}
+      {learned.length ? <div className="learned"><Brain size={13} />Запомнила: {learned.map(item => item.content).join("; ")}</div> : null}
       <div className="msg-actions">
         <button title="Копировать" aria-label="Копировать ответ" onClick={() => { void navigator.clipboard?.writeText(message.content); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? <Check size={14} /> : <Copy size={14} />}</button>
         <button title="Хороший ответ" aria-label="Хороший ответ" className={message.feedback > 0 ? "on" : ""} onClick={() => onRate(message, 1)}><ThumbsUp size={14} /></button>
@@ -222,7 +228,7 @@ function Message({ message, onRate, onDecide }: { message: ChatMessage; onRate: 
         <span>{providerLabel(message.provider)}{message.model ? " · " + message.model : ""}{message.meta?.private ? " · приватно" : ""}</span>
       </div>
       {asking ? <form className="correction" onSubmit={event => { event.preventDefault(); onRate(message, -1, comment.trim() || undefined); setAsking(false); setComment(""); }}>
-        <input autoFocus value={comment} maxLength={1000} onChange={event => setComment(event.target.value)} placeholder="Как надо было ответить? Шерлок запомнит это на будущее" />
+        <input autoFocus value={comment} maxLength={1000} onChange={event => setComment(event.target.value)} placeholder="Как надо было ответить? Маления запомнит это на будущее" />
         <button type="submit" className="primary">Сохранить</button>
         <button type="button" className="secondary" onClick={() => setAsking(false)}>Отмена</button>
       </form> : null}

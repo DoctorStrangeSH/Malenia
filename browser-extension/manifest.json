@@ -3,6 +3,12 @@
   "name": "Malenia Browser Bridge",
   "version": "1.7.0",
   "description": "Read explicitly authorized resource pages with a bounded read-only background task.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7kx9ltaPdMoaOu8Sq8iVeMcJrgOi2ehkK5oofadt86UhP9XQGCTWiQ1TWa0+HKKPm0C56gugYABq+BvTSfQvW6IvnOiINhWf8XVSRQjjsiM/AVeLF7rykpBXNRMqzvHS2/kGokz6kBNz2ZH2OL9KGtnWs74uxSrcHFJwlUjdNlMe8PJ7iGZgU5rdiAkg7JON2IhN0B+qdcdfDNp23olrZ0vT6q/hjXHEN4DnNTZEGhC07jq+tvbWRV2iem24rZMuweD7dj6KeKbdg0bXqg7ReKgbTd1IvydXlYv9RpUDQErApPNhf3UGTsLnkUN/ETslYH0Qo6Nzb31YgiSTXUtLVwIDAQAB",
   "permissions": [
     "activeTab",
@@ -14,7 +20,12 @@
   ],
   "action": {
     "default_title": "Malenia Browser Bridge",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
   },
   "optional_host_permissions": [
     "https://*/*"

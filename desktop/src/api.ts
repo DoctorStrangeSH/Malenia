@@ -36,9 +36,11 @@ export type ProvidersInfo = {
   local_model: string | null; providers: ProviderInfo[]; order: string[];
 };
 export type PullState = { status: "idle" | "running" | "done" | "failed"; model: string | null; completed: number; total: number; error: string | null };
+export type CatalogModel = { tag: string; name: string; size: number; moe: boolean; note: string; fit: "fast" | "ok" | "slow" | "no" };
+export type EngineState = { installed: boolean; running: boolean; status: string };
 export type HardwareInfo = {
   hardware: { ram_gb: number; gpu: string | null; vram_gb: number; cpu_threads: number; os: string;
-    recommendation: { tier: string; label: string; models: string[]; note: string } };
+    recommendation: { tier: string; label: string; models: string[]; note: string }; catalog?: CatalogModel[] };
   installed: string[]; ollama_running: boolean; pull: PullState;
 };
 export type ServerStatus = {
@@ -47,7 +49,7 @@ export type ServerStatus = {
 };
 
 export const providerLabel = (provider: string | null | undefined): string =>
-  ({ ollama: "Локальная модель", gemini: "Gemini", groq: "Groq", openrouter: "OpenRouter",
+  ({ ollama: "Локальная модель", gigachat: "GigaChat", gemini: "Gemini", groq: "Groq", openrouter: "OpenRouter",
      cerebras: "Cerebras", malenia: "Сервер Малении", custom: "Свой сервер" } as Record<string, string>)[provider ?? ""] ?? (provider || "");
 
 export type TrainingStats = { conversations: number; answers: number; liked: number; disliked: number; memories: number; lessons: number; skills: number; ready_for_finetune: boolean };

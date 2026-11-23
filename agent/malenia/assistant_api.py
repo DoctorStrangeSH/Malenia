@@ -59,12 +59,15 @@ class AssistantServices:
 
 
 AI_ERRORS = {
-    "ai_not_configured": "Модель не настроена. Откройте «Настройки → Модели ИИ» и добавьте бесплатный ключ или локальную модель.",
+    "ai_not_configured": "Модель не настроена. Откройте «Настройки → Модели ИИ»: подключите GigaChat или скачайте локальную модель.",
     "ai_invalid_key": "Ключ API не подошёл. Проверьте его в «Настройки → Модели ИИ».",
     "ai_rate_limited": "Бесплатный лимит модели исчерпан. Подождите немного или добавьте ещё одного провайдера.",
-    "ai_unavailable": "Ни одна модель сейчас не отвечает. Проверьте интернет, ключи или запустите локальную модель.",
+    "ai_unavailable": "Ни одна модель сейчас не отвечает. Проверьте, что локальный движок запущен и модель скачана («Настройки → Модели ИИ»), или подключите GigaChat.",
     "ai_bad_request": "Модель отклонила запрос. Попробуйте сократить сообщение.",
     "ai_tools_unsupported": "Модель не поддерживает инструменты. Выберите другую модель.",
+    "ai_region_blocked": "Этот провайдер недоступен из вашего региона. Используйте GigaChat, локальную модель или свой сервер.",
+    "ai_certificate": "Не удалось проверить сертификат GigaChat. Установите сертификаты Минцифры (gosuslugi.ru/crt) и перезапустите Малению.",
+    "ai_payment_required": "Бесплатный лимит этой модели закончился. Выберите другую модель или провайдера.",
 }
 
 
@@ -176,6 +179,12 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
             return True
 
         # ---- providers & settings ----------------------------------------
+        if method == "POST" and path == "/v1/ai/detect-key":
+            payload = handler._read_json(4096)
+            if payload is not None:
+                from .providers import detect_provider
+                handler._send(200, {"provider": detect_provider(str(payload.get("key") or ""))})
+            return True
         if method == "GET" and path == "/v1/ai/providers":
             handler._send(200, router.describe())
             return True

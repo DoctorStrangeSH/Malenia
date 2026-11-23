@@ -648,3 +648,28 @@ details.card[open]>summary{margin-bottom:14px}
 .row.tight{margin-top:0;flex-wrap:nowrap}
 .text-input{flex:1;background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:9px 12px;font-size:13.5px;outline:none;color:var(--text)}
 .primary{border-color:transparent}
+
+/* 0.11 — models screen, engine, key guides */
+.engine{display:flex;align-items:center;gap:12px;margin:12px 0;padding:12px 14px;border:1px solid var(--line2);border-radius:12px;background:var(--bg2)}
+.engine.on{border-color:#2f5a49}
+.engine .dot{width:10px;height:10px;border-radius:50%;background:var(--amber);flex-shrink:0}
+.engine .dot.on{background:var(--green);box-shadow:0 0 0 4px #4fc99922}
+.engine>div{flex:1}.engine b{display:block;font-size:14px}.engine small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.model-list{display:grid;gap:8px;margin:12px 0 8px}
+.model-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg2)}
+.model-row>div{flex:1;min-width:0}
+.model-row b{display:flex;align-items:center;gap:8px;font-size:14px}
+.model-row small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px}
+.model-row.active{border-color:#3b5f50}
+.model-row.personal{background:#1b1928;border-color:#45397e}
+.model-row.personal>svg{color:var(--accent2);flex-shrink:0}
+.model-row .primary,.model-row .secondary{padding:7px 12px;font-size:13px;white-space:nowrap}
+.badge.rec{background:#2b2350;color:#d6ceff;margin-left:0}
+.fit.ok{color:#8fdcb9}.fit.warn{color:var(--amber)}.fit.bad{color:var(--red)}
+.guide{margin:10px 0 4px;padding:10px 14px;border-radius:10px;background:#1b1928;border:1px solid #3a3266;font-size:13.5px}
+.guide ol{margin:0 0 10px;padding-left:20px;display:grid;gap:5px;line-height:1.5}
+.key-paste{margin:6px 0 4px}
+.key-paste .provider-form{margin-top:4px}
+.brand svg{flex-shrink:0;border-radius:9px}
+.chat-logo{display:block;margin:0 auto 18px;border-radius:16px;background:none!important;width:56px;height:56px}
+.msg svg.avatar{background:none;border-radius:8px;width:28px;height:28px;flex-shrink:0;margin-top:2px}

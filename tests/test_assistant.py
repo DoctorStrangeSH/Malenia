@@ -135,7 +135,8 @@ class HardwareTests(unittest.TestCase):
         self.assertEqual(recommend(16, 0)["tier"], "cpu-16")
         self.assertTrue(recommend(16, 0)["note"])
         self.assertEqual(recommend(32, 0)["tier"], "cpu-32")
-        self.assertEqual(recommend(32, 12)["tier"], "gpu-8")
+        self.assertEqual(recommend(32, 12)["tier"], "gpu-8-ram")
+        self.assertEqual(recommend(16, 8)["tier"], "gpu-8")
         self.assertEqual(recommend(64, 24)["tier"], "gpu-24")
         self.assertEqual(recommend(4, 0)["tier"], "tiny")
 
@@ -281,3 +282,50 @@ class ApiTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GigaChatTests(unittest.TestCase):
+    def test_detect_provider_by_key_shape(self):
+        import base64 as b64
+        from malenia.providers import detect_provider
+        giga = b64.b64encode(b"0198c6a2-1111-7222-8333-444455556666:0198c6a2-aaaa-7bbb-8ccc-ddddeeeeffff").decode()
+        self.assertEqual(detect_provider(giga), "gigachat")
+        self.assertEqual(detect_provider("AIzaSyA-123"), "gemini")
+        self.assertEqual(detect_provider("gsk_abc"), "groq")
+        self.assertEqual(detect_provider("mln-abc"), "malenia")
+        self.assertIsNone(detect_provider("hello"))
+
+    def test_oauth_token_and_function_calling(self):
+        from malenia.providers import GigaChatProvider
+        sent = []
+
+        class Response:
+            def __init__(self, data): self.data = json.dumps(data).encode()
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self, n): return self.data
+
+        class Opener:
+            def open(self, request, timeout):
+                sent.append(request)
+                if request.full_url.endswith("/oauth"):
+                    return Response({"access_token": "tok", "expires_at": 9999999999999})
+                return Response({"choices": [{"message": {"role": "assistant", "content": "",
+                                 "function_call": {"name": "calculate", "arguments": {"expression": "2+2"}}}}]})
+
+        GigaChatProvider._tokens.clear()
+        provider = GigaChatProvider("a2V5", opener=Opener())
+        messages = [{"role": "user", "content": "2+2"},
+                    {"role": "assistant", "content": "", "tool_calls": [{"id": "1", "type": "function", "function": {"name": "calculate", "arguments": "{\"expression\": \"1+1\"}"}}]},
+                    {"role": "tool", "tool_call_id": "1", "name": "calculate", "content": "{\"result\": 2}"}]
+        result = provider.chat("GigaChat-2-Max", messages, tools=[{"type": "function", "function": {"name": "calculate", "parameters": {}}}])
+        provider.chat("GigaChat-2-Max", messages)
+        self.assertEqual(result.tool_calls[0]["arguments"], {"expression": "2+2"})
+        oauth = [r for r in sent if r.full_url.endswith("/oauth")]
+        self.assertEqual(len(oauth), 1)  # token is cached
+        self.assertEqual(oauth[0].get_header("Authorization"), "Basic a2V5")
+        body = json.loads(sent[1].data)
+        self.assertEqual(body["functions"][0]["name"], "calculate")
+        self.assertEqual([m["role"] for m in body["messages"]], ["user", "assistant", "function"])
+        self.assertEqual(body["messages"][1]["function_call"]["arguments"], {"expression": "1+1"})
+        self.assertEqual(sent[1].get_header("Authorization"), "Bearer tok")

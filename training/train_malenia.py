@@ -1,14 +1,14 @@
-"""Fine-tune your own Sherlock on an open model with LoRA (Unsloth).
+"""Fine-tune your own Malenia on an open model with LoRA (Unsloth).
 
 Runs on a computer with an NVIDIA GPU (8+ GB VRAM) or in free Google Colab (T4).
 
     pip install unsloth
-    python train_sherlock.py sherlock-YYYYMMDD.jsonl --base unsloth/Qwen3-8B
+    python train_malenia.py malenia-YYYYMMDD.jsonl --base unsloth/Qwen3-8B
 
 The dataset comes from Malenia: Память → Своя модель → «Выгрузить данные».
 The result is a GGUF file and a Modelfile; import it into Ollama with
-    ollama create sherlock -f sherlock-out/Modelfile
-and pick "sherlock" in Malenia: Настройки → Модели ИИ → Локальная модель.
+    ollama create malenia-pro -f malenia-out/Modelfile
+and pick "malenia-pro" in Malenia: Настройки → Модели ИИ → Локальная модель.
 """
 import argparse
 import json
@@ -18,9 +18,9 @@ from pathlib import Path
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("dataset", help="JSONL exported from Malenia")
-    parser.add_argument("--base", default="unsloth/Qwen3-8B",
+    parser.add_argument("--base", default="unsloth/Qwen3.5-4B",
                         help="Open base model from Hugging Face (Qwen3/Gemma/Llama in Unsloth format)")
-    parser.add_argument("--out", default="sherlock-out")
+    parser.add_argument("--out", default="malenia-out")
     parser.add_argument("--epochs", type=float, default=2)
     parser.add_argument("--max-seq", type=int, default=4096)
     parser.add_argument("--quant", default="q4_k_m", help="GGUF quantization for Ollama")
@@ -59,7 +59,7 @@ def main() -> None:
     (out / "Modelfile").write_text(
         f'FROM ./{gguf.relative_to(out).as_posix()}\nPARAMETER temperature 0.4\nPARAMETER num_ctx 8192\n'
         + (f'SYSTEM """{system}"""\n' if system else ""), encoding="utf-8")
-    print(f"Done. Import into Ollama:\n  cd {out}\n  ollama create sherlock -f Modelfile")
+    print(f"Done. Import into Ollama:\n  cd {out}\n  ollama create malenia-pro -f Modelfile")
 
 
 if __name__ == "__main__":

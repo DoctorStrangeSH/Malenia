@@ -1,11 +1,11 @@
-"""Make Sherlock *your* model.
+"""Make Malenia *your* model.
 
 Two levels:
 1. Personal model (instant, no GPU): an Ollama model built on an open base
    model (Qwen/Gemma) with your memories, lessons and skills baked into it.
 2. Fine-tuning (needs an NVIDIA GPU or free Google Colab): export your
-   conversations as a training set and run training/train_sherlock.py; the
-   result is imported back into Ollama as "sherlock".
+   conversations as a training set and run training/train_malenia.py; the
+   result is imported back into Ollama as "malenia-pro".
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from .assistant import SYSTEM_PROMPT, Assistant
 from .config import data_directory
 from .providers import OLLAMA_URL, ProviderError, _post_json
 
-PERSONAL_MODEL = "sherlock-personal"
+PERSONAL_MODEL = "malenia"
 
 
 def persona(assistant: Assistant) -> str:
@@ -55,7 +55,7 @@ def export_dataset(assistant: Assistant, folder: Path | None = None) -> dict:
     folder = folder or data_directory() / "training"
     folder.mkdir(parents=True, exist_ok=True)
     examples = 0
-    path = folder / f"sherlock-{datetime.now():%Y%m%d-%H%M}.jsonl"
+    path = folder / f"malenia-{datetime.now():%Y%m%d-%H%M}.jsonl"
     with assistant.store._session() as db:
         conversations = [r["id"] for r in db.execute("SELECT id FROM conversations ORDER BY created_at")]
         with path.open("w", encoding="utf-8") as out:

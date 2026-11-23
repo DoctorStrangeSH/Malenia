@@ -26,7 +26,7 @@ function harness(invoke, props = {}) {
   };
   const src = path.resolve(__dirname, '../desktop/src');
   const api = load(path.join(src, 'api.ts'), {'@tauri-apps/api/core': {invoke}});
-  const chat = load(path.join(src, 'Chat.tsx'), {react: hooks, '@tauri-apps/api/core': {invoke}, 'lucide-react': icons, './api': api, './Markdown': {Markdown: () => null}});
+  const chat = load(path.join(src, 'Chat.tsx'), {react: hooks, '@tauri-apps/api/core': {invoke}, 'lucide-react': icons, './api': api, './Markdown': {Markdown: () => null}, './Logo': {Logo: () => null}});
   const events = {conversation: [], ui: []};
   const base = {connected: true, conversationId: null, onConversation: id => events.conversation.push(id), onChanged() {}, instruction: null, onClearInstruction() {}, onOpenSettings() {}, onOpenTools() {}, onUiAction: action => events.ui.push(action)};
   const render = () => { cursor = 0; return chat.Chat({...base, ...props}); };
@@ -86,7 +86,7 @@ test('empty input never calls the model', async () => {
   assert.ok(!calls.includes('/v1/assistant/chat'));
 });
 
-test('an app action chosen by Sherlock is handed to the app and attachments are sent', async () => {
+test('an app action chosen by Malenia is handed to the app and attachments are sent', async () => {
   const bodies = [];
   const h = harness(async (command, args) => {
     if (args?.path === '/v1/ai/providers') return providers;

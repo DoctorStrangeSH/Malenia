@@ -6,11 +6,17 @@ format internally and are converted for Ollama.
 """
 from __future__ import annotations
 
+import base64
 import json
 import re
+import ssl
+import threading
+import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import ProxyHandler, Request, build_opener
 
 OLLAMA_URL = "http://127.0.0.1:11434"
@@ -18,12 +24,23 @@ OLLAMA_URL = "http://127.0.0.1:11434"
 # Order = default priority in "auto" mode. Models are discovered from each
 # provider's /models list, so new free models are picked up automatically.
 PRESETS: dict[str, dict[str, Any]] = {
+    "gigachat": {
+        "name": "GigaChat (Сбер)",
+        "kind": "cloud",
+        "base_url": "https://api.giga.chat/v1",
+        "key_url": "https://developers.sber.ru/studio/workspaces",
+        "hint": "Работает из России. Бесплатно для физлиц: 365 млн токенов на год, включая GigaChat 3 Ultra.",
+        "region_note": "",
+        "include": [r"gigachat"],
+        "exclude": [r"embed", r"image"],
+        "prefer": [r"ultra", r"max", r"pro", r"gigachat"],
+    },
     "gemini": {
         "name": "Google Gemini",
         "kind": "cloud",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "key_url": "https://aistudio.google.com/apikey",
-        "hint": "Самый щедрый бесплатный тариф. Ключ без банковской карты.",
+        "hint": "Щедрый бесплатный тариф. Из России недоступен без VPN.",
         "include": [r"gemini"],
         "exclude": [r"lite", r"image", r"tts", r"embed", r"live", r"audio", r"thinking-exp", r"learnlm", r"aqa", r"robotics", r"computer-use"],
         "prefer": [r"gemini-[\d.]+-flash$", r"gemini-[\d.]+-flash", r"gemini-[\d.]+-pro", r"gemini"],
@@ -33,7 +50,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "kind": "cloud",
         "base_url": "https://api.groq.com/openai/v1",
         "key_url": "https://console.groq.com/keys",
-        "hint": "Очень быстрые ответы. Бесплатный ключ без карты.",
+        "hint": "Очень быстрые ответы, бесплатно. Из России может требоваться VPN.",
         "include": [r"."],
         "exclude": [r"whisper", r"tts", r"guard", r"embed", r"playai", r"orpheus", r"compound"],
         "prefer": [r"gpt-oss-120b", r"qwen", r"kimi", r"llama-4", r"llama-3\.3-70b", r"gpt-oss"],
@@ -43,7 +60,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "kind": "cloud",
         "base_url": "https://openrouter.ai/api/v1",
         "key_url": "https://openrouter.ai/keys",
-        "hint": "Десятки бесплатных моделей по одному ключу (50 запросов в день).",
+        "hint": "Десятки бесплатных моделей. С июня 2026 закрыт для России.",
         "include": [r":free$"],
         "exclude": [r"embed", r"vision-only"],
         "prefer": [r"deepseek", r"qwen3", r"gemma-4", r"gpt-oss-120b", r"kimi", r"glm", r"llama-4", r"gemini"],
@@ -53,7 +70,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "kind": "cloud",
         "base_url": "https://api.cerebras.ai/v1",
         "key_url": "https://cloud.cerebras.ai",
-        "hint": "Около миллиона бесплатных токенов в день.",
+        "hint": "Около миллиона бесплатных токенов в день. Из России может требоваться VPN.",
         "include": [r"."],
         "exclude": [r"embed"],
         "prefer": [r"gpt-oss-120b", r"qwen", r"glm", r"llama"],
@@ -79,7 +96,29 @@ PRESETS: dict[str, dict[str, Any]] = {
         "prefer": [],
     },
 }
-CLOUD_ORDER = ["gemini", "groq", "cerebras", "openrouter", "custom"]
+CLOUD_ORDER = ["gigachat", "gemini", "groq", "cerebras", "openrouter", "custom"]
+
+
+def detect_provider(key: str) -> str | None:
+    """Guess the provider from the shape of an API key."""
+    key = (key or "").strip()
+    if key.startswith("AIza"):
+        return "gemini"
+    if key.startswith("gsk_"):
+        return "groq"
+    if key.startswith("sk-or-"):
+        return "openrouter"
+    if key.startswith("csk-"):
+        return "cerebras"
+    if key.startswith("mln-"):
+        return "malenia"
+    try:
+        decoded = base64.b64decode(key + "=" * (-len(key) % 4), validate=True).decode("utf-8")
+        if re.fullmatch(r"[0-9a-f-]{36}:[0-9a-f-]{36}", decoded):
+            return "gigachat"
+    except (ValueError, UnicodeDecodeError):
+        pass
+    return None
 
 
 class ProviderError(Exception):
@@ -143,6 +182,10 @@ def _open(opener, request: Request, timeout: float) -> dict:
             detail = error.read(4096).decode("utf-8", "replace")
         except Exception:
             detail = ""
+        if re.search(r"location is not supported|unsupported_country|not available in your (region|country)|region", detail, re.I) and error.code in (400, 403, 451):
+            raise ProviderError("region_blocked", detail[:300]) from None
+        if error.code == 402:
+            raise ProviderError("payment_required", detail[:300]) from None
         if error.code in (401, 403):
             raise ProviderError("invalid_key", detail[:300]) from None
         if error.code == 429:
@@ -153,7 +196,10 @@ def _open(opener, request: Request, timeout: float) -> dict:
             raise ProviderError("bad_request", detail[:300]) from None
         raise ProviderError("unavailable", f"HTTP {error.code}") from None
     except (URLError, OSError, TimeoutError) as error:
-        raise ProviderError("unavailable", str(getattr(error, "reason", error))[:200]) from None
+        reason = getattr(error, "reason", error)
+        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+            raise ProviderError("certificate", str(reason)[:200]) from None
+        raise ProviderError("unavailable", str(reason)[:200]) from None
     if len(raw) > 8 * 1024 * 1024:
         raise ProviderError("unavailable", "response too large")
     try:
@@ -236,6 +282,84 @@ class OpenAICompatibleProvider:
         return ChatResult(content=str(content), tool_calls=calls, provider=self.id, model=model)
 
 
+class GigaChatProvider:
+    """Sber GigaChat: OAuth key -> 30-minute token; chat is OpenAI-like with
+    "functions" (one function call per turn) instead of "tools"."""
+
+    AUTH_URL = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    _tokens: dict[str, tuple[str, float]] = {}
+    _lock = threading.Lock()
+
+    def __init__(self, auth_key: str | None, base_url: str = "https://api.giga.chat/v1", opener=None, scope: str = "GIGACHAT_API_PERS"):
+        self.id = "gigachat"
+        self.auth_key = (auth_key or "").strip()
+        self.base_url = (base_url or "https://api.giga.chat/v1").rstrip("/")
+        self.opener = opener or build_opener()
+        self.scope = scope
+
+    def _token(self) -> str:
+        if not self.auth_key:
+            raise ProviderError("not_configured")
+        with self._lock:
+            cached = self._tokens.get(self.auth_key)
+            if cached and cached[1] - 60 > time.time():
+                return cached[0]
+            request = Request(self.AUTH_URL, data=urlencode({"scope": self.scope}).encode(), headers={
+                "Authorization": "Basic " + self.auth_key, "RqUID": str(uuid.uuid4()),
+                "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"})
+            data = _open(self.opener, request, 20)
+            token = data.get("access_token")
+            if not isinstance(token, str):
+                raise ProviderError("invalid_key", "no access token")
+            expires = data.get("expires_at")
+            expires = float(expires) / 1000 if isinstance(expires, (int, float)) and expires > 1e11 else time.time() + 1700
+            self._tokens[self.auth_key] = (token, expires)
+            return token
+
+    def _headers(self) -> dict:
+        return {"Authorization": "Bearer " + self._token(), "Accept": "application/json"}
+
+    def list_models(self) -> list[str]:
+        data = _get_json(self.opener, self.base_url + "/models", self._headers(), 20)
+        return [item["id"] for item in data.get("data", []) if isinstance(item, dict) and isinstance(item.get("id"), str)]
+
+    @staticmethod
+    def _convert(messages: list[dict]) -> list[dict]:
+        converted = []
+        for message in messages:
+            content = message.get("content") or ""
+            if isinstance(content, list):  # images are not sent to GigaChat inline
+                content = "".join(p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text")
+            role = message["role"]
+            if role == "tool":
+                converted.append({"role": "function", "name": message.get("name", ""), "content": content or "{}"})
+                continue
+            item = {"role": role, "content": content}
+            if message.get("tool_calls"):
+                call = message["tool_calls"][0]["function"]
+                item["function_call"] = {"name": call["name"], "arguments": _parse_arguments(call.get("arguments"))}
+            converted.append(item)
+        return converted
+
+    def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None,
+             max_tokens: int = 2048, temperature: float = 0.4, json_mode: bool = False,
+             timeout: float = 120) -> ChatResult:
+        body: dict[str, Any] = {"model": model, "messages": self._convert(messages),
+                                "temperature": max(temperature, 0.01), "max_tokens": max_tokens, "stream": False}
+        if tools:
+            body["functions"] = [t["function"] for t in tools if t.get("type") == "function"]
+            body["function_call"] = "auto"
+        data = _post_json(self.opener, self.base_url + "/chat/completions", body, self._headers(), timeout)
+        choices = data.get("choices") or []
+        message = choices[0].get("message", {}) if choices and isinstance(choices[0], dict) else {}
+        calls = []
+        function_call = message.get("function_call")
+        if isinstance(function_call, dict) and isinstance(function_call.get("name"), str):
+            calls.append({"id": "call_0", "name": function_call["name"],
+                          "arguments": _parse_arguments(function_call.get("arguments"))})
+        return ChatResult(content=str(message.get("content") or ""), tool_calls=calls, provider=self.id, model=model)
+
+
 class OllamaProvider:
     id = "ollama"
 
@@ -281,7 +405,7 @@ class OllamaProvider:
             body["tools"] = tools
         if json_mode:
             body["format"] = "json"
-        if re.match(r"qwen3", model):
+        if re.match(r"(qwen3|gemma4|malenia)", model):
             body["think"] = False
         try:
             data = _post_json(self.opener, self.base_url + "/api/chat", body, {}, timeout)
@@ -310,6 +434,8 @@ class ModelRouter:
         self.recommended_local = hardware_recommendation or (lambda: [])
         self.factory = factory or (lambda pid, url, key: OpenAICompatibleProvider(pid, url, key))
         self.ollama = ollama or OllamaProvider()
+        # Tests inject `factory` for every provider; production uses the real GigaChat client.
+        self.gigachat_factory = None if factory is not None else (lambda key: GigaChatProvider(key))
         self._model_cache: dict[str, list[str]] = {}
 
     # ---- configuration ---------------------------------------------------
@@ -378,6 +504,8 @@ class ModelRouter:
     def provider(self, provider_id: str):
         if provider_id == "ollama":
             return self.ollama
+        if provider_id == "gigachat" and self.gigachat_factory is not None:
+            return self.gigachat_factory(self.api_key(provider_id))
         return self.factory(provider_id, self._base_url(provider_id), self.api_key(provider_id))
 
     def configured(self, provider_id: str) -> bool:
@@ -441,15 +569,25 @@ class ModelRouter:
                     errors.append((provider_id, "no_model"))
                     continue
                 provider = self.provider(provider_id)
-                try:
-                    result = provider.chat(model, messages, tools=tools, **options)
-                except ProviderError as error:
-                    if tools and error.code == "tools_unsupported":
-                        result = provider.chat(model, messages, tools=None, **options)
-                    else:
+                chosen = (self.config().get("local_model") if provider_id == "ollama"
+                          else self.provider_config(provider_id).get("model"))
+                # A free tier may cover only some models: try the next best ones.
+                alternatives = [] if chosen else [m for m in self._model_cache.get(provider_id, []) if m != model][:2]
+                for attempt, current in enumerate([model] + alternatives):
+                    try:
+                        try:
+                            result = provider.chat(current, messages, tools=tools, **options)
+                        except ProviderError as error:
+                            if tools and error.code == "tools_unsupported":
+                                result = provider.chat(current, messages, tools=None, **options)
+                            else:
+                                raise
+                        result.provider, result.model = provider_id, current
+                        return result
+                    except ProviderError as error:
+                        if error.code in ("payment_required", "rate_limited") and attempt < len(alternatives):
+                            continue
                         raise
-                result.provider, result.model = provider_id, model
-                return result
             except ProviderError as error:
                 errors.append((provider_id, error.code))
                 continue
@@ -458,8 +596,8 @@ class ModelRouter:
         codes = {code for _, code in errors}
         if codes == {"rate_limited"}:
             raise ProviderError("rate_limited", "; ".join(f"{p}:{c}" for p, c in errors))
-        if "invalid_key" in codes and len(errors) == 1:
-            raise ProviderError("invalid_key", errors[0][0])
+        if len(errors) == 1 and errors[0][1] in ("invalid_key", "region_blocked", "certificate", "payment_required"):
+            raise ProviderError(errors[0][1], errors[0][0])
         raise ProviderError("unavailable", "; ".join(f"{p}:{c}" for p, c in errors))
 
     def describe(self) -> dict:

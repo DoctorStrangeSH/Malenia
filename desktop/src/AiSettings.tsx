@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Check, Cloud, Cpu, ExternalLink, FolderOpen, HardDrive, KeyRound, LoaderCircle, RefreshCw, Server, X } from "lucide-react";
-import { api, type HardwareInfo, type ProviderInfo, type ProvidersInfo } from "./api";
+import {
+  Check, ChevronDown, Cloud, Cpu, Download, ExternalLink, FolderOpen, HardDrive, KeyRound,
+  LoaderCircle, Play, RefreshCw, Server, Sparkles, X,
+} from "lucide-react";
+import { api, type CatalogModel, type EngineState, type HardwareInfo, type ProviderInfo, type ProvidersInfo } from "./api";
 
 const open = (url: string) => { void invoke("open_search_source", { url }).catch(() => undefined); };
 const MODES: { id: ProvidersInfo["mode"]; title: string; text: string }[] = [
@@ -10,7 +13,43 @@ const MODES: { id: ProvidersInfo["mode"]; title: string; text: string }[] = [
   { id: "local", title: "Только свои компьютеры", text: "Данные не уходят в интернет" },
 ];
 
-export function AiSettings({ connected }: { connected: boolean }) {
+/** Step-by-step key guides. Opened links go through the app's safe URL opener. */
+const GUIDES: Record<string, { url: string; steps: string[] }> = {
+  gigachat: { url: "https://developers.sber.ru/studio/workspaces", steps: [
+    "Откройте сайт по кнопке «Открыть сайт» и войдите через Сбер ID (подойдёт номер телефона).",
+    "Создайте проект «GigaChat API» для физлиц и примите соглашение — включится бесплатный Freemium-режим.",
+    "В проекте откройте «Настройки API» и нажмите «Получить ключ».",
+    "Скопируйте «Ключ авторизации» (длинная строка) и вставьте его в поле выше.",
+  ] },
+  gemini: { url: "https://aistudio.google.com/apikey", steps: [
+    "Из России Google AI Studio не открывается — нужен VPN другой страны.",
+    "Войдите в аккаунт Google и нажмите «Create API key».",
+    "Скопируйте ключ (начинается с AIza) и вставьте его выше. Карта не нужна.",
+  ] },
+  groq: { url: "https://console.groq.com/keys", steps: [
+    "Войдите через Google или почту (из России может понадобиться VPN).",
+    "Нажмите «Create API Key», придумайте название.",
+    "Скопируйте ключ (начинается с gsk_) — он показывается один раз.",
+  ] },
+  cerebras: { url: "https://cloud.cerebras.ai", steps: [
+    "Зарегистрируйтесь (из России может понадобиться VPN).",
+    "Откройте раздел «API Keys» и создайте ключ.",
+    "Скопируйте ключ (начинается с csk-) и вставьте его выше.",
+  ] },
+  openrouter: { url: "https://openrouter.ai/keys", steps: [
+    "С июня 2026 года OpenRouter не обслуживает Россию: нужен VPN и зарубежный аккаунт.",
+    "Создайте ключ в разделе Keys (начинается с sk-or-).",
+  ] },
+};
+
+const FIT: Record<CatalogModel["fit"], { label: string; tone: string }> = {
+  fast: { label: "Быстро на видеокарте", tone: "ok" },
+  ok: { label: "Хорошо (видеокарта + ОЗУ)", tone: "ok" },
+  slow: { label: "Будет медленно", tone: "warn" },
+  no: { label: "Не хватит памяти", tone: "bad" },
+};
+
+export function AiSettings({ connected, onOpenOwnModel }: { connected: boolean; onOpenOwnModel?: () => void }) {
   const [info, setInfo] = useState<ProvidersInfo | null>(null);
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [error, setError] = useState("");
@@ -40,28 +79,30 @@ export function AiSettings({ connected }: { connected: boolean }) {
 
   return <div className="settings-stack">
     {error ? <div className="alert error">{error}<button onClick={() => setError("")}><X size={14} /></button></div> : null}
+
+    <LocalModels info={info} hardware={hardware} onRefresh={loadHardware} onSave={save} onError={setError} onOpenOwnModel={onOpenOwnModel} />
+
     <section className="card">
-      <h3>Какие модели использовать</h3>
+      <h3><Cloud size={17} /> Облачные модели</h3>
+      <p className="muted">Облако умнее локальной модели и не нагружает компьютер. Из России без VPN работает <b>GigaChat</b>: он бесплатный, на год. Вставьте любой ключ — Маления сама поймёт, какой это сервис, и проверит его.</p>
+      <KeyPaste providers={clouds} onChanged={setInfo} onError={setError} />
+      <div className="provider-list">{clouds.map(provider => <ProviderCard key={provider.id} provider={provider} onChanged={setInfo} onError={setError} />)}</div>
+    </section>
+
+    <section className="card">
+      <h3>Как Маления выбирает модель</h3>
       <div className="segmented" role="radiogroup" aria-label="Режим моделей">
         {MODES.map(mode => <button key={mode.id} role="radio" aria-checked={info.mode === mode.id} className={info.mode === mode.id ? "on" : ""} onClick={() => void save({ mode: mode.id })}>
           <b>{mode.title}</b><small>{mode.text}</small></button>)}
       </div>
       <label className="switch-row"><input type="checkbox" checked={info.learning} onChange={event => void save({ learning: event.target.checked })} />
-        <span><b>Самообучение</b><small>Шерлок запоминает факты о вас и ваши поправки. Всё видно и удаляется в разделе «Память».</small></span></label>
+        <span><b>Самообучение</b><small>Маления запоминает факты о вас и ваши поправки. Всё видно и удаляется в разделе «Память».</small></span></label>
       <label className="switch-row"><input type="checkbox" checked={info.auto_web} onChange={event => void save({ auto_web: event.target.checked })} />
         <span><b>Интернет-поиск по необходимости</b><small>Модель сама ищет свежие данные, когда это нужно для ответа.</small></span></label>
       <p className="muted small">Порядок сейчас: {info.order.map(id => info.providers.find(p => p.id === id)?.name ?? "Локальная модель").join(" → ")}</p>
     </section>
 
     <Workspace onError={setError} />
-
-    <section className="card">
-      <h3><Cloud size={17} /> Бесплатные облачные модели</h3>
-      <p className="muted">Достаточно одного ключа. Если добавить несколько, при исчерпании лимита Шерлок переключится на следующий. Лучшая доступная модель выбирается автоматически.</p>
-      <div className="provider-list">{clouds.map(provider => <ProviderCard key={provider.id} provider={provider} onChanged={setInfo} onError={setError} />)}</div>
-    </section>
-
-    <LocalModels info={info} hardware={hardware} onRefresh={loadHardware} onSave={save} onError={setError} />
 
     {server ? <section className="card">
       <h3><Server size={17} /> Модель на другом компьютере</h3>
@@ -74,11 +115,51 @@ export function AiSettings({ connected }: { connected: boolean }) {
   </div>;
 }
 
+function KeyPaste({ providers, onChanged, onError }: { providers: ProviderInfo[]; onChanged: (info: ProvidersInfo) => void; onError: (text: string) => void }) {
+  const [key, setKey] = useState("");
+  const [choice, setChoice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState("");
+  const submit = async () => {
+    const value = key.trim();
+    if (!value) return;
+    setBusy(true); setResult("");
+    try {
+      const detected = choice || (await api<{ provider: string | null }>("POST", "/v1/ai/detect-key", { key: value })).provider;
+      if (!detected || detected === "malenia") { setResult("Не удалось определить сервис по ключу. Выберите его в списке рядом."); return; }
+      onChanged(await api<ProvidersInfo>("POST", `/v1/ai/providers/${detected}`, { api_key: value }));
+      const test = await api<{ ok: boolean; model?: string; error?: string }>("POST", `/v1/ai/providers/${detected}/test`);
+      const name = providers.find(p => p.id === detected)?.name ?? detected;
+      setResult(test.ok ? `✓ ${name} подключён. Модель: ${test.model}` : `${name}: ${errorText(test.error)}`);
+      if (test.ok) { setKey(""); setChoice(""); }
+    } catch (reason) { onError(String(reason)); } finally { setBusy(false); }
+  };
+  return <div className="key-paste">
+    <div className="provider-form">
+      <div className="key-input"><KeyRound size={14} /><input type="password" aria-label="Вставьте любой API-ключ" autoComplete="off" placeholder="Вставьте любой ключ: GigaChat, Gemini, Groq…" value={key} onChange={event => setKey(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void submit(); }} /></div>
+      <select aria-label="Сервис ключа" value={choice} onChange={event => setChoice(event.target.value)}>
+        <option value="">Определить сам</option>{providers.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <button className="primary" disabled={!key.trim() || busy} onClick={() => void submit()}>{busy ? <LoaderCircle className="spin" size={14} /> : null}Подключить</button>
+    </div>
+    {result ? <p className={result.startsWith("✓") ? "ok-text" : "bad-text"}>{result}</p> : null}
+  </div>;
+}
+
+const errorText = (code?: string) => ({
+  invalid_key: "ключ не подошёл", rate_limited: "лимит исчерпан, попробуйте позже", unavailable: "нет связи с сервисом",
+  not_configured: "укажите адрес", region_blocked: "сервис недоступен из вашего региона (нужен VPN)",
+  certificate: "не удалось проверить сертификат — установите сертификаты Минцифры (gosuslugi.ru/crt)",
+  payment_required: "бесплатный лимит закончился",
+} as Record<string, string>)[code ?? ""] ?? "не удалось проверить";
+
 function ProviderCard({ provider, onChanged, onError, withUrl }: { provider: ProviderInfo; onChanged: (info: ProvidersInfo) => void; onError: (text: string) => void; withUrl?: boolean }) {
   const [key, setKey] = useState("");
   const [url, setUrl] = useState(provider.base_url);
   const [busy, setBusy] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [test, setTest] = useState<{ ok: boolean; models?: string[]; model?: string | null; error?: string } | null>(null);
+  const guide = GUIDES[provider.id];
   const submit = async () => {
     setBusy(true); setTest(null);
     try {
@@ -97,12 +178,15 @@ function ProviderCard({ provider, onChanged, onError, withUrl }: { provider: Pro
   const chooseModel = async (model: string) => {
     try { onChanged(await api<ProvidersInfo>("POST", `/v1/ai/providers/${provider.id}`, { model: model || null })); } catch (reason) { onError(String(reason)); }
   };
-  const errorText = (code?: string) => ({ invalid_key: "Ключ не подошёл", rate_limited: "Лимит исчерпан, попробуйте позже", unavailable: "Нет связи", not_configured: "Укажите адрес" } as Record<string, string>)[code ?? ""] ?? "Не удалось проверить";
   return <div className={"provider" + (provider.enabled ? " active" : "")}>
     <div className="provider-head">
       <div><b>{provider.name}</b>{provider.enabled ? <span className="badge ok"><Check size={12} />Подключён</span> : null}<small>{provider.hint}</small></div>
-      {provider.key_url ? <button className="link" onClick={() => open(provider.key_url)}>Получить ключ <ExternalLink size={12} /></button> : null}
+      {guide ? <button className="link" aria-expanded={showGuide} onClick={() => setShowGuide(v => !v)}>Как получить ключ <ChevronDown size={12} /></button> : null}
     </div>
+    {guide && showGuide ? <div className="guide">
+      <ol>{guide.steps.map((step, index) => <li key={index}>{step}</li>)}</ol>
+      <button className="secondary" onClick={() => open(guide.url)}><ExternalLink size={13} />Открыть сайт</button>
+    </div> : null}
     <div className="provider-form">
       {withUrl ? <input aria-label={`${provider.name}: адрес`} placeholder={provider.id === "malenia" ? "http://192.168.1.10:8766" : "http://localhost:1234/v1"} value={url} onChange={event => setUrl(event.target.value)} /> : null}
       <div className="key-input"><KeyRound size={14} /><input type="password" aria-label={`${provider.name}: ключ`} autoComplete="off"
@@ -119,23 +203,62 @@ function ProviderCard({ provider, onChanged, onError, withUrl }: { provider: Pro
   </div>;
 }
 
-function LocalModels({ info, hardware, onRefresh, onSave, onError }: { info: ProvidersInfo; hardware: HardwareInfo | null; onRefresh: (refresh?: boolean) => Promise<void>; onSave: (body: Record<string, unknown>) => Promise<void>; onError: (text: string) => void }) {
+function useEngine() {
+  const [engine, setEngine] = useState<EngineState | null>(null);
   const [starting, setStarting] = useState(false);
+  const poll = useRef<number | null>(null);
+  const refresh = useCallback(async () => {
+    try { setEngine(await invoke<EngineState>("local_ai_engine")); } catch { /* older backend */ }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+  /** Install (first time, ~1.6 GB) and start; progress comes from get_setup_status. */
+  const start = useCallback(async () => {
+    setStarting(true);
+    poll.current = window.setInterval(() => {
+      invoke<string>("get_setup_status").then(status => setEngine(current => ({ installed: current?.installed ?? false, running: false, status }))).catch(() => undefined);
+    }, 1000);
+    try { await invoke<string>("start_local_ai"); }
+    finally {
+      if (poll.current) window.clearInterval(poll.current);
+      setStarting(false);
+      await refresh();
+    }
+  }, [refresh]);
+  return { engine, starting, start };
+}
+
+function LocalModels({ info, hardware, onRefresh, onSave, onError, onOpenOwnModel }: {
+  info: ProvidersInfo; hardware: HardwareInfo | null; onRefresh: (refresh?: boolean) => Promise<void>;
+  onSave: (body: Record<string, unknown>) => Promise<void>; onError: (text: string) => void; onOpenOwnModel?: () => void;
+}) {
+  const { engine, starting, start } = useEngine();
+  const [showAll, setShowAll] = useState(false);
   const pull = hardware?.pull;
   const recommendation = hardware?.hardware.recommendation;
+  const installed = hardware?.installed ?? [];
+  const running = !!engine?.running || !!hardware?.ollama_running;
   const startEngine = async () => {
-    setStarting(true);
-    try { await invoke<string>("start_local_ai"); await onRefresh(); }
-    catch (reason) { onError(String(reason)); } finally { setStarting(false); }
+    try { await start(); await onRefresh(); } catch (reason) { onError(String(reason)); }
   };
-  const download = async (model?: string) => {
+  const download = async (model: string) => {
     try {
-      if (!hardware?.ollama_running) await invoke<string>("start_local_ai");
-      await api("POST", "/v1/ai/local/pull", model ? { model } : {});
+      if (!running) await start();
+      await api("POST", "/v1/ai/local/pull", { model });
       await onRefresh();
     } catch (reason) { onError(String(reason)); }
   };
   const percent = pull && pull.total ? Math.round(pull.completed / pull.total * 100) : 0;
+  const catalog = hardware?.hardware.catalog ?? [];
+  const recommended = recommendation?.models[0];
+  const sameTag = (name: string, tag: string) => name === tag || name === tag + ":latest";
+  const isInstalled = (tag: string) => installed.some(name => sameTag(name, tag));
+  const personal = installed.filter(name => /^malenia/.test(name));
+  const others = installed.filter(name => !/^malenia/.test(name) && !catalog.some(item => sameTag(name, item.tag)));
+  const current = info.local_model ?? installed[0] ?? null;
+  const visible = showAll ? catalog : catalog.filter(item => item.tag === recommended || isInstalled(item.tag) || item.fit === "fast" || item.fit === "ok").slice(0, 7);
+  const setupStatus = starting ? engine?.status ?? "" : "";
+  const notInstalled = !!engine && !engine.installed;
+
   return <section className="card">
     <h3><HardDrive size={17} /> Локальная модель на этом компьютере</h3>
     {hardware ? <div className="hw">
@@ -145,20 +268,48 @@ function LocalModels({ info, hardware, onRefresh, onSave, onError }: { info: Pro
       <button className="icon-btn" title="Определить заново" aria-label="Определить оборудование заново" onClick={() => void onRefresh(true)}><RefreshCw size={14} /></button>
     </div> : <p className="muted">Определяем оборудование…</p>}
     {recommendation?.note ? <p className="note-box">{recommendation.note}</p> : null}
-    {hardware && !hardware.ollama_running ? <button className="secondary" disabled={starting} onClick={() => void startEngine()}>{starting ? <LoaderCircle className="spin" size={14} /> : null}Запустить локальный движок</button> : null}
-    {hardware?.installed.length ? <label className="field">Модель по умолчанию
-      <select value={info.local_model ?? ""} onChange={event => void onSave({ local_model: event.target.value || null })}>
-        <option value="">Авто ({hardware.installed[0]})</option>
-        {hardware.installed.map(model => <option key={model} value={model}>{model}</option>)}
-      </select></label> : null}
-    {pull?.status === "running" ? <div className="pull"><span>Скачивается {pull.model}… {percent ? percent + "%" : ""}</span><div className="bar"><i style={{ width: percent + "%" }} /></div></div>
-      : <div className="row">
-        <button className="primary" onClick={() => void download()}>Скачать рекомендованную{recommendation ? ` (${recommendation.models[0]})` : ""}</button>
-        {recommendation && recommendation.models.length > 1 ? <select aria-label="Другая модель" defaultValue="" onChange={event => { if (event.target.value) void download(event.target.value); }}>
-          <option value="">Другая модель…</option>{recommendation.models.slice(1).map(model => <option key={model} value={model}>{model}</option>)}</select> : null}
-      </div>}
-    {pull?.status === "failed" ? <p className="bad-text">Не удалось скачать: {pull.error}</p> : null}
-    {pull?.status === "done" ? <p className="ok-text">Модель {pull.model} установлена.</p> : null}
+
+    <div className={"engine" + (running ? " on" : "")}>
+      <span className={"dot" + (running ? " on" : "")} />
+      <div><b>{running ? "Локальный движок работает" : notInstalled ? "Локальный движок не установлен" : "Локальный движок остановлен"}</b>
+        <small>{starting ? (setupStatus || "Запускаем…") : running ? "Модели работают на этом компьютере без интернета." : notInstalled ? "Нужно один раз скачать около 1,6 ГБ (официальный Ollama). Потом он запускается сам вместе с Маленией." : "Запустится автоматически при следующем старте Малении."}</small>
+      </div>
+      {!running ? <button className="primary" disabled={starting} onClick={() => void startEngine()}>
+        {starting ? <LoaderCircle className="spin" size={14} /> : notInstalled ? <Download size={14} /> : <Play size={14} />}
+        {starting ? "Подождите…" : notInstalled ? "Установить (1,6 ГБ)" : "Запустить"}</button> : null}
+    </div>
+    {starting && /\d+%/.test(setupStatus) ? <div className="bar"><i style={{ width: (setupStatus.match(/(\d+)%/)?.[1] ?? "0") + "%" }} /></div> : null}
+
+    {pull?.status === "running" ? <div className="pull"><span>Скачивается {pull.model}… {percent ? percent + "%" : ""}</span><div className="bar"><i style={{ width: percent + "%" }} /></div></div> : null}
+    {pull?.status === "failed" ? <p className="bad-text">Не удалось скачать {pull.model}: {pull.error}</p> : null}
+
+    <div className="model-list" aria-label="Модели">
+      <div className={"model-row personal" + (current && personal.includes(current) ? " active" : "")}>
+        <Sparkles size={18} />
+        <div><b>Моя Маления</b><small>{personal.length ? `Ваша модель (${personal.join(", ")}): знает всё, чему вы её научили.` : "Ваша собственная модель на основе Gemma или Qwen: учится у вас и у ответов лучших моделей."}</small></div>
+        {personal.length ? (current && personal.includes(current) ? <span className="badge ok"><Check size={12} />Используется</span>
+          : <button className="secondary" onClick={() => void onSave({ local_model: personal[0] })}>Использовать</button>)
+          : <button className="secondary" onClick={onOpenOwnModel}>Создать</button>}
+      </div>
+      {visible.map(item => {
+        const has = isInstalled(item.tag);
+        const active = has && !!current && sameTag(current, item.tag);
+        const pulling = pull?.status === "running" && pull.model === item.tag;
+        return <div className={"model-row" + (active ? " active" : "")} key={item.tag}>
+          <div><b>{item.name}{item.tag === recommended ? <span className="badge rec">Рекомендуем</span> : null}</b>
+            <small>{item.note} · ≈{item.size} ГБ · <span className={"fit " + FIT[item.fit].tone}>{FIT[item.fit].label}</span></small></div>
+          {active ? <span className="badge ok"><Check size={12} />Используется</span>
+            : has ? <button className="secondary" onClick={() => void onSave({ local_model: item.tag })}>Использовать</button>
+            : <button className={item.tag === recommended ? "primary" : "secondary"} disabled={pull?.status === "running" || item.fit === "no"} onClick={() => void download(item.tag)}>
+              {pulling ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}Скачать</button>}
+        </div>;
+      })}
+      {others.map(name => <div className={"model-row" + (current === name ? " active" : "")} key={name}>
+        <div><b>{name}</b><small>Установлена ранее</small></div>
+        {current === name ? <span className="badge ok"><Check size={12} />Используется</span> : <button className="secondary" onClick={() => void onSave({ local_model: name })}>Использовать</button>}
+      </div>)}
+    </div>
+    {catalog.length > visible.length || showAll ? <button className="link" onClick={() => setShowAll(v => !v)}>{showAll ? "Показать подходящие" : `Все модели (${catalog.length})`}</button> : null}
   </section>;
 }
 

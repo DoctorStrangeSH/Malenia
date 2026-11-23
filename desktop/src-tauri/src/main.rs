@@ -413,6 +413,21 @@ fn ollama_ready() -> bool {
 #[tauri::command]
 fn get_setup_status() -> String { runtime_setup::status() }
 
+/// Ollama executable that is already on disk: a system install or ours.
+fn installed_engine() -> Option<PathBuf> {
+    let base = PathBuf::from(std::env::var("LOCALAPPDATA").ok()?);
+    let standard = base.join("Programs/Ollama/ollama.exe");
+    if standard.is_file() { return Some(standard); }
+    let ours = base.join("Malenia").join("ollama-0.40.16").join("ollama.exe");
+    ours.is_file().then_some(ours)
+}
+
+/// State of the local engine for the settings screen (no side effects).
+#[tauri::command]
+fn local_ai_engine() -> Value {
+    serde_json::json!({"installed": installed_engine().is_some(), "running": ollama_ready(), "status": runtime_setup::status()})
+}
+
 #[tauri::command]
 async fn start_local_ai(app: tauri::AppHandle) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || start_local_ai_impl(&app.state::<AgentState>()))
@@ -426,8 +441,7 @@ fn start_local_ai_impl(state: &AgentState) -> Result<String, String> {
         return Err("Порт модели занят другим процессом".to_string());
     }
     let root = PathBuf::from(std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA недоступна".to_string())?).join("Malenia");
-    let standard = PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default()).join("Programs/Ollama/ollama.exe");
-    let executable = if standard.is_file() { standard } else { runtime_setup::ensure(&root)? };
+    let executable = match installed_engine() { Some(path) => path, None => runtime_setup::ensure(&root)? };
     if let Some(mut old) = slot.take() { terminate_owned_child(&mut old); }
     let mut command = Command::new(executable);
     command.arg("serve")
@@ -439,7 +453,8 @@ fn start_local_ai_impl(state: &AgentState) -> Result<String, String> {
     #[cfg(windows)]
     { use std::os::windows::process::CommandExt; command.creation_flags(0x08000000); }
     let mut child = command.spawn().map_err(|_| "Не удалось запустить Ollama".to_string())?;
-    for _ in 0..20 {
+    // The first start after installation can take a while (GPU libraries).
+    for _ in 0..240 {
         thread::sleep(Duration::from_millis(250));
         if child.try_wait().map_err(|_| "Не удалось проверить Ollama".to_string())?.is_some() { break; }
         if ollama_ready() { *slot = Some(child); return Ok("Локальная модель готова к подключению".to_string()); }
@@ -831,11 +846,16 @@ fn main() {
                 let _ = start_agent(handle.clone(), state);
                 // Silent, idempotent: fixes "Malenia host not found" in the extension.
                 let _ = browser_setup::ensure_registered(&handle);
+                // Start the local engine automatically when it is already installed,
+                // so local models and server mode work right after launch.
+                if installed_engine().is_some() && !ollama_ready() {
+                    let _ = start_local_ai_impl(&handle.state::<AgentState>());
+                }
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![get_browser_bridge_setup, open_browser_extension_folder, register_browser_bridge, agent_api, start_agent, stop_agent, get_dashboard,
-            request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
+            request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, local_ai_engine, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
         .run(tauri::generate_context!())
         .expect("error while running Malenia");
 }

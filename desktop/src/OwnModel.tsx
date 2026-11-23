@@ -15,7 +15,7 @@ export function OwnModel({ connected, onOpenModels }: { connected: boolean; onOp
       setStats((await api<{ stats: TrainingStats }>("GET", "/v1/assistant/training")).stats);
       const info = await api<HardwareInfo>("GET", "/v1/ai/hardware");
       setHardware(info);
-      setBase(current => current || info.installed.find(m => !m.startsWith("sherlock")) || "");
+      setBase(current => current || info.installed.find(m => !/^malenia/.test(m)) || "");
     } catch (reason) { setError(String(reason)); }
   }, []);
   useEffect(() => { if (connected) void load(); }, [connected, load]);
@@ -25,7 +25,7 @@ export function OwnModel({ connected, onOpenModels }: { connected: boolean; onOp
     try {
       if (!hardware?.ollama_running) await invoke<string>("start_local_ai");
       const result = await api<{ model: string }>("POST", "/v1/ai/local/personal", { base });
-      setNotice(`Готово: модель ${result.model} создана и выбрана локальной моделью по умолчанию.`);
+      setNotice(`Готово: ваша Маления (${result.model}) создана и стала локальной моделью по умолчанию.`);
       await load();
     } catch (reason) { setError(String(reason)); } finally { setBusy(""); }
   };
@@ -36,15 +36,15 @@ export function OwnModel({ connected, onOpenModels }: { connected: boolean; onOp
       setNotice(`Выгружено примеров: ${result.examples}. Файл: ${result.path}`);
     } catch (reason) { setError(String(reason)); } finally { setBusy(""); }
   };
-  const bases = (hardware?.installed ?? []).filter(model => !model.startsWith("sherlock"));
+  const bases = (hardware?.installed ?? []).filter(model => !/^malenia/.test(model));
   const progress = stats ? Math.min(100, Math.round((stats.answers - stats.disliked) / 2)) : 0;
 
   return <div className="settings-stack">
-    <p className="muted">Шерлок может быть вашей собственной моделью: открытая модель (Qwen, Gemma) плюс всё, чему вы его научили. Она работает на ваших компьютерах без интернета.</p>
+    <p className="muted">Маления может быть вашей собственной моделью: открытая модель (Gemma, Qwen) плюс всё, чему вы её научили. Она работает на ваших компьютерах без интернета.</p>
     {error ? <div className="alert error">{error}<button onClick={() => setError("")}><X size={14} /></button></div> : null}
     {notice ? <div className="alert success"><Check size={15} />{notice}<button onClick={() => setNotice("")}><X size={14} /></button></div> : null}
     {stats ? <section className="card">
-      <h3><GraduationCap size={17} /> Чему Шерлок уже научился</h3>
+      <h3><GraduationCap size={17} /> Чему Маления уже научилась</h3>
       <div className="stat-grid">
         <div><b>{stats.conversations}</b><span>диалогов</span></div>
         <div><b>{stats.liked}</b><span>👍 хороших ответов</span></div>
@@ -56,8 +56,8 @@ export function OwnModel({ connected, onOpenModels }: { connected: boolean; onOp
     </section> : null}
 
     <section className="card">
-      <h3><Sparkles size={17} /> Шаг 1. Моя модель — сразу, без видеокарты</h3>
-      <p className="muted">Создаёт модель <b>sherlock-personal</b> на основе выбранной локальной модели. В неё встроены ваши факты, предпочтения, уроки и навыки. Пересоздавайте её, когда Шерлок узнает много нового.</p>
+      <h3><Sparkles size={17} /> Шаг 1. Моя Маления — сразу, без обучения</h3>
+      <p className="muted">Создаёт модель <b>malenia</b> на основе выбранной локальной модели (лучше всего Gemma 4). В неё встроены ваши факты, предпочтения, уроки и навыки. Пересоздавайте её, когда Маления узнает много нового.</p>
       {bases.length ? <div className="row">
         <select aria-label="Базовая модель" value={base} onChange={event => setBase(event.target.value)}>
           {bases.map(model => <option key={model} value={model}>{model}</option>)}
@@ -67,17 +67,17 @@ export function OwnModel({ connected, onOpenModels }: { connected: boolean; onOp
     </section>
 
     <section className="card">
-      <h3><GraduationCap size={17} /> Шаг 2. Дообучение на ваших диалогах</h3>
-      <p className="muted">Модель перенимает ваш стиль и типичные задачи. Нужен компьютер с видеокартой NVIDIA (например, ваш сервер) или бесплатный Google Colab. Ответы с 👎 в обучение не попадают, а с 👍 учитываются вдвойне.</p>
+      <h3><GraduationCap size={17} /> Шаг 2. Дообучение: Маления учится у вас и у лучших моделей</h3>
+      <p className="muted">В обучение идут ответы всех моделей, с которыми вы работали (GigaChat, Gemma и другие), и ваши поправки: модель перенимает и ваш стиль, и качество сильных моделей. Ответы с 👎 не попадают, с 👍 учитываются вдвойне. Нужна видеокарта NVIDIA (ваша RTX подойдёт для моделей до 4–9B) или бесплатный Google Colab.</p>
       <div className="bar" title="Желательно 200+ оценённых ответов"><i style={{ width: progress + "%" }} /></div>
       <p className="muted small">{stats?.ready_for_finetune ? "Данных достаточно для дообучения." : `Собрано ${Math.max(0, (stats?.answers ?? 0) - (stats?.disliked ?? 0))} из ~200 желательных ответов. Выгрузить можно и сейчас.`}</p>
       <div className="row">
         <button className="secondary" disabled={busy !== ""} onClick={() => void exportData()}>{busy === "export" ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}Выгрузить данные для обучения</button>
       </div>
       <ol className="steps small-steps">
-        <li>Скопируйте выгруженный файл и <code>training/train_sherlock.py</code> из репозитория на компьютер с видеокартой или в Colab.</li>
-        <li><code>pip install unsloth</code>, затем <code>python train_sherlock.py файл.jsonl</code> — 20–60 минут.</li>
-        <li><code>ollama create sherlock -f sherlock-out/Modelfile</code> и выберите <b>sherlock</b> в «Модели ИИ».</li>
+        <li>Скопируйте выгруженный файл и <code>training/train_malenia.py</code> из репозитория на компьютер с видеокартой или в Colab.</li>
+        <li><code>pip install unsloth</code>, затем <code>python train_malenia.py файл.jsonl</code> — 20–60 минут.</li>
+        <li><code>ollama create malenia-pro -f malenia-out/Modelfile</code> и выберите <b>malenia-pro</b> в «Модели ИИ».</li>
       </ol>
     </section>
   </div>;

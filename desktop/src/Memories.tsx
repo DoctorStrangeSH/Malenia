@@ -5,7 +5,7 @@ import { api, type Memory } from "./api";
 
 const GROUPS: { kind: Memory["kind"]; title: string; icon: ReactNode; empty: string }[] = [
   { kind: "preference", title: "Предпочтения", icon: <UserRound size={16} />, empty: "Например: «Отвечай коротко и списком»." },
-  { kind: "fact", title: "Факты о вас и работе", icon: <Brain size={16} />, empty: "Шерлок сам добавит сюда то, что узнает из разговоров." },
+  { kind: "fact", title: "Факты о вас и работе", icon: <Brain size={16} />, empty: "Маления сама добавит сюда то, что узнает из разговоров." },
   { kind: "lesson", title: "Уроки из ваших поправок", icon: <Lightbulb size={16} />, empty: "Нажмите 👎 под ответом и напишите, как надо — появится урок." },
 ];
 
@@ -31,7 +31,7 @@ export function Memories({ connected }: { connected: boolean }) {
     try { await api("POST", `/v1/assistant/memories/${editing.id}`, { content: editing.text }); setEditing(null); await load(); } catch (reason) { setError(String(reason)); }
   };
   return <div className="settings-stack">
-    <p className="muted">Это то, что Шерлок знает о вас. Он пополняет память сам из разговоров и ваших оценок. Всё хранится только у вас; лишнее можно удалить.</p>
+    <p className="muted">Это то, что Маления знает о вас. Она пополняет память сама из разговоров и ваших оценок. Всё хранится только у вас; лишнее можно удалить.</p>
     {error ? <div className="alert error">{error}<button onClick={() => setError("")}><X size={14} /></button></div> : null}
     <form className="memory-add card" onSubmit={event => { event.preventDefault(); void add(); }}>
       <select aria-label="Тип записи" value={kind} onChange={event => setKind(event.target.value as Memory["kind"])}>

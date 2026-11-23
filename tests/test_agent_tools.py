@@ -245,8 +245,8 @@ class TrainingTests(Base):
         assistant = Assistant(self.store, router, skills=self.skills, background=False)
         assistant.add_memory("Работает в СЦ", "fact")
         created = training.create_personal_model(assistant, "qwen3:4b", opener=Opener())
-        self.assertEqual(created["model"], "sherlock-personal:latest")
-        self.assertEqual((sent["model"], sent["from"]), ("sherlock-personal", "qwen3:4b"))
+        self.assertEqual(created["model"], "malenia:latest")
+        self.assertEqual((sent["model"], sent["from"]), ("malenia", "qwen3:4b"))
         self.assertIn("Работает в СЦ", sent["system"])
 
 

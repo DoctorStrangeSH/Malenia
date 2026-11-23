@@ -37,6 +37,7 @@ fs.mkdirSync(output,{recursive:true});
     if(command==="get_browser_bridge_setup")return {available:true,saved_extension_id:state.extensionId};
     if(command==="open_browser_extension_folder")return null;
     if(command==="register_browser_bridge"){state.extensionId=args.extensionId;return null;}
+    if(command==="local_ai_engine")return {installed:false,running:false,status:""};
     if(command==="agent_api"){
      const p=args.path;state.conversations=state.conversations||{};
      if(p==="/v1/ai/providers")return {mode:"auto",learning:true,auto_web:true,local_model:null,order:["gemini","ollama"],providers:[{id:"gemini",name:"Google Gemini",kind:"cloud",hint:"",key_url:"",base_url:"",has_key:true,enabled:true,model:null}]};
@@ -53,6 +54,7 @@ fs.mkdirSync(output,{recursive:true});
      }
      if(p.startsWith("/v1/ai/hardware"))return {hardware:{ram_gb:16,gpu:null,vram_gb:0,cpu_threads:8,os:"Windows",recommendation:{tier:"cpu-16",label:"16 ГБ",models:["qwen3.5:4b"],note:""}},installed:[],ollama_running:false,pull:{status:"idle",model:null,completed:0,total:0,error:null}};
      if(p==="/v1/assistant/memories")return {memories:[]};
+     if(p==="/v1/ai/detect-key")return {provider:"gigachat"};
      if(p==="/v1/assistant/workspace")return {path:"C:\\Users\\demo\\Documents\\Маления"};
      if(p==="/v1/assistant/training")return {stats:{conversations:1,answers:2,liked:1,disliked:0,memories:0,lessons:0,skills:0,ready_for_finetune:false},personal_model:"sherlock-personal"};
      if(p==="/v1/server")return {enabled:false,running:false,port:8766,token:"mln-test",error:null,requests_served:0,addresses:[]};
@@ -116,7 +118,7 @@ fs.mkdirSync(output,{recursive:true});
   await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
   await page.screenshot({path:path.join(output,"02-tools.png"),fullPage:true});
   await mainNav.getByRole("button",{name:"Настройки",exact:true}).click();
-  await page.getByRole("heading",{name:"Какие модели использовать"}).waitFor();
+  await page.getByRole("heading",{name:"Как Маления выбирает модель"}).waitFor();
   await page.screenshot({path:path.join(output,"02-models.png"),fullPage:true});
   await page.getByRole("navigation",{name:"Разделы настроек"}).getByRole("button",{name:"Сервер",exact:true}).click();
   await page.getByText("Сервер выключен").waitFor();
@@ -179,7 +181,7 @@ fs.mkdirSync(output,{recursive:true});
    await page.setViewportSize({width,height:900});
    await mainNav.getByRole("button",{name:"Память",exact:true}).click();
    await page.getByRole("navigation",{name:"Знания и навыки"}).getByRole("button",{name:"Своя модель",exact:true}).click();
-   await page.getByText("Чему Шерлок уже научился").waitFor();
+   await page.getByText("Чему Маления уже научилась").waitFor();
    for(const destination of ["Чат","Инструменты","Память","Настройки"]){
     await mainNav.getByRole("button",{name:destination,exact:true}).click();
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), destination+" horizontal overflow at "+width);

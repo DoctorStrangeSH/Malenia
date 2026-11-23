@@ -17,8 +17,9 @@ export function ServerSettings({ connected, onOpenModels }: { connected: boolean
   const toggle = async (enabled: boolean) => {
     setBusy(true); setError("");
     try {
-      if (enabled) await invoke<string>("start_local_ai").catch(() => undefined);
       setStatus(await api<ServerStatus>("POST", "/v1/server", { enabled }));
+      // The server shares the local model, so make sure the engine runs — without blocking the switch.
+      if (enabled) void invoke<string>("start_local_ai").catch(() => undefined);
     } catch (reason) { setError(String(reason)); } finally { setBusy(false); }
   };
   const rotate = async () => {

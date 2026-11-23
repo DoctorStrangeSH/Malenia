@@ -11,26 +11,61 @@ from .resources import ResourceManager
 
 GIB = 1024 ** 3
 
-# Each tier lists Ollama tags from best to fallback; newer tags first, older
-# well-known ones after them in case the newer tag is unavailable.
+# Each tier lists Ollama tags from best to fallback (all verified Ollama
+# library tags; Ollama 0.40 supports Gemma 4 and Qwen 3.5).
 TIERS = [
     {"id": "gpu-24", "min_vram": 20, "label": "Мощная видеокарта (20+ ГБ)",
-     "models": ["gemma4:26b", "qwen3.5:27b", "gpt-oss:20b", "qwen3:14b"]},
+     "models": ["gemma4:31b", "gemma4:26b", "qwen3.5:27b"]},
     {"id": "gpu-16", "min_vram": 14, "label": "Видеокарта 16 ГБ",
-     "models": ["gpt-oss:20b", "gemma4:12b", "qwen3:14b"]},
-    {"id": "gpu-8", "min_vram": 8, "label": "Видеокарта 8–12 ГБ",
-     "models": ["gemma4:12b", "qwen3.5:9b", "qwen3:8b"]},
+     "models": ["gemma4:26b", "gpt-oss:20b", "gemma4:12b"]},
+    {"id": "gpu-8-ram", "min_vram": 7.5, "min_ram": 28, "label": "Видеокарта 8–12 ГБ + 32 ГБ ОЗУ",
+     "models": ["gemma4:26b", "gemma4:12b", "qwen3.5:9b"]},
+    {"id": "gpu-8", "min_vram": 7.5, "label": "Видеокарта 8–12 ГБ",
+     "models": ["gemma4:12b", "qwen3.5:9b", "gemma4:e4b"]},
     {"id": "gpu-6", "min_vram": 5, "label": "Видеокарта 6 ГБ",
-     "models": ["qwen3.5:4b", "qwen3:4b"]},
+     "models": ["qwen3.5:4b", "gemma4:e4b"]},
     {"id": "cpu-32", "min_ram": 28, "label": "Без видеокарты, 32+ ГБ ОЗУ",
-     "models": ["gpt-oss:20b", "qwen3.5:9b", "qwen3:8b"]},
+     "models": ["gemma4:26b", "qwen3.5:9b", "gpt-oss:20b"]},
     {"id": "cpu-16", "min_ram": 14, "label": "Без видеокарты, 16 ГБ ОЗУ",
-     "models": ["qwen3.5:4b", "qwen3:4b"]},
+     "models": ["qwen3.5:4b", "gemma4:e4b"]},
     {"id": "cpu-8", "min_ram": 7, "label": "Без видеокарты, 8 ГБ ОЗУ",
-     "models": ["gemma4:e2b", "qwen3:1.7b"]},
+     "models": ["qwen3.5:2b", "gemma4:e2b"]},
     {"id": "tiny", "min_ram": 0, "label": "Слабый компьютер",
-     "models": ["qwen3:0.6b", "qwen2.5:0.5b"]},
+     "models": ["qwen3.5:0.8b", "qwen3:0.6b"]},
 ]
+
+# Catalogue shown in "Другая модель". size = download GB (approx.), moe = only a
+# few billion parameters active per token, so it stays fast with part of it in RAM.
+CATALOG = [
+    {"tag": "gemma4:31b", "name": "Gemma 4 31B", "size": 20, "moe": False, "note": "Самая умная Gemma, нужна мощная видеокарта"},
+    {"tag": "gemma4:26b", "name": "Gemma 4 26B (MoE)", "size": 18, "moe": True, "note": "Почти как 31B, но быстрее: активны ~4B параметров"},
+    {"tag": "gemma4:12b", "name": "Gemma 4 12B", "size": 7.6, "moe": False, "note": "Лучший баланс для видеокарты 8 ГБ, понимает картинки"},
+    {"tag": "gemma4:e4b", "name": "Gemma 4 E4B", "size": 9.6, "moe": False, "note": "Лёгкая, понимает картинки и звук"},
+    {"tag": "gemma4:e2b", "name": "Gemma 4 E2B", "size": 7.2, "moe": False, "note": "Для слабых компьютеров"},
+    {"tag": "qwen3.5:35b", "name": "Qwen 3.5 35B (MoE)", "size": 24, "moe": True, "note": "Сильная в инструментах и коде, быстрая для своего размера"},
+    {"tag": "qwen3.5:27b", "name": "Qwen 3.5 27B", "size": 17, "moe": False, "note": "Точная, но требовательная"},
+    {"tag": "qwen3.5:9b", "name": "Qwen 3.5 9B", "size": 6.6, "moe": False, "note": "Хорошо работает с инструментами"},
+    {"tag": "qwen3.5:4b", "name": "Qwen 3.5 4B", "size": 3.4, "moe": False, "note": "Быстрая и лёгкая"},
+    {"tag": "qwen3.5:2b", "name": "Qwen 3.5 2B", "size": 2.7, "moe": False, "note": "Для слабых компьютеров"},
+    {"tag": "gpt-oss:20b", "name": "GPT-OSS 20B (MoE)", "size": 14, "moe": True, "note": "Открытая модель OpenAI, хорошо рассуждает"},
+]
+
+
+def fit(item: dict, ram_gb: float, vram_gb: float) -> str:
+    """fast | ok | slow | no — how well a model runs on this computer."""
+    need = item["size"] * 1.15
+    if vram_gb and need <= vram_gb:
+        return "fast"
+    total = vram_gb + ram_gb * 0.6
+    if need > total:
+        return "no"
+    if item["moe"]:
+        return "ok"
+    return "ok" if vram_gb and need <= vram_gb * 1.35 else "slow"
+
+
+def catalog(ram_gb: float, vram_gb: float) -> list[dict]:
+    return [{**item, "fit": fit(item, ram_gb, vram_gb)} for item in CATALOG]
 
 
 def _run(command: list[str], timeout: float = 6) -> str:
@@ -94,9 +129,12 @@ def detect() -> dict:
 
 def recommend(ram_gb: float, vram_gb: float) -> dict:
     for tier in TIERS:
-        if "min_vram" in tier and vram_gb >= tier["min_vram"]:
-            break
-        if "min_ram" in tier and ram_gb >= tier["min_ram"]:
+        needs_vram = "min_vram" in tier
+        if needs_vram and vram_gb < tier["min_vram"]:
+            continue
+        if "min_ram" in tier and ram_gb < tier["min_ram"]:
+            continue
+        if needs_vram or "min_ram" in tier:
             break
     note = ""
     if vram_gb < 8 and ram_gb < 24:
@@ -113,5 +151,6 @@ def profile(refresh: bool = False) -> dict:
     global _cache
     if _cache is None or refresh:
         hardware = detect()
-        _cache = {**hardware, "recommendation": recommend(hardware["ram_gb"], hardware["vram_gb"])}
+        _cache = {**hardware, "recommendation": recommend(hardware["ram_gb"], hardware["vram_gb"]),
+                  "catalog": catalog(hardware["ram_gb"], hardware["vram_gb"])}
     return _cache
