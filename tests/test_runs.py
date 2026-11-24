@@ -236,3 +236,18 @@ class ContextSizeTests(unittest.TestCase):
         self.assertEqual(provider.context_for("gemma4:26b"), 8192)
         provider.ram_gb = 64
         self.assertEqual(provider.context_for("gemma4:26b"), 16384)
+
+
+class ContextSettingTests(RunBase):
+    def test_user_context_choice_overrides_auto(self):
+        assistant = self.assistant([])
+        from malenia.providers import OllamaProvider
+        router = assistant.router
+        provider = OllamaProvider("http://127.0.0.1:1", None)
+        router.ollama = provider
+        router.save_config({**router.config(), "context": 32768})
+        router.config()
+        self.assertEqual(provider.context_for("gemma4:12b"), 32768)
+        router.save_config({**router.config(), "context": "auto"})
+        router.config()
+        self.assertIsNone(provider.context_override)

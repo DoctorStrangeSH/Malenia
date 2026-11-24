@@ -824,3 +824,5 @@ details.card[open]>summary{margin-bottom:14px}
 .kb-refs{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:8px}
 .kb-refs small{color:#7d879a;font-size:11px}
 .kb-ref{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#b9b1f0;background:#1d1a30;border:1px solid #352f5c;border-radius:20px;padding:2px 8px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.segmented.context-choice{grid-template-columns:repeat(4,1fr)}
+@media(max-width:900px){.segmented.context-choice{grid-template-columns:1fr 1fr}}

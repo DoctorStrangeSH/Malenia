@@ -453,6 +453,9 @@ class GigaChatProvider:
         return ChatResult(content=str(message.get("content") or ""), tool_calls=calls, provider=self.id, model=model)
 
 
+CONTEXT_SIZES = (8192, 16384, 32768)
+
+
 class OllamaProvider:
     id = "ollama"
     # Keep the model in (video) memory so answers start in seconds.
@@ -465,9 +468,14 @@ class OllamaProvider:
     _sizes: dict[str, int] = {}
     _sizes_at = 0.0
 
+    context_override: int | None = None
+
     def context_for(self, model: str) -> int:
-        """16K when the model leaves enough memory (small model or big machine), else 8K."""
+        """User's choice, or 16K when the model leaves enough memory (small model or big machine), else 8K."""
         import time as _time
+        if self.context_override in CONTEXT_SIZES:
+            self.num_ctx = int(self.context_override)
+            return self.num_ctx
         if _time.time() - self._sizes_at > 60:
             try:
                 data = _get_json(self.opener, self.base_url + "/api/tags", {}, 3)
@@ -626,6 +634,9 @@ class ModelRouter:
         value.setdefault("learning", True)
         value.setdefault("auto_web", True)
         value.setdefault("local_model", None)
+        value.setdefault("context", "auto")  # auto | 8192 | 16384 | 32768
+        if getattr(self, "ollama", None) is not None and hasattr(self.ollama, "context_override"):
+            self.ollama.context_override = value["context"] if value["context"] in CONTEXT_SIZES else None
         return value
 
     def save_config(self, config: dict) -> None:
@@ -832,5 +843,7 @@ class ModelRouter:
                 "model": entry.get("model"),
             })
         return {"mode": config["mode"], "learning": config["learning"], "auto_web": config["auto_web"],
+                "context": config["context"], "context_auto": getattr(self.ollama, "num_ctx", None)
+                if config["context"] == "auto" else None,
                 "local_model": config.get("local_model"), "providers": providers,
                 "order": self.candidates(False)}

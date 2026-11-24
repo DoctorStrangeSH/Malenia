@@ -44,6 +44,7 @@ export type ProviderInfo = {
 export type ProvidersInfo = {
   mode: "auto" | "cloud" | "local"; learning: boolean; auto_web: boolean;
   local_model: string | null; providers: ProviderInfo[]; order: string[];
+  context?: "auto" | 8192 | 16384 | 32768; context_auto?: number | null;
 };
 export type PullState = { status: "idle" | "running" | "done" | "failed"; model: string | null; completed: number; total: number; error: string | null };
 export type CatalogModel = { tag: string; name: string; size: number; moe: boolean; note: string; fit: "fast" | "ok" | "slow" | "no" };

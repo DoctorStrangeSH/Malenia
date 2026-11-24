@@ -363,6 +363,11 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
                 for flag in ("learning", "auto_web"):
                     if flag in payload:
                         config[flag] = bool(payload[flag])
+                if "context" in payload:
+                    from .providers import CONTEXT_SIZES
+                    if payload["context"] != "auto" and payload["context"] not in CONTEXT_SIZES:
+                        raise AssistantError("invalid_context")
+                    config["context"] = payload["context"]
                 if "local_model" in payload:
                     model = payload["local_model"]
                     if model is not None and (not isinstance(model, str) or len(model) > 200):

@@ -7,6 +7,13 @@ import {
 import { api, type CatalogModel, type EngineState, type HardwareInfo, type ProviderInfo, type ProvidersInfo } from "./api";
 
 const open = (url: string) => { void invoke("open_search_source", { url }).catch(() => undefined); };
+const CONTEXTS: { id: "auto" | 8192 | 16384 | 32768; title: string; text: string }[] = [
+  { id: "auto", title: "Авто", text: "16K для лёгких моделей, 8K для тяжёлых — без риска нехватки памяти" },
+  { id: 8192, title: "8K", text: "Экономно: короткие задачи, тяжёлые модели" },
+  { id: 16384, title: "16K", text: "Баланс: разбор листа, несколько страниц Asgard" },
+  { id: 32768, title: "32K", text: "Максимум: длинные разборы. Медленнее, нужно много памяти" },
+];
+
 const MODES: { id: ProvidersInfo["mode"]; title: string; text: string }[] = [
   { id: "auto", title: "Авто", text: "Облако, при сбое — ваш сервер или локальная модель" },
   { id: "cloud", title: "Только облако", text: "Максимум качества, нужен интернет" },
@@ -105,6 +112,17 @@ export function AiSettings({ connected, onOpenOwnModel }: { connected: boolean; 
       <label className="switch-row"><input type="checkbox" checked={info.auto_web} onChange={event => void save({ auto_web: event.target.checked })} />
         <span><b>Интернет-поиск по необходимости</b><small>Модель сама ищет свежие данные, когда это нужно для ответа.</small></span></label>
       <p className="muted small">Порядок сейчас: {info.order.map(id => info.providers.find(p => p.id === id)?.name ?? "Локальная модель").join(" → ")}</p>
+    </section>
+
+    <section className="card">
+      <h3>Память разговора</h3>
+      <p className="muted small">Сколько текста локальная модель держит в голове одновременно: правила, инструкции из базы, страницы Asgard и весь ваш разговор. Больше — лучше помнит длинный разбор, но нужно больше памяти компьютера и ответы медленнее.</p>
+      <div className="segmented context-choice" role="radiogroup" aria-label="Память разговора">
+        {CONTEXTS.map(option => <button key={String(option.id)} role="radio" aria-checked={(info.context ?? "auto") === option.id}
+          className={(info.context ?? "auto") === option.id ? "on" : ""} onClick={() => void save({ context: option.id })}>
+          <b>{option.id === "auto" && info.context_auto ? `Авто · сейчас ${info.context_auto / 1024}K` : option.title}</b><small>{option.text}</small></button>)}
+      </div>
+      {info.context === 32768 ? <p className="muted small">32K: если окно Малении станет белым или ответы будут очень медленными — верните «Авто» или 16K, либо выберите модель полегче.</p> : null}
     </section>
 
     <Workspace onError={setError} />
