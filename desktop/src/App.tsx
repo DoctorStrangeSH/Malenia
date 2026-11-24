@@ -140,7 +140,7 @@ export default function App(){
       <div className="side-foot">
         <span className={"dot"+(connected?" on":"")}/>{connected?"Маления работает":"Запуск…"}
         <button className="icon-btn tiny" title="С чего начать?" aria-label="Открыть справку" onClick={()=>setShowHelp(true)}><CircleHelp size={15}/></button>
-        <span className="side-version">0.15.2</span>
+        <span className="side-version">0.16.0</span>
       </div>
     </aside>
 

@@ -249,6 +249,17 @@ class ToolBox:
                  _schema({"path": {**text, "description": "Путь документа из результатов поиска или часть названия"},
                           "section": {**text, "description": "Необязательно: часть заголовка раздела"}}, ["path"]),
                  "safe", self._kb_document)
+        self.add("update_knowledge_base",
+                 "Дополнить или исправить инструкцию в базе знаний пользователя (сохраняется в его репозиторий/папку). "
+                 "Используй, когда пользователь поправил тебя или научил новому правилу и согласен закрепить это в инструкции. "
+                 "Пиши в стиле документа, коротко и с «почему». Требует подтверждения пользователя.",
+                 _schema({"path": {**text, "description": "Путь документа, например 05-Операционные-инструкции/INVENTORY_STATUSES.md"},
+                          "section": {**text, "description": "Часть заголовка раздела, куда добавить (необязательно)"},
+                          "text": {**text, "description": "Markdown, который добавить или которым заменить раздел"},
+                          "mode": {"type": "string", "enum": ["append", "replace"], "description": "append — дописать (по умолчанию), replace — заменить раздел"}},
+                         ["path", "text"]), "confirm", self._kb_update,
+                 lambda a: f"Изменить базу знаний: {a.get('path', '')}" + (f" › {a.get('section')}" if a.get("section") else "") +
+                           f"\n{'Заменить раздел' if a.get('mode') == 'replace' else 'Дописать'}:\n{str(a.get('text') or '')[:600]}")
         if self.browser is not None:
             ref = {"type": "integer", "description": "Номер элемента [N] из последнего снимка страницы"}
             self.add("browser_open",
@@ -335,6 +346,17 @@ class ToolBox:
             return {"results": [], "note": "По этим словам ничего не найдено. Вот все документы базы — открой подходящий "
                                            "через read_knowledge_document по пути:", "documents": documents}
         return {"results": [{"path": f["path"], "section": f["heading"], "text": f["content"][:1500]} for f in found]}
+
+    def _kb_update(self, args: dict) -> dict:
+        if self.vault is None:
+            raise ToolError("База знаний не подключена")
+        from .kb import KnowledgeBaseError
+        try:
+            return self.vault.update_document(str(args.get("path") or ""), str(args.get("text") or ""),
+                                              (str(args.get("section")) if args.get("section") else None),
+                                              str(args.get("mode") or "append"))
+        except KnowledgeBaseError as error:
+            raise ToolError(str(error)) from None
 
     def _kb_document(self, args: dict) -> dict:
         if self.vault is None:

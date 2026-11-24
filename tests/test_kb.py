@@ -155,3 +155,63 @@ class EmptyVaultToolTests(unittest.TestCase):
             outcome = tools.run("search_knowledge_base", {"query": "наименования"}, "c1")
             self.assertEqual(outcome["status"], "error")
             self.assertIn("Подключите базу знаний", outcome["error"])
+
+
+class UpdateDocumentTests(unittest.TestCase):
+    def test_edit_markdown_append_and_replace(self):
+        from malenia.kb import _edit_markdown
+        doc = "# Доc\n## Раздел A\nстарое\n\n## Раздел B\nb\n"
+        appended = _edit_markdown(doc, "новое правило", "Раздел A", "append")
+        self.assertIn("старое\n\nновое правило\n\n## Раздел B", appended)
+        replaced = _edit_markdown(doc, "только новое", "раздел a", "replace")
+        self.assertNotIn("старое", replaced)
+        self.assertIn("## Раздел B", replaced)
+        self.assertIn("## Новый\n\nтекст", _edit_markdown(doc, "текст", "Новый", "append"))
+
+    def test_folder_update_saves_and_reindexes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "vault").mkdir()
+            (root / "vault" / "A.md").write_text("# Статусы\n## Исключения\nпока нет\n", "utf-8")
+            store = TaskStore(root / "db.sqlite3")
+            settings = SettingsStore(store)
+            vault = KnowledgeVault(store, settings, MemorySecretStore())
+            vault.configure({"folder": str(root / "vault")})
+            vault.sync()
+            vault.update_document("A.md", "Утилизирован — оставлять человеку.", "Исключения")
+            self.assertIn("Утилизирован", (root / "vault" / "A.md").read_text("utf-8"))
+            self.assertEqual(vault.search("утилизирован", 1)[0]["path"], "A.md")
+            with self.assertRaises(KnowledgeBaseError):
+                vault.update_document("../x.md", "t")
+
+    def test_github_update_requires_write_token_and_puts_file(self):
+        import base64, json as _json
+        from urllib.error import HTTPError
+
+        class Opener:
+            def __init__(self):
+                self.requests = []
+
+            def open(self, request, timeout=0):
+                self.requests.append(request)
+                if request.get_method() == "GET" and "/contents/" in request.full_url:
+                    return FakeResponse(_json.dumps({"sha": "abc", "content": base64.b64encode("# T\n".encode()).decode()}).encode())
+                if request.get_method() == "PUT":
+                    return FakeResponse(b"{}")
+                raise HTTPError(request.full_url, 500, "x", {}, None)
+
+        with tempfile.TemporaryDirectory() as folder:
+            store = TaskStore(Path(folder) / "db.sqlite3")
+            settings = SettingsStore(store)
+            secrets = MemorySecretStore()
+            opener = Opener()
+            vault = KnowledgeVault(store, settings, secrets, opener=opener)
+            vault.configure({"repo": "Owner/Repo"})
+            with self.assertRaises(KnowledgeBaseError):
+                vault.update_document("05/T.md", "текст")
+            vault.configure({"token": "github_pat_" + "b" * 30})
+            vault.update_document("05/T.md", "новое", "Раздел")
+            put = next(r for r in opener.requests if r.get_method() == "PUT")
+            body = _json.loads(put.data)
+            self.assertEqual(body["sha"], "abc")
+            self.assertIn("новое", base64.b64decode(body["content"]).decode())

@@ -71,7 +71,7 @@ export function KnowledgeVault({ connected }: { connected: boolean }) {
       <details><summary>Как получить токен</summary><ol>
         <li>GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token.</li>
         <li>Repository access: Only select repositories → выберите репозиторий базы знаний.</li>
-        <li>Permissions → Repository → Contents: Read-only. Скопируйте токен и вставьте сюда.</li>
+        <li>Permissions → Repository → Contents: <b>Read and write</b> — тогда Маления сможет дополнять инструкции (каждое изменение вы подтверждаете). Только чтение — Read-only. Скопируйте токен и вставьте сюда.</li>
       </ol><p>Токен хранится в защищённом хранилище Windows и используется только для чтения базы.</p></details>
       <label><span><FolderOpen size={15} /> Или локальная папка (Obsidian)</span>
         <input value={folder} onChange={event => setFolder(event.target.value)} placeholder="C:\Users\…\Documents\Malenia_Knowledge_Base" aria-label="Папка базы знаний" /></label>

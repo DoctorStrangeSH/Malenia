@@ -465,6 +465,12 @@ function Message({ message, onRate, onDecide, busy, last, onRegenerate, onEdit, 
       <Steps steps={message.meta?.steps ?? []} />
       <Markdown text={message.content} onLink={openLink} />
       {message.meta?.stopped ? <small className="stopped-note">Ответ остановлен</small> : null}
+      {message.meta?.knowledge?.length ? <div className="kb-refs" title="Разделы вашей базы знаний, на которые опиралась Маления">
+        <small>Опиралась на:</small>
+        {Array.from(new Map(message.meta.knowledge.map(k => [k.path + k.heading, k])).values()).slice(0, 5).map(k =>
+          <span key={k.path + k.heading} className="kb-ref" title={`${k.path}${k.heading ? " › " + k.heading : ""}`}>
+            <FileText size={11} />{(k.heading.split(" › ").pop() || k.path.split("/").pop() || "").replace(/\.md$/, "").slice(0, 48)}</span>)}
+      </div> : null}
       {sources.length ? <div className="sources">{sources.map(source =>
         <button key={source.url} onClick={() => openLink(source.url)} title={source.url}><Globe2 size={12} />{source.title || new URL(source.url).hostname}</button>)}</div> : null}
       {(message.meta?.actions ?? []).map(action => <ActionCard key={action.id} action={action} onDecide={onDecide} />)}

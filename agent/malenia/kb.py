@@ -276,6 +276,88 @@ class KnowledgeVault:
                 for heading, content in split_sections(body, title):
                     db.execute("INSERT INTO kb_chunks(path, heading, content) VALUES (?,?,?)", (path, heading, content))
 
+    # ---- updating instructions ("Дополни инструкцию") -------------------
+    def update_document(self, path: str, text: str, section: str | None = None, mode: str = "append") -> dict:
+        """Add to (or replace) a section of a document and save it to the source (GitHub or folder)."""
+        text = (text or "").strip()
+        if not text or len(text) > 20000:
+            raise KnowledgeBaseError("Пустой или слишком длинный текст")
+        if mode not in ("append", "replace"):
+            raise KnowledgeBaseError("Неизвестный режим изменения")
+        if not re.fullmatch(r"[^\0]{1,300}\.md", path or "") or ".." in path or path.startswith("/"):
+            raise KnowledgeBaseError("Некорректный путь документа")
+        config = self.config()
+        if config.get("repo"):
+            original, sha = self._github_file(config["repo"], config.get("branch", ""), path)
+        elif config.get("folder"):
+            file = (Path(config["folder"]) / path).resolve()
+            if not str(file).startswith(str(Path(config["folder"]).resolve())):
+                raise KnowledgeBaseError("Некорректный путь документа")
+            original, sha = (file.read_text("utf-8") if file.exists() else ""), None
+        else:
+            raise KnowledgeBaseError("База знаний не подключена")
+        updated = _edit_markdown(original, text, section, mode)
+        message = f"Маления: {'дополнение' if mode == 'append' else 'правка'} — {Path(path).stem}" + (f" › {section}" if section else "")
+        if config.get("repo"):
+            self._github_put(config["repo"], config.get("branch", ""), path, updated, sha, message)
+        else:
+            file.parent.mkdir(parents=True, exist_ok=True)
+            file.write_text(updated, "utf-8")
+        try:
+            self.sync()
+        except KnowledgeBaseError:
+            pass
+        return {"path": path, "section": section, "saved": True}
+
+    def _github_headers(self) -> dict:
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "Malenia-KB",
+                   "Content-Type": "application/json"}
+        token = self.secrets.get("kb.github") if self.secrets is not None else None
+        if not token:
+            raise KnowledgeBaseError("Для записи в базу нужен токен GitHub с правом Contents: Read and write")
+        headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def _github_file(self, repo: str, branch: str, path: str) -> tuple[str, str | None]:
+        import base64
+        import json as _json
+        from urllib.parse import quote
+        url = f"https://api.github.com/repos/{repo}/contents/{quote(path)}" + (f"?ref={quote(branch)}" if branch else "")
+        try:
+            with self.opener.open(Request(url, headers=self._github_headers()), timeout=30) as response:
+                data = _json.loads(response.read(5 * 1024 * 1024))
+        except HTTPError as error:
+            if error.code == 404:
+                return "", None
+            raise KnowledgeBaseError("GitHub не дал прочитать документ") from None
+        except (URLError, OSError):
+            raise KnowledgeBaseError("Нет связи с GitHub") from None
+        return base64.b64decode(data.get("content") or "").decode("utf-8", "replace"), data.get("sha")
+
+    def _github_put(self, repo: str, branch: str, path: str, content: str, sha: str | None, message: str) -> None:
+        import base64
+        import json as _json
+        from urllib.parse import quote
+        body = {"message": message, "content": base64.b64encode(content.encode("utf-8")).decode()}
+        if sha:
+            body["sha"] = sha
+        if branch:
+            body["branch"] = branch
+        request = Request(f"https://api.github.com/repos/{repo}/contents/{quote(path)}",
+                          data=_json.dumps(body).encode(), headers=self._github_headers(), method="PUT")
+        try:
+            with self.opener.open(request, timeout=30) as response:
+                response.read(1024 * 1024)
+        except HTTPError as error:
+            if error.code in (401, 403, 404):
+                raise KnowledgeBaseError("Токен GitHub не разрешает запись. Нужен fine-grained токен с правом "
+                                         "Contents: Read and write для репозитория базы.") from None
+            if error.code == 409:
+                raise KnowledgeBaseError("Документ изменился одновременно — повторите") from None
+            raise KnowledgeBaseError(f"GitHub ответил ошибкой {error.code}") from None
+        except (URLError, OSError):
+            raise KnowledgeBaseError("Нет связи с GitHub") from None
+
     # ---- meaning-based search (embeddings) ------------------------------
     def _embed_model(self) -> str | None:
         if self.embedder is None:
@@ -416,3 +498,35 @@ def _normalise(vector) -> list[float]:
 
 def _pack(vector) -> bytes:
     return array("f", _normalise(vector)).tobytes()
+
+
+def _edit_markdown(original: str, text: str, section: str | None, mode: str) -> str:
+    """Append to / replace the body of the section whose heading contains `section`."""
+    if not original.strip():
+        return (f"## {section}\n\n" if section else "") + text + "\n"
+    lines = original.splitlines()
+    if section:
+        start = None
+        level = 0
+        for index, line in enumerate(lines):
+            match = re.match(r"^(#{1,6})\s+(.*)$", line)
+            if match and section.casefold() in match.group(2).casefold():
+                start, level = index, len(match.group(1))
+                break
+        if start is not None:
+            end = len(lines)
+            for index in range(start + 1, len(lines)):
+                match = re.match(r"^(#{1,6})\s+", lines[index])
+                if match and len(match.group(1)) <= level:
+                    end = index
+                    break
+            body_end = end
+            while body_end > start + 1 and not lines[body_end - 1].strip():
+                body_end -= 1
+            if mode == "replace":
+                new = lines[:start + 1] + [""] + text.splitlines() + [""] + lines[end:]
+            else:
+                new = lines[:body_end] + [""] + text.splitlines() + [""] + lines[end:]
+            return "\n".join(new).rstrip() + "\n"
+        return original.rstrip() + f"\n\n## {section}\n\n{text}\n"
+    return original.rstrip() + "\n\n" + text + "\n"

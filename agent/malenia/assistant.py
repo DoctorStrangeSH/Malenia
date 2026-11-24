@@ -58,6 +58,7 @@ SYSTEM_PROMPT = """Ты — Маления, персональная ИИ-пом
 - Никогда не показывай данные из Asgard, DataLens или таблицы, которые ты не прочитала инструментом в этом разговоре. Нет данных — пиши «не проверено», а не придумывай.
 - Большую задачу делай частями: сделай столько строк, сколько успеваешь, покажи проверенный результат и предложи запись, затем скажи, с какой строки продолжить.
 - Если что-то мешает (форма, блокировка, ошибка) — сначала поищи решение в базе знаний (search_knowledge_base), и только потом спрашивай пользователя.
+- Если пользователь поправил тебя или научил правилу, которого нет в инструкции, предложи закрепить это в базе знаний (update_knowledge_base) — коротко, в стиле документа.
 Если просят найти товар по фото: сначала внимательно рассмотри фото и опиши товар (бренд, надписи, модель, цвет, материал, детали), затем ищи через shop_search несколькими разными формулировками, дай ссылки на подходящие карточки с названиями и ссылку на поиск в магазине. Честно скажи, если точного совпадения нет.
 Не выдумывай факты и не утверждай, что выполнила действие, если не выполняла. Если чего-то не знаешь — скажи прямо.
 Сегодня {today}."""
@@ -161,6 +162,22 @@ def _needs_nudge(answer: str, steps: list[dict]) -> str | None:
                 "открывала. Если эти данные не прочитаны инструментами в этом разговоре — не выдумывай: проверь через "
                 "browser_open/browser_read или пометь строки «не проверено».")
     return None
+
+
+def _kb_refs(output: str) -> list[dict]:
+    """Which knowledge-base documents a tool result came from (for "На что опиралась")."""
+    try:
+        data = json.loads(output)
+    except (ValueError, TypeError):
+        return []
+    data = data.get("result", data) if isinstance(data, dict) else {}
+    refs = []
+    for item in (data.get("results") or [])[:4] if isinstance(data, dict) else []:
+        if isinstance(item, dict) and item.get("path"):
+            refs.append({"path": str(item["path"]), "heading": str(item.get("section") or "")})
+    if isinstance(data, dict) and data.get("path") and data.get("title"):
+        refs.append({"path": str(data["path"]), "heading": str(data["title"])})
+    return refs
 
 
 def _shrink_tool_outputs(messages: list[dict], budget: int = 45000) -> None:
@@ -672,6 +689,12 @@ class Assistant:
                     step["status"] = "error" if output.startswith(("Ошибка", "Инструмент недоступен")) else "done"
                     emit("step", **step)
                     steps.append(step)
+                    if call["name"] in ("search_knowledge_base", "read_knowledge_document") and step["status"] == "done":
+                        known = {(k["path"], k["heading"]) for k in knowledge_used}
+                        for ref in _kb_refs(output):
+                            if (ref["path"], ref["heading"]) not in known:
+                                knowledge_used.append({**ref, "content": ""})
+                                known.add((ref["path"], ref["heading"]))
                     messages.append({"role": "tool", "tool_call_id": call["id"], "name": call["name"],
                                      "content": output})
         except Cancelled:
