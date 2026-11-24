@@ -46,6 +46,8 @@ def visible_window(process_id: int, close: bool = False) -> bool:
 def stop_owned(process: subprocess.Popen) -> None:
     if process.poll() is None:
         visible_window(process.pid, close=True)
+    if process.poll() is None:
+        process.kill()
     try:
         process.wait(timeout=10)
     except subprocess.TimeoutExpired:
@@ -124,7 +126,15 @@ def main() -> int:
                 time.sleep(0.1)
             else:
                 raise RuntimeError('Desktop did not automatically start its bundled agent')
+            # Closing the window keeps Malenia in the tray; "--quit" really exits.
             visible_window(first.pid, close=True)
+            time.sleep(2)
+            if first.poll() is not None:
+                raise RuntimeError('Closing the window must keep Malenia running in the tray')
+            if visible_window(first.pid):
+                raise RuntimeError('Closed window is still visible')
+            quitter = subprocess.Popen([str(executable), '--quit'], env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            quitter.wait(timeout=15)
             first.wait(timeout=15)
             for _ in range(50):
                 try:
@@ -138,7 +148,7 @@ def main() -> int:
             if second is not None:
                 stop_owned(second)
             stop_owned(first)
-    print('PASS: single desktop instance, automatic agent start, and agent stops on window close.')
+    print('PASS: single desktop instance, automatic agent start, close-to-tray, and agent stops on --quit.')
     return 0
 
 

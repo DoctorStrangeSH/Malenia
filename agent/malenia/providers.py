@@ -7,6 +7,7 @@ format internally and are converted for Ollama.
 from __future__ import annotations
 
 import base64
+import inspect
 import json
 import re
 import ssl
@@ -173,28 +174,32 @@ def _get_json(opener, url: str, headers: dict, timeout: float) -> dict:
     return _open(opener, Request(url, headers=headers), timeout)
 
 
+def _http_error(error: HTTPError) -> ProviderError:
+    try:
+        detail = error.read(4096).decode("utf-8", "replace")
+    except Exception:
+        detail = ""
+    if re.search(r"location is not supported|unsupported_country|not available in your (region|country)|region", detail, re.I) and error.code in (400, 403, 451):
+        return ProviderError("region_blocked", detail[:300])
+    if error.code == 402:
+        return ProviderError("payment_required", detail[:300])
+    if error.code in (401, 403):
+        return ProviderError("invalid_key", detail[:300])
+    if error.code == 429:
+        return ProviderError("rate_limited", detail[:300])
+    if error.code in (400, 404, 422):
+        if re.search(r"tool|function", detail, re.I):
+            return ProviderError("tools_unsupported", detail[:300])
+        return ProviderError("bad_request", detail[:300])
+    return ProviderError("unavailable", f"HTTP {error.code}")
+
+
 def _open(opener, request: Request, timeout: float) -> dict:
     try:
         with opener.open(request, timeout=timeout) as response:
             raw = response.read(8 * 1024 * 1024 + 1)
     except HTTPError as error:
-        try:
-            detail = error.read(4096).decode("utf-8", "replace")
-        except Exception:
-            detail = ""
-        if re.search(r"location is not supported|unsupported_country|not available in your (region|country)|region", detail, re.I) and error.code in (400, 403, 451):
-            raise ProviderError("region_blocked", detail[:300]) from None
-        if error.code == 402:
-            raise ProviderError("payment_required", detail[:300]) from None
-        if error.code in (401, 403):
-            raise ProviderError("invalid_key", detail[:300]) from None
-        if error.code == 429:
-            raise ProviderError("rate_limited", detail[:300]) from None
-        if error.code in (400, 404, 422):
-            if re.search(r"tool|function", detail, re.I):
-                raise ProviderError("tools_unsupported", detail[:300]) from None
-            raise ProviderError("bad_request", detail[:300]) from None
-        raise ProviderError("unavailable", f"HTTP {error.code}") from None
+        raise _http_error(error) from None
     except (URLError, OSError, TimeoutError) as error:
         reason = getattr(error, "reason", error)
         if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
@@ -209,6 +214,56 @@ def _open(opener, request: Request, timeout: float) -> dict:
     if not isinstance(value, dict):
         raise ProviderError("unavailable", "invalid json")
     return value
+
+
+class Cancelled(Exception):
+    """The user pressed "Stop" while the model was answering."""
+
+
+def _stream(opener, url: str, body: dict, headers: dict, timeout: float, cancel=None):
+    """Yield decoded lines of a streaming response (SSE or NDJSON)."""
+    request = Request(url, data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                      headers={"Content-Type": "application/json", **headers})
+    try:
+        response = opener.open(request, timeout=timeout)
+    except HTTPError as error:
+        raise _http_error(error) from None
+    except (URLError, OSError, TimeoutError) as error:
+        reason = getattr(error, "reason", error)
+        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+            raise ProviderError("certificate", str(reason)[:200]) from None
+        raise ProviderError("unavailable", str(reason)[:200]) from None
+    total = 0
+    try:
+        with response:
+            for raw in response:
+                if cancel is not None and cancel.is_set():
+                    raise Cancelled()
+                total += len(raw)
+                if total > 16 * 1024 * 1024:
+                    raise ProviderError("unavailable", "response too large")
+                line = raw.decode("utf-8", "replace").strip()
+                if line:
+                    yield line
+    except (URLError, OSError, TimeoutError) as error:
+        raise ProviderError("unavailable", str(error)[:200]) from None
+
+
+def _sse_json(lines):
+    for line in lines:
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if data == "[DONE]":
+            return
+        try:
+            value = json.loads(data)
+        except ValueError:
+            continue
+        if isinstance(value, dict):
+            if value.get("error"):
+                raise ProviderError("unavailable", json.dumps(value["error"], ensure_ascii=False)[:300])
+            yield value
 
 
 def _parse_arguments(raw: Any) -> dict:
@@ -255,15 +310,38 @@ class OpenAICompatibleProvider:
 
     def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None,
              max_tokens: int = 2048, temperature: float = 0.4, json_mode: bool = False,
-             timeout: float = 120) -> ChatResult:
+             timeout: float = 120, on_delta=None, cancel=None) -> ChatResult:
         if not self.base_url:
             raise ProviderError("not_configured")
         body: dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature,
-                                "max_tokens": max_tokens, "stream": False}
+                                "max_tokens": max_tokens, "stream": bool(on_delta)}
         if tools:
             body["tools"] = tools
         if json_mode:
             body["response_format"] = {"type": "json_object"}
+        if on_delta:
+            content, partial = [], {}
+            for chunk in _sse_json(_stream(self.opener, self.base_url + "/chat/completions", body,
+                                           {**self._headers(), "Accept": "text/event-stream"}, timeout, cancel)):
+                choices = chunk.get("choices") or []
+                delta = choices[0].get("delta") if choices and isinstance(choices[0], dict) else None
+                if not isinstance(delta, dict):
+                    continue
+                if isinstance(delta.get("content"), str) and delta["content"]:
+                    content.append(delta["content"])
+                    on_delta(delta["content"])
+                for call in delta.get("tool_calls") or []:
+                    if not isinstance(call, dict):
+                        continue
+                    slot = partial.setdefault(call.get("index", len(partial)), {"id": None, "name": "", "arguments": ""})
+                    slot["id"] = call.get("id") or slot["id"]
+                    function = call.get("function") or {}
+                    slot["name"] += function.get("name") or ""
+                    slot["arguments"] += function.get("arguments") or ""
+            calls = [{"id": slot["id"] or f"call_{index}", "name": slot["name"],
+                      "arguments": _parse_arguments(slot["arguments"])}
+                     for index, slot in sorted(partial.items()) if slot["name"]]
+            return ChatResult(content="".join(content), tool_calls=calls, provider=self.id, model=model)
         data = _post_json(self.opener, self.base_url + "/chat/completions", body, self._headers(), timeout)
         choices = data.get("choices")
         if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
@@ -343,12 +421,27 @@ class GigaChatProvider:
 
     def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None,
              max_tokens: int = 2048, temperature: float = 0.4, json_mode: bool = False,
-             timeout: float = 120) -> ChatResult:
+             timeout: float = 120, on_delta=None, cancel=None) -> ChatResult:
         body: dict[str, Any] = {"model": model, "messages": self._convert(messages),
-                                "temperature": max(temperature, 0.01), "max_tokens": max_tokens, "stream": False}
+                                "temperature": max(temperature, 0.01), "max_tokens": max_tokens, "stream": bool(on_delta)}
         if tools:
             body["functions"] = [t["function"] for t in tools if t.get("type") == "function"]
             body["function_call"] = "auto"
+        if on_delta:
+            content, call = [], None
+            headers = {**self._headers(), "Accept": "text/event-stream"}
+            for chunk in _sse_json(_stream(self.opener, self.base_url + "/chat/completions", body, headers, timeout, cancel)):
+                choices = chunk.get("choices") or []
+                delta = choices[0].get("delta") if choices and isinstance(choices[0], dict) else None
+                if not isinstance(delta, dict):
+                    continue
+                if isinstance(delta.get("content"), str) and delta["content"]:
+                    content.append(delta["content"])
+                    on_delta(delta["content"])
+                if isinstance(delta.get("function_call"), dict) and isinstance(delta["function_call"].get("name"), str):
+                    call = delta["function_call"]
+            calls = [{"id": "call_0", "name": call["name"], "arguments": _parse_arguments(call.get("arguments"))}] if call else []
+            return ChatResult(content="".join(content), tool_calls=calls, provider=self.id, model=model)
         data = _post_json(self.opener, self.base_url + "/chat/completions", body, self._headers(), timeout)
         choices = data.get("choices") or []
         message = choices[0].get("message", {}) if choices and isinstance(choices[0], dict) else {}
@@ -362,6 +455,16 @@ class GigaChatProvider:
 
 class OllamaProvider:
     id = "ollama"
+    # Keep the model in (video) memory so answers start in seconds.
+    keep_alive = "30m"
+
+    def warm_up(self, model: str) -> None:
+        """Load a model into memory in advance (empty request)."""
+        try:
+            _post_json(self.opener, self.base_url + "/api/chat",
+                       {"model": model, "messages": [], "keep_alive": self.keep_alive}, {}, 120)
+        except ProviderError:
+            pass
 
     def __init__(self, base_url: str = OLLAMA_URL, opener=None):
         self.base_url = base_url.rstrip("/")
@@ -410,9 +513,9 @@ class OllamaProvider:
 
     def chat(self, model: str, messages: list[dict], tools: list[dict] | None = None,
              max_tokens: int = 2048, temperature: float = 0.4, json_mode: bool = False,
-             timeout: float = 300) -> ChatResult:
-        body: dict[str, Any] = {"model": model, "messages": self._convert(messages), "stream": False,
-                                "keep_alive": "10m",
+             timeout: float = 300, on_delta=None, cancel=None) -> ChatResult:
+        body: dict[str, Any] = {"model": model, "messages": self._convert(messages), "stream": bool(on_delta),
+                                "keep_alive": self.keep_alive,
                                 "options": {"num_ctx": 8192, "num_predict": max_tokens, "temperature": temperature}}
         if tools:
             body["tools"] = tools
@@ -421,7 +524,25 @@ class OllamaProvider:
         if re.match(r"(qwen3|gemma4|malenia)", model):
             body["think"] = False
         try:
-            data = _post_json(self.opener, self.base_url + "/api/chat", body, {}, timeout)
+            if on_delta:
+                content, calls = [], []
+                for line in _stream(self.opener, self.base_url + "/api/chat", body, {}, timeout, cancel):
+                    try:
+                        chunk = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(chunk, dict):
+                        continue
+                    if chunk.get("error"):
+                        raise ProviderError("unavailable", str(chunk["error"])[:300])
+                    message = chunk.get("message") if isinstance(chunk.get("message"), dict) else {}
+                    if isinstance(message.get("content"), str) and message["content"]:
+                        content.append(message["content"])
+                        on_delta(message["content"])
+                    calls.extend(message.get("tool_calls") or [])
+                data = {"message": {"content": "".join(content), "tool_calls": calls}}
+            else:
+                data = _post_json(self.opener, self.base_url + "/api/chat", body, {}, timeout)
         except ProviderError as error:
             if tools and error.code in ("bad_request", "tools_unsupported"):
                 raise ProviderError("tools_unsupported", error.detail) from None
@@ -574,6 +695,22 @@ class ModelRouter:
 
     VISION_HINT = re.compile(r"gemini|gemma[-_]?[34]|vl|vision|llava|pixtral|scout|maverick|gpt-4o|gpt-5|minicpm-v", re.I)
 
+    @staticmethod
+    def _streams(provider) -> bool:
+        try:
+            parameters = inspect.signature(provider.chat).parameters
+        except (TypeError, ValueError):
+            return False
+        return "on_delta" in parameters
+
+    def warm_up(self) -> None:
+        """Preload the local model so the first answer starts quickly."""
+        if self.config().get("mode") == "cloud":
+            return
+        model = self.model_for("ollama")
+        if model and hasattr(self.ollama, "warm_up"):
+            self.ollama.warm_up(model)
+
     def _vision_local_model(self, preferred: str | None) -> str | None:
         caps = getattr(self.ollama, "capabilities", None)
         candidates = ([preferred] if preferred else []) + [m for m in self.models("ollama") if m != preferred]
@@ -607,11 +744,13 @@ class ModelRouter:
                 alternatives = [] if chosen else [m for m in self._model_cache.get(provider_id, []) if m != model][:2]
                 for attempt, current in enumerate([model] + alternatives):
                     try:
+                        call_options = options if self._streams(provider) else {
+                            k: v for k, v in options.items() if k not in ("on_delta", "cancel")}
                         try:
-                            result = provider.chat(current, messages, tools=tools, **options)
+                            result = provider.chat(current, messages, tools=tools, **call_options)
                         except ProviderError as error:
                             if tools and error.code == "tools_unsupported":
-                                result = provider.chat(current, messages, tools=None, **options)
+                                result = provider.chat(current, messages, tools=None, **call_options)
                             else:
                                 raise
                         result.provider, result.model = provider_id, current

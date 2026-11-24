@@ -14,7 +14,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  # "write" only to publish a release from main (used by in-app updates).
+  contents: write
 
 concurrency:
   group: windows-installer-${{ github.ref }}
@@ -183,3 +184,24 @@ jobs:
           path: desktop/src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish GitHub release for in-app updates (main only)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content desktop/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $tag = "v$version"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) { Write-Host "Release $tag already exists"; exit 0 }
+          $dir = Join-Path $env:RUNNER_TEMP "release"
+          New-Item -ItemType Directory -Path $dir -Force | Out-Null
+          Copy-Item desktop/src-tauri/target/release/bundle/nsis/*-setup.exe $dir
+          Copy-Item (Join-Path $env:RUNNER_TEMP "malenia-browser-extension.zip") $dir
+          $sums = Get-ChildItem $dir -File | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name }
+          [IO.File]::WriteAllLines((Join-Path $dir "SHA256SUMS.txt"), [string[]]$sums)
+          python -c "import re,io;t=io.open('README.md',encoding='utf-8').read();m=re.search(r'^## .*?(?=^## )',t,re.S|re.M);io.open('release-notes.md','w',encoding='utf-8').write(m.group(0) if m else '')"
+          $files = (Get-ChildItem $dir -File).FullName
+          gh release create $tag @files --title "Маления $version" --notes-file release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw "Release was not created" }

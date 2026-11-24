@@ -191,11 +191,42 @@ class LanServer:
                     if not model:
                         self._send(503, {"error": {"message": "no local model installed on server"}})
                         return
-                    result = provider.chat(model, messages, tools=payload.get("tools") or None,
-                                           max_tokens=min(int(payload.get("max_tokens") or 2048), 8192),
-                                           temperature=float(payload.get("temperature", 0.4)),
-                                           json_mode=(payload.get("response_format") or {}).get("type") == "json_object")
+                    stream = bool(payload.get("stream"))
+                    started = []
+                    chunk_id = "chatcmpl-" + secrets.token_hex(8)
+
+                    def event(delta: dict, finish=None):
+                        if not started:
+                            self.send_response(200)
+                            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                            self.send_header("Cache-Control", "no-store")
+                            self.end_headers()
+                            started.append(True)
+                        data = {"id": chunk_id, "object": "chat.completion.chunk", "model": model,
+                                "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+                        self.wfile.write(b"data: " + json.dumps(data, ensure_ascii=False).encode("utf-8") + b"\n\n")
+                        self.wfile.flush()
+
+                    try:
+                        result = provider.chat(model, messages, tools=payload.get("tools") or None,
+                                               max_tokens=min(int(payload.get("max_tokens") or 2048), 8192),
+                                               temperature=float(payload.get("temperature", 0.4)),
+                                               json_mode=(payload.get("response_format") or {}).get("type") == "json_object",
+                                               on_delta=(lambda text: event({"content": text})) if stream else None)
+                    except ProviderError as error:
+                        if not started:
+                            raise
+                        self.wfile.write(b"data: " + json.dumps({"error": {"message": error.code}}).encode() + b"\n\n")
+                        return
                     lan.requests_served += 1
+                    if stream:
+                        if result.tool_calls:
+                            event({"tool_calls": [{"index": i, "id": c["id"], "type": "function", "function": {
+                                "name": c["name"], "arguments": json.dumps(c["arguments"], ensure_ascii=False)}}
+                                for i, c in enumerate(result.tool_calls)]})
+                        event({}, "tool_calls" if result.tool_calls else "stop")
+                        self.wfile.write(b"data: [DONE]\n\n")
+                        return
                     message = {"role": "assistant", "content": result.content}
                     if result.tool_calls:
                         message["tool_calls"] = [{"id": c["id"], "type": "function", "function": {

@@ -43,15 +43,16 @@ fs.mkdirSync(output,{recursive:true});
      if(p==="/v1/ai/providers")return {mode:"auto",learning:true,auto_web:true,local_model:null,order:["gemini","ollama"],providers:[{id:"gemini",name:"Google Gemini",kind:"cloud",hint:"",key_url:"",base_url:"",has_key:true,enabled:true,model:null}]};
      if(p==="/v1/assistant/conversations")return {conversations:Object.values(state.conversations).map(c=>({id:c.id,title:c.title,created_at:"2026-11-23",updated_at:"2026-11-23"}))};
      if(p.startsWith("/v1/assistant/conversations/")){const c=state.conversations[p.split("/").pop()];return {conversation:{...c,messages:[...c.messages]}};}
-     if(p==="/v1/assistant/chat"){
+     if(p==="/v1/assistant/runs"){
       const body=args.body;const id=body.conversation_id||"00000000-0000-4000-8000-000000000001";
       const c=state.conversations[id]||(state.conversations[id]={id,title:body.message.slice(0,60),messages:[]});
       const n=c.messages.length;
       const user={id:"u"+n,conversation_id:id,role:"user",content:body.message,created_at:"",provider:null,model:null,feedback:0,meta:{}};
       const answer={id:"a"+n,conversation_id:id,role:"assistant",content:(body.instruction||"").includes("Сначала запроси номер обращения")?"Пришлите номер обращения.":"Вот план работы по вашей задаче.",created_at:"",provider:"gemini",model:"gemini-flash",feedback:0,meta:{}};
       c.messages.push(user,answer);
-      return {conversation_id:id,user_message:user,message:answer,provider:"gemini",model:"gemini-flash"};
+      state.run={conversation_id:id,user_message:user,message:answer,provider:"gemini",model:"gemini-flash"};return {run_id:"11111111-2222-4333-8444-555555555555"};
      }
+     if(p.startsWith("/v1/assistant/runs/11111111-2222-4333-8444-555555555555")){const r=state.run;return {run_id:"x",next:3,done:true,error:null,result:r,events:[{type:"started",conversation_id:r.conversation_id,user_message:r.user_message},{type:"step",id:"s1",tool:"web_search",label:"Ищу в интернете",status:"done"},{type:"delta",text:r.message.content}]};}
      if(p.startsWith("/v1/ai/hardware"))return {hardware:{ram_gb:16,gpu:null,vram_gb:0,cpu_threads:8,os:"Windows",recommendation:{tier:"cpu-16",label:"16 ГБ",models:["qwen3.5:4b"],note:""}},installed:[],ollama_running:false,pull:{status:"idle",model:null,completed:0,total:0,error:null}};
      if(p==="/v1/assistant/memories")return {memories:[]};
      if(p==="/v1/assistant/kb/sync")return {...state.kb,documents:34,sections:813,last_sync:"2026-11-24T10:00:00Z",items:[{path:"05-Операционные-инструкции/INVENTORY_PRODUCT_NAMING.md",title:"Наименования товаров",type:"operational-instruction",status:"active"}],status:{state:"done",error:null}};
@@ -112,7 +113,7 @@ fs.mkdirSync(output,{recursive:true});
   assert.equal(await page.getByLabel("Сообщение",{exact:true}).inputValue(),"Несохранённый черновик");
   await page.getByRole("button",{name:"Отправить",exact:true}).click();
   await page.getByText("Пришлите номер обращения.",{exact:true}).waitFor();
-  assert.match(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="agent_api"&&x.args.path==="/v1/assistant/chat").at(-1).args.body.instruction),/Сначала запроси номер обращения/);
+  assert.match(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="agent_api"&&x.args.path==="/v1/assistant/runs").at(-1).args.body.instruction),/Сначала запроси номер обращения/);
   await page.getByRole("button",{name:"Убрать",exact:true}).click();
   await page.getByLabel("Сообщение",{exact:true}).fill("Несохранённый черновик");
   assert.equal(saved.terms,"Аномалии");

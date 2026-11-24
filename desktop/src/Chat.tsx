@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  ArrowUp, Bookmark, Brain, Check, Copy, FileText, GraduationCap, Globe2, Image as ImageIcon, LoaderCircle, Lock,
-  Mail, ListChecks, Lightbulb, Paperclip, Play, ThumbsDown, ThumbsUp, Wrench, X,
+  ArrowUp, Bookmark, Brain, Check, CircleAlert, Copy, FileText, GraduationCap, Globe2, Image as ImageIcon, LoaderCircle, Lock,
+  Mail, ListChecks, Lightbulb, Paperclip, Pencil, Play, RotateCcw, Square, ThumbsDown, ThumbsUp, Wrench, X,
 } from "lucide-react";
-import { api, providerLabel, type AgentAction, type Attachment, type ChatMessage, type ChatReply, type ConversationDetail, type ProvidersInfo } from "./api";
+import { api, providerLabel, type AgentAction, type Attachment, type ChatMessage, type ConversationDetail, type ProvidersInfo, type RunState, type RunStep } from "./api";
 import { Markdown } from "./Markdown";
 import { Logo } from "./Logo";
 
@@ -19,6 +19,7 @@ type Props = {
   onOpenTools: () => void;
   onUiAction: (action: AgentAction) => void;
   visible?: boolean;
+  compact?: boolean;
 };
 
 const MAX_FILES = 6;
@@ -73,6 +74,18 @@ const SUGGESTIONS = [
 ];
 
 const openLink = (url: string) => { void invoke("open_search_source", { url }).catch(() => undefined); };
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+type Live = { runId: string; text: string; steps: RunStep[]; status: string };
+
+function Steps({ steps, live }: { steps: RunStep[]; live?: boolean }) {
+  if (!steps.length) return null;
+  const list = <ul className="steps">{steps.map(step => <li key={step.id} className={step.status}>
+    {step.status === "running" ? <LoaderCircle className="spin" size={13} /> : step.status === "error" ? <CircleAlert size={13} /> : <Check size={13} />}
+    <span>{step.label}</span></li>)}</ul>;
+  if (live) return list;
+  return <details className="steps-box"><summary>Ход работы · {steps.length} {steps.length === 1 ? "шаг" : steps.length < 5 ? "шага" : "шагов"}</summary>{list}</details>;
+}
 
 export function Chat(props: Props) {
   const { connected, conversationId, onConversation, onChanged, instruction, onClearInstruction } = props;
@@ -142,31 +155,121 @@ export function Chat(props: Props) {
     return () => { active = false; };
   }, [conversationId, connected]);
 
-  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, [messages, busy]);
+  const stick = useRef(true);
+  useEffect(() => {
+    const list = listRef.current;
+    if (list && stick.current) list.scrollTo({ top: list.scrollHeight, behavior: busy ? "auto" : "smooth" });
+  });
 
   const cloudReady = !!providers?.providers.some(p => p.enabled);
+  const [live, setLive] = useState<Live | null>(null);
+  const runRef = useRef<string | null>(null);
+
+  /** Start an answer in the background and follow it: text appears as it is written. */
+  const runChat = async (body: Record<string, unknown>, restore: () => void) => {
+    setBusy(true); setError("");
+    const startedAt = Date.now();
+    let started = false;
+    let startedUser = "";
+    try {
+      const { run_id } = await api<{ run_id: string }>("POST", "/v1/assistant/runs", body);
+      runRef.current = run_id;
+      setLive({ runId: run_id, text: "", steps: [], status: "Думаю…" });
+      let after = 0, delay = 80;
+      for (;;) {
+        const state = await api<RunState>("GET", `/v1/assistant/runs/${run_id}?after=${after}`);
+        after = state.next;
+        for (const event of state.events) {
+          if (event.type === "started") {
+            started = true;
+            startedUser = event.user_message.id;
+            setPendingText(""); setPendingFiles([]);
+            setMessages(current => current.some(m => m.id === event.user_message.id) ? current : [...current, event.user_message]);
+            if (event.conversation_id !== conversationId) {
+              setDrafts(current => ({ ...current, [event.conversation_id]: "" }));
+              onConversation(event.conversation_id);
+            }
+          } else if (event.type === "delta") {
+            setLive(current => current && { ...current, text: current.text + event.text });
+          } else if (event.type === "reset") {
+            setLive(current => current && { ...current, text: "" });
+          } else if (event.type === "status") {
+            setLive(current => current && { ...current, status: event.text });
+          } else if (event.type === "step") {
+            const step: RunStep = { id: event.id, tool: event.tool, label: event.label, status: event.status };
+            setLive(current => current && { ...current, steps: current.steps.some(s => s.id === step.id)
+              ? current.steps.map(s => s.id === step.id ? step : s) : [...current.steps, step] });
+          }
+        }
+        if (state.done) {
+          if (state.error) {
+            setError(state.error.message || state.error.error);
+            // The question was not answered: put it back into the input instead of the thread.
+            if (started && !body.regenerate) setMessages(current => current.filter(m => m.id !== startedUser));
+            restore();
+          } else if (state.result) {
+            const reply = state.result;
+            setMessages(current => [...current.filter(m => m.id !== reply.message.id && m.id !== reply.user_message.id), reply.user_message, reply.message]);
+            for (const action of reply.message.meta?.actions ?? []) if (action.status === "ui") props.onUiAction(action);
+            // A long answer finished while the user was elsewhere: let them know.
+            if (Date.now() - startedAt > 15000) {
+              const preview = reply.message.content.replace(/[#*_`>\[\]]/g, "").replace(/\s+/g, " ").trim().slice(0, 160);
+              void invoke("notify", { title: "Маления ответила", body: preview || "Ответ готов" }).catch(() => undefined);
+            }
+          }
+          break;
+        }
+        await sleep(state.events.length ? 80 : delay);
+        delay = state.events.length ? 80 : Math.min(400, delay + 40);
+      }
+      onChanged();
+    } catch (reason) {
+      setError(String(reason));
+      if (!started) restore();
+    } finally {
+      runRef.current = null;
+      setLive(null); setBusy(false); setPendingText(""); setPendingFiles([]); inputRef.current?.focus();
+    }
+  };
+
   const send = async (textOverride?: string) => {
     const sending = files;
     const text = (textOverride ?? draft).trim() || (sending.length ? "Посмотри вложения" : "");
     if (!text || busy || !connected || sending.some(f => f.loading)) return;
-    setBusy(true); setError(""); setPendingText(text); setPendingFiles(sending); setDraft(""); setFiles([]);
-    try {
-      const reply = await api<ChatReply>("POST", "/v1/assistant/chat", {
-        message: text, conversation_id: conversationId, private: privateMode, use_web: useWeb,
-        instruction: instruction ? `${instruction.title}\n${instruction.instructions}` : null,
-        attachments: sending.map(({ name, mime, data, preview }) => ({ name, mime, data, preview })),
-      });
-      setMessages(current => [...current, reply.user_message, reply.message]);
-      for (const action of reply.message.meta?.actions ?? []) if (action.status === "ui") props.onUiAction(action);
-      if (reply.conversation_id !== conversationId) {
-        setDrafts(current => ({ ...current, [reply.conversation_id]: "" }));
-        onConversation(reply.conversation_id);
-      }
-      onChanged();
-    } catch (reason) {
-      setError(String(reason)); setDraft(text); setFiles(sending);
-    } finally { setBusy(false); setPendingText(""); setPendingFiles([]); inputRef.current?.focus(); }
+    setPendingText(text); setPendingFiles(sending); setDraft(""); setFiles([]);
+    await runChat({
+      message: text, conversation_id: conversationId, private: privateMode, use_web: useWeb,
+      instruction: instruction ? `${instruction.title}\n${instruction.instructions}` : null,
+      attachments: sending.map(({ name, mime, data, preview }) => ({ name, mime, data, preview })),
+    }, () => { setDraft(text); setFiles(sending); });
   };
+
+  const stop = () => { if (runRef.current) void api("POST", `/v1/assistant/runs/${runRef.current}/cancel`).catch(() => undefined); };
+
+  const regenerate = async () => {
+    if (busy || !conversationId) return;
+    const last = messages[messages.length - 1];
+    if (last?.role === "assistant") setMessages(current => current.slice(0, -1));
+    await runChat({ conversation_id: conversationId, regenerate: true, private: privateMode, use_web: useWeb },
+      () => { if (last?.role === "assistant") setMessages(current => [...current, last]); });
+  };
+
+  const edit = async (message: ChatMessage, text: string) => {
+    if (busy || !conversationId || !text.trim()) return;
+    const index = messages.findIndex(m => m.id === message.id);
+    const before = messages;
+    setMessages(current => current.slice(0, index));
+    setPendingText(text.trim());
+    await runChat({ conversation_id: conversationId, message: text.trim(), edit_message_id: message.id, private: privateMode, use_web: useWeb },
+      () => setMessages(before));
+  };
+
+  useEffect(() => {
+    if (!busy || typeof window === "undefined") return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") stop(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [busy]);
 
   const rate = async (message: ChatMessage, rating: number, comment?: string) => {
     const next = message.feedback === rating && !comment ? 0 : rating;
@@ -184,14 +287,14 @@ export function Chat(props: Props) {
   };
 
   const empty = !messages.length && !busy;
-  return <section className={"chat" + (dragging ? " dragging" : "")} aria-label="Чат"
+  return <section className={"chat" + (dragging ? " dragging" : "") + (props.compact ? " compact" : "")} aria-label="Чат"
     onDragEnter={event => { if (Array.from(event.dataTransfer.types).includes("Files")) { event.preventDefault(); setDragging(true); } }}
     onDragOver={event => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }}
     onDragLeave={event => { if (event.currentTarget === event.target || !event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
     onDrop={event => { event.preventDefault(); setDragging(false); if (event.dataTransfer.files.length) void addFiles(event.dataTransfer.files); }}>
     {dragging ? <div className="drop-overlay"><Paperclip size={28} /><b>Отпустите, чтобы прикрепить</b><small>Фото, Excel, Word, PDF, текст</small></div> : null}
     <h1 className="visually-hidden">Ассистент</h1>
-    <div className="chat-scroll" ref={listRef}>
+    <div className="chat-scroll" ref={listRef} onScroll={event => { const el = event.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
       {empty ? <div className="chat-welcome">
         <Logo size={56} className="chat-logo" />
         <h2>Чем помочь?</h2>
@@ -205,12 +308,19 @@ export function Chat(props: Props) {
           <button onClick={props.onOpenTools}><Wrench size={18} /><b>Рабочие инструменты</b><small>Инвентаризация, проверка заказов</small></button>
         </div>
       </div> : <div className="chat-thread">
-        {messages.map(message => <Message key={message.id} message={message} onRate={rate} onDecide={decide} />)}
+        {messages.map((message, index) => <Message key={message.id} message={message} onRate={rate} onDecide={decide}
+          busy={busy} last={index === messages.length - 1} onRegenerate={() => void regenerate()} onEdit={text => void edit(message, text)} />)}
         {busy ? <>
-          <div className="msg user"><div className="bubble">
+          {pendingText ? <div className="msg user"><div className="bubble">
             {pendingFiles.some(f => f.preview) ? <div className="bubble-photos">{pendingFiles.filter(f => f.preview).map((file, index) => <img key={index} src={file.preview} alt={file.name} />)}</div> : null}
-            {pendingText}</div></div>
-          <div className="msg assistant"><Logo size={28} className="avatar" /><div className="thinking"><span /><span /><span /></div></div>
+            {pendingText}</div></div> : null}
+          <div className="msg assistant live" aria-live="polite"><Logo size={28} className="avatar" />
+            <div className="msg-body">
+              <Steps steps={live?.steps ?? []} live />
+              {live?.text ? <Markdown text={live.text + " ▍"} onLink={openLink} />
+                : <div className="thinking-row"><div className="thinking"><span /><span /><span /></div><small>{live?.status ?? "Думаю…"}</small></div>}
+            </div>
+          </div>
         </> : null}
       </div>}
     </div>
@@ -237,22 +347,34 @@ export function Chat(props: Props) {
           <button className={"chip-toggle" + (privateMode ? " on private" : "")} aria-pressed={privateMode}
             title="Только локальная модель или ваш сервер, без облака" onClick={() => setPrivateMode(value => !value)}><Lock size={14} />Приватно</button>
           <span className="composer-model">{privateMode ? "Локально" : providers ? (cloudReady && providers.mode !== "local" ? "Облако + резерв" : providers.local_model ? providers.local_model.replace(/:latest$/, "") : "Локальная модель") : ""}</span>
-          <button className="send" aria-label="Отправить" disabled={(!draft.trim() && !files.length) || busy || !connected || files.some(f => f.loading)} onClick={() => void send()}>
-            {busy ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
-          </button>
+          {busy ? <button className="send stop" aria-label="Остановить" title="Остановить (Esc)" onClick={stop}><Square size={14} /></button>
+            : <button className="send" aria-label="Отправить" disabled={(!draft.trim() && !files.length) || !connected || files.some(f => f.loading)} onClick={() => void send()}>
+              <ArrowUp size={18} /></button>}
         </div>
       </div>
-      <small className="composer-note">Маления может ошибаться. Важные факты проверяйте. Enter — отправить, Shift+Enter — новая строка. Файлы можно перетащить или вставить.</small>
+      <small className="composer-note">Маления может ошибаться. Важные факты проверяйте. Enter — отправить, Shift+Enter — новая строка, Esc — остановить. Файлы и скриншоты можно перетащить или вставить (Ctrl+V).</small>
     </div>
   </section>;
 }
 
-function Message({ message, onRate, onDecide }: { message: ChatMessage; onRate: (m: ChatMessage, rating: number, comment?: string) => void; onDecide: (a: AgentAction, approve: boolean) => Promise<void> }) {
+type MessageProps = {
+  message: ChatMessage; onRate: (m: ChatMessage, rating: number, comment?: string) => void;
+  onDecide: (a: AgentAction, approve: boolean) => Promise<void>;
+  busy?: boolean; last?: boolean; onRegenerate?: () => void; onEdit?: (text: string) => void;
+};
+
+function Message({ message, onRate, onDecide, busy, last, onRegenerate, onEdit }: MessageProps) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState<"" | "ok" | "error">("");
   const [asking, setAsking] = useState(false);
   const [comment, setComment] = useState("");
-  if (message.role === "user") return <div className="msg user"><div className="bubble">
+  const [editing, setEditing] = useState<string | null>(null);
+  if (message.role === "user" && editing !== null) return <div className="msg user"><form className="bubble editing" onSubmit={event => { event.preventDefault(); onEdit?.(editing); setEditing(null); }}>
+    <textarea autoFocus aria-label="Изменить сообщение" value={editing} rows={Math.min(8, editing.split("\n").length + 1)} onChange={event => setEditing(event.target.value)}
+      onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); onEdit?.(editing); setEditing(null); } if (event.key === "Escape") setEditing(null); }} />
+    <div className="edit-actions"><button type="button" className="secondary" onClick={() => setEditing(null)}>Отмена</button><button type="submit" className="primary" disabled={!editing.trim()}>Отправить</button></div>
+  </form></div>;
+  if (message.role === "user") return <div className="msg user"><button className="edit-btn" title="Изменить и отправить заново" aria-label="Изменить сообщение" disabled={busy} onClick={() => setEditing(message.content)}><Pencil size={13} /></button><div className="bubble">
     {message.meta?.attachments?.some(file => file.preview) ? <div className="bubble-photos">{message.meta.attachments.filter(file => file.preview).map((file, index) =>
       <img key={index} src={file.preview} alt={file.name} />)}</div> : null}
     {message.meta?.attachments?.some(file => !file.preview) ? <div className="bubble-files">{message.meta.attachments.filter(file => !file.preview).map((file, index) =>
@@ -263,7 +385,9 @@ function Message({ message, onRate, onDecide }: { message: ChatMessage; onRate: 
   return <div className="msg assistant">
     <Logo size={28} className="avatar" />
     <div className="msg-body">
+      <Steps steps={message.meta?.steps ?? []} />
       <Markdown text={message.content} onLink={openLink} />
+      {message.meta?.stopped ? <small className="stopped-note">Ответ остановлен</small> : null}
       {sources.length ? <div className="sources">{sources.map(source =>
         <button key={source.url} onClick={() => openLink(source.url)} title={source.url}><Globe2 size={12} />{source.title || new URL(source.url).hostname}</button>)}</div> : null}
       {(message.meta?.actions ?? []).map(action => <ActionCard key={action.id} action={action} onDecide={onDecide} />)}
@@ -278,6 +402,7 @@ function Message({ message, onRate, onDecide }: { message: ChatMessage; onRate: 
           invoke("create_task", { title, description: message.content.slice(0, 2000), requestId: message.id })
             .then(() => setSaved("ok")).catch(() => setSaved("error"));
         }}>{saved === "ok" ? <Check size={14} /> : <Bookmark size={14} />}</button>
+        {last && onRegenerate ? <button title="Ответить заново" aria-label="Ответить заново" disabled={busy} onClick={onRegenerate}><RotateCcw size={14} /></button> : null}
         {saved === "error" ? <span className="bad-text">не сохранено</span> : null}
         <span>{providerLabel(message.provider)}{message.model ? " · " + message.model : ""}{message.meta?.private ? " · приватно" : ""}</span>
       </div>

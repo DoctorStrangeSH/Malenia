@@ -13,13 +13,14 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 import uuid
 from datetime import datetime
 from typing import Any
 
 from .attachments import AttachmentError, prepare as prepare_attachments
 from .knowledge import KnowledgeBase, KnowledgeError, words
-from .providers import ModelRouter, ProviderError
+from .providers import Cancelled, ModelRouter, ProviderError
 from .store import TaskStore, _now
 from .web import PublicSearch, WebError
 
@@ -96,6 +97,75 @@ def _similar(a: str, b: str) -> bool:
     return len(wa & wb) / len(wa | wb) >= 0.6
 
 
+STEP_LABELS = {
+    "web_search": ("Ищу в интернете", "query"),
+    "remember": ("Запоминаю", "content"),
+    "search_notes": ("Ищу в заметках", "query"),
+    "search_knowledge_base": ("Ищу в базе знаний", "query"),
+    "read_knowledge_document": ("Читаю документ", "path"),
+    "shop_search": ("Ищу в магазине", "query"),
+    "calculate": ("Считаю", "expression"),
+    "create_plan": ("Составляю план", "title"),
+    "list_plans": ("Смотрю планы", None),
+    "learn_skill": ("Запоминаю навык", "title"),
+    "list_files": ("Смотрю файлы", None),
+    "read_file": ("Читаю файл", "path"),
+    "write_file": ("Готовлю файл", "path"),
+    "read_google_sheet": ("Читаю таблицу", None),
+    "update_google_sheet": ("Готовлю изменения в таблице", None),
+    "browser_tabs": ("Смотрю вкладки браузера", None),
+    "open_inventory": ("Открываю инвентаризацию", None),
+}
+
+
+def step_label(name: str, args: dict) -> str:
+    label, key = STEP_LABELS.get(name, ("Выполняю «" + name + "»", None))
+    detail = str(args.get(key) or "").strip() if key and isinstance(args, dict) else ""
+    if name == "shop_search" and isinstance(args, dict) and args.get("shop"):
+        label = f"Ищу на {args['shop']}"
+    return f"{label}: {detail[:80]}" if detail else label
+
+
+class Run:
+    """One answer being produced in the background, observed by polling."""
+
+    def __init__(self):
+        self.id = str(uuid.uuid4())
+        self.events: list[dict] = []
+        self.cancel = threading.Event()
+        self.done = False
+        self.result: dict | None = None
+        self.error: dict | None = None
+        self.text = ""
+        self.created = time.time()
+        self.lock = threading.Lock()
+
+    def emit(self, kind: str, **data) -> None:
+        with self.lock:
+            if kind == "delta":
+                self.text += data.get("text", "")
+                last = self.events[-1] if self.events else None
+                # Merge small pieces so polling returns few, larger events.
+                if last is not None and last["type"] == "delta" and last.get("_open"):
+                    last["text"] += data.get("text", "")
+                    return
+                self.events.append({"type": "delta", "text": data.get("text", ""), "_open": True})
+                return
+            if kind == "reset":
+                self.text = ""
+            for event in self.events:
+                event.pop("_open", None)
+            self.events.append({"type": kind, **data})
+
+    def poll(self, after: int) -> dict:
+        with self.lock:
+            events = [{k: v for k, v in e.items() if k != "_open"} for e in self.events[after:]]
+            for event in self.events:
+                event.pop("_open", None)
+            return {"run_id": self.id, "events": events, "next": len(self.events), "done": self.done,
+                    "result": self.result, "error": self.error}
+
+
 class Assistant:
     def __init__(self, store: TaskStore, router: ModelRouter, knowledge: KnowledgeBase | None = None,
                  skills=None, web: PublicSearch | None = None, background: bool = True, toolbox=None):
@@ -162,6 +232,16 @@ class Assistant:
         with self.store._session() as db:
             return db.execute("UPDATE conversations SET title = ? WHERE id = ?",
                               (title, conversation_id)).rowcount > 0
+
+    @staticmethod
+    def _truncate(db, conversation_id: str, pivot, inclusive: bool) -> None:
+        """Delete messages after (or from) the pivot message, e.g. to edit or regenerate."""
+        op = ">=" if inclusive else ">"
+        db.execute(f"""DELETE FROM chat_messages WHERE conversation_id = ? AND
+                       (created_at > ? OR (created_at = ? AND rowid {op} ?))""",
+                   (conversation_id, pivot["created_at"], pivot["created_at"], pivot["rowid"]))
+        if inclusive:
+            db.execute("DELETE FROM chat_messages WHERE id = ?", (pivot["id"],))
 
     def _add_message(self, db, conversation_id, role, content, provider=None, model=None, meta=None) -> dict:
         row = {"id": str(uuid.uuid4()), "conversation_id": conversation_id, "role": role, "content": content,
@@ -231,13 +311,64 @@ class Assistant:
             used += len(memory["content"])
         return chosen
 
-    # ---- chat -----------------------------------------------------------
-    def chat(self, payload: dict) -> dict:
+    # ---- runs (streaming answers) -------------------------------------
+    _runs: dict[str, Run]
+
+    def start_run(self, payload: dict) -> dict:
+        """Validate, then answer in a background thread; the UI polls events."""
+        self._validate(payload)
+        runs = self.__dict__.setdefault("_runs", {})
+        now = time.time()
+        for run_id in [k for k, r in runs.items() if r.done and now - r.created > 600]:
+            runs.pop(run_id, None)
+        run = Run()
+        runs[run.id] = run
+
+        def work():
+            try:
+                run.result = self.chat(payload, run=run)
+            except AssistantError as error:
+                run.error = {"error": error.code, "status": error.status}
+            except Exception:  # never leave the UI waiting forever
+                run.error = {"error": "internal_error", "status": 500}
+            finally:
+                run.done = True
+
+        if self.background:
+            threading.Thread(target=work, name="malenia-run", daemon=True).start()
+        else:
+            work()
+        return {"run_id": run.id}
+
+    def poll_run(self, run_id: str, after: int = 0) -> dict | None:
+        run = self.__dict__.get("_runs", {}).get(run_id)
+        return run.poll(max(0, after)) if run else None
+
+    def cancel_run(self, run_id: str) -> bool:
+        run = self.__dict__.get("_runs", {}).get(run_id)
+        if run is None:
+            return False
+        run.cancel.set()
+        return True
+
+    @staticmethod
+    def _validate(payload: dict) -> None:
         if not isinstance(payload, dict):
             raise AssistantError("invalid_chat_request")
+        if payload.get("regenerate"):
+            if not isinstance(payload.get("conversation_id"), str):
+                raise AssistantError("invalid_chat_request")
+            return
         text = payload.get("message")
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_MESSAGE:
             raise AssistantError("invalid_message")
+
+    # ---- chat -----------------------------------------------------------
+    def chat(self, payload: dict, run: Run | None = None) -> dict:
+        self._validate(payload)
+        emit = run.emit if run is not None else (lambda *a, **k: None)
+        regenerate = bool(payload.get("regenerate"))
+        text = payload.get("message") if not regenerate else ""
         private = bool(payload.get("private", False))
         allow_web = payload.get("use_web")
         config = self.router.config()
@@ -256,6 +387,23 @@ class Assistant:
             if conversation_id:
                 if not db.execute("SELECT 1 FROM conversations WHERE id = ?", (conversation_id,)).fetchone():
                     raise AssistantError("conversation_not_found", 404)
+                edit_id = payload.get("edit_message_id")
+                if regenerate:
+                    last = db.execute("""SELECT rowid, * FROM chat_messages WHERE conversation_id = ? AND role = 'user'
+                                         ORDER BY created_at DESC, rowid DESC LIMIT 1""", (conversation_id,)).fetchone()
+                    if last is None:
+                        raise AssistantError("nothing_to_regenerate")
+                    self._truncate(db, conversation_id, last, inclusive=False)
+                    user_message = self._message(dict(last))
+                    user_message.pop("rowid", None)
+                    text = user_message["content"]
+                    model_text = user_message["meta"].get("model_content") or text
+                elif edit_id:
+                    edited = db.execute("SELECT rowid, * FROM chat_messages WHERE id = ? AND conversation_id = ? AND role = 'user'",
+                                        (edit_id, conversation_id)).fetchone()
+                    if edited is None:
+                        raise AssistantError("message_not_found", 404)
+                    self._truncate(db, conversation_id, edited, inclusive=True)
             else:
                 conversation_id = str(uuid.uuid4())
                 title = re.sub(r"\s+", " ", text).strip()[:60]
@@ -270,10 +418,14 @@ class Assistant:
                     stored = None
                 history.append({"role": row["role"], "content": stored or row["content"]})
             history.reverse()
-            user_meta = {"attachments": files_meta} if files_meta else {}
-            if file_text:
-                user_meta["model_content"] = model_text
-            user_message = self._add_message(db, conversation_id, "user", text.strip(), meta=user_meta)
+            if regenerate:
+                history = history[:-1]  # the repeated question itself
+            else:
+                user_meta = {"attachments": files_meta} if files_meta else {}
+                if file_text:
+                    user_meta["model_content"] = model_text
+                user_message = self._add_message(db, conversation_id, "user", text.strip(), meta=user_meta)
+        emit("started", conversation_id=conversation_id, user_message=user_message)
 
         memories = self.relevant_memories(text)
         system = SYSTEM_PROMPT.format(today=datetime.now().strftime("%d.%m.%Y, %A"))
@@ -319,51 +471,74 @@ class Assistant:
         actions: list[dict] = []
         skills_learned: list[dict] = []
         result = None
+        steps: list[dict] = []
+        stopped = False
+        stream = {"on_delta": (lambda piece: emit("delta", text=piece)), "cancel": run.cancel} if run is not None else {}
         try:
-            for _ in range(8):
-                result = self.router.chat(messages, tools=tools, private=private, max_tokens=4096,
-                                          needs_vision=bool(images))
-                if not result.tool_calls:
+            for round_index in range(9):
+                if run is not None and run.cancel.is_set():
+                    raise Cancelled()
+                emit("status", text="Думаю…" if round_index == 0 else "Обдумываю результаты…")
+                last_round = round_index == 8
+                result = self.router.chat(messages, tools=None if last_round else tools, private=private,
+                                          max_tokens=4096, needs_vision=bool(images), **stream)
+                if last_round or not result.tool_calls:
                     break
+                emit("reset")
                 messages.append({"role": "assistant", "content": result.content or "", "tool_calls": [
                     {"id": c["id"], "type": "function",
                      "function": {"name": c["name"], "arguments": json.dumps(c["arguments"], ensure_ascii=False)}}
                     for c in result.tool_calls]})
                 for call in result.tool_calls:
+                    if run is not None and run.cancel.is_set():
+                        raise Cancelled()
+                    step = {"id": str(uuid.uuid4())[:8], "tool": call["name"],
+                            "label": step_label(call["name"], call.get("arguments") or {}), "status": "running"}
+                    emit("step", **step)
                     output = self._run_tool(call, allow_web, sources, learned, conversation_id, actions, skills_learned)
+                    step["status"] = "error" if output.startswith(("Ошибка", "Инструмент недоступен")) else "done"
+                    emit("step", **step)
+                    steps.append(step)
                     messages.append({"role": "tool", "tool_call_id": call["id"], "name": call["name"],
                                      "content": output})
-            else:
-                result = self.router.chat(messages, tools=None, private=private, max_tokens=4096,
-                                          needs_vision=bool(images))
+        except Cancelled:
+            stopped = True
         except ProviderError as error:
-            with self.store._session() as db:
-                db.execute("DELETE FROM chat_messages WHERE id = ?", (user_message["id"],))
-                if not history:
-                    db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+            if not regenerate:
+                with self.store._session() as db:
+                    db.execute("DELETE FROM chat_messages WHERE id = ?", (user_message["id"],))
+                    if not history:
+                        db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
             raise AssistantError(f"ai_{error.code}", 503 if error.code != "invalid_key" else 401) from None
 
-        answer = (result.content or "").strip() or "Не удалось сформулировать ответ. Попробуйте переформулировать вопрос."
-        meta = {"knowledge": [{"path": k["path"], "heading": k["heading"]} for k in knowledge_used],
+        if stopped:
+            partial = (run.text if run is not None else "").strip()
+            answer = partial or "_Ответ остановлен._"
+            provider_id = result.provider if result else None
+            model_id = result.model if result else None
+        else:
+            answer = (result.content or "").strip() or "Не удалось сформулировать ответ. Попробуйте переформулировать вопрос."
+            provider_id, model_id = result.provider, result.model
+        meta = {"steps": steps, "stopped": stopped,"knowledge": [{"path": k["path"], "heading": k["heading"]} for k in knowledge_used],
                 "sources": sources, "memory_ids": [m["id"] for m in memories],
                 "skill_ids": [s["id"] for s in skills], "learned": learned, "private": private,
                 "actions": actions, "skills_learned": skills_learned}
         with self.store._session() as db:
-            reply = self._add_message(db, conversation_id, "assistant", answer, result.provider, result.model, meta)
-        if self.toolbox is not None and actions:
-            self.toolbox.attach([a["id"] for a in actions], reply["id"])
+            reply = self._add_message(db, conversation_id, "assistant", answer, provider_id, model_id, meta)
             if memories:
                 db.executemany("UPDATE memories SET uses = uses + 1, last_used_at = ? WHERE id = ?",
                                [(_now(), m["id"]) for m in memories])
+        if self.toolbox is not None and actions:
+            self.toolbox.attach([a["id"] for a in actions], reply["id"])
 
-        if config.get("learning", True) and PERSONAL_SIGNALS.search(text) and not learned:
+        if not stopped and not regenerate and config.get("learning", True) and PERSONAL_SIGNALS.search(text) and not learned:
             if self.background:
                 threading.Thread(target=self._reflect, args=(text, answer, private), daemon=True).start()
             else:
                 self._reflect(text, answer, private)
 
         return {"conversation_id": conversation_id, "user_message": user_message, "message": reply,
-                "provider": result.provider, "model": result.model}
+                "provider": provider_id, "model": model_id}
 
     def _run_tool(self, call: dict, allow_web: bool, sources: list, learned: list,
                   conversation_id: str = "", actions: list | None = None, skills_learned: list | None = None) -> str:

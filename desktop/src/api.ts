@@ -20,8 +20,17 @@ export type ChatMessage = {
     sources?: Source[]; learned?: { id: string; content: string }[]; private?: boolean;
     attachments?: { name: string; kind: "image" | "file"; size: number; preview?: string }[];
     actions?: AgentAction[]; skills_learned?: { id: string; title: string }[];
+    steps?: RunStep[]; stopped?: boolean; knowledge?: { path: string; heading: string }[];
   };
 };
+export type RunStep = { id: string; tool: string; label: string; status: "running" | "done" | "error" };
+export type RunEvent =
+  | { type: "started"; conversation_id: string; user_message: ChatMessage }
+  | { type: "delta"; text: string }
+  | { type: "reset" }
+  | { type: "status"; text: string }
+  | ({ type: "step" } & RunStep);
+export type RunState = { run_id: string; events: RunEvent[]; next: number; done: boolean; result: ChatReply | null; error: { error: string; message: string } | null };
 export type Conversation = { id: string; title: string; created_at: string; updated_at: string };
 export type ConversationDetail = Conversation & { messages: ChatMessage[] };
 export type ChatReply = { conversation_id: string; user_message: ChatMessage; message: ChatMessage; provider: string; model: string };

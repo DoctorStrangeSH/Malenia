@@ -11,6 +11,7 @@ import { ServerSettings } from "./ServerSettings";
 import { Memories } from "./Memories";
 import { OwnModel } from "./OwnModel";
 import { KnowledgeVault } from "./KnowledgeVault";
+import { Comfort, UpdateBanner, type UpdateInfo } from "./Comfort";
 import { Logo } from "./Logo";
 import { api, type Conversation } from "./api";
 import { OrderCheckPage } from "./OrderCheckPage";
@@ -56,8 +57,19 @@ export default function App(){
   const [filter,setFilter]=useState("");
   const [composer,setComposer]=useState(false);
   const connected=!!data?.running;
+  const [update,setUpdate]=useState<UpdateInfo|null>(null);
+  // Check for a new version shortly after start (quietly, no errors shown).
+  useEffect(()=>{const id=window.setTimeout(()=>{invoke<UpdateInfo>("check_update").then(info=>{if(info?.available)setUpdate(info);}).catch(()=>undefined);},8000);return()=>window.clearTimeout(id);},[]);
+  // The quick window asks to continue a conversation here.
+  useEffect(()=>{const onStorage=(event:StorageEvent)=>{if(event.key==="malenia:open-conversation"&&event.newValue){setConversationId(event.newValue.split("|")[0]||null);setPage("ai");void loadConversationsRef.current?.();}};window.addEventListener("storage",onStorage);return()=>window.removeEventListener("storage",onStorage);},[]);
+  // Ctrl+N — new chat, like in ChatGPT.
+  useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="n"){event.preventDefault();setConversationId(null);setPage("ai");}};window.addEventListener("keydown",onKey);return()=>window.removeEventListener("keydown",onKey);},[]);
+  // Tell the user when a long inventory check ends while they are in another program.
+  const lastPhase=useRef(runState.phase);
+  useEffect(()=>{if(lastPhase.current!==runState.phase){if(runState.phase==="completed")void invoke("notify",{title:"Инвентаризация завершена",body:runState.message}).catch(()=>undefined);if(runState.phase==="error")void invoke("notify",{title:"Инвентаризация остановилась",body:runState.message}).catch(()=>undefined);lastPhase.current=runState.phase;}},[runState]);
   const loadConversations=useCallback(async()=>{try{setConversations((await api<{conversations:Conversation[]}>("GET","/v1/assistant/conversations")).conversations);}catch{/* agent starting */}},[]);
   useEffect(()=>{if(connected)void loadConversations();},[connected,loadConversations]);
+  const loadConversationsRef=useRef(loadConversations);loadConversationsRef.current=loadConversations;
 
   const refresh=useCallback(async()=>{
     try{const result=await invoke<Dashboard>("get_dashboard");setData(result);setError("");}
@@ -114,6 +126,7 @@ export default function App(){
 
     <main className={"main"+(page==="ai"?" main-chat":"")}>
       <div className={page==="ai"?"content content-chat":"content"}>
+        {update?<UpdateBanner info={update} onClose={()=>setUpdate(null)}/>:null}
         {!connected&&<div className="connection-banner"><div><b>Маления готова к запуску</b><p>Нажмите «Запустить Малению», чтобы открыть чат и инструменты.</p></div><button className="primary" onClick={()=>void runAgent()} disabled={busy}>{busy?<LoaderCircle className="spin" size={16}/>:<Play size={16}/>}Запустить Малению</button></div>}
         {memoryPages.includes(page)?<><div className="page-title"><h1>Память</h1><p>Что Маления знает о вас, чему вы её научили и ваша собственная модель.</p></div><nav className="section-tabs" aria-label="Знания и навыки"><button aria-current={page==="memory"?"page":undefined} onClick={()=>setPage("memory")}>О вас</button><button aria-current={page==="vault"?"page":undefined} onClick={()=>setPage("vault")}>База знаний</button><button aria-current={page==="knowledge"?"page":undefined} onClick={()=>setPage("knowledge")}>Документы</button><button aria-current={page==="skills"?"page":undefined} onClick={()=>setPage("skills")}>Инструкции</button><button aria-current={page==="ownmodel"?"page":undefined} onClick={()=>setPage("ownmodel")}>Своя модель</button></nav></>:null}
         {settingsPages.includes(page)?<><div className="page-title"><h1>Настройки</h1></div><nav className="section-tabs" aria-label="Разделы настроек"><button aria-current={page==="models"?"page":undefined} onClick={()=>setPage("models")}>Модели ИИ</button><button aria-current={page==="server"?"page":undefined} onClick={()=>setPage("server")}>Сервер</button><button aria-current={page==="connections"?"page":undefined} onClick={()=>setPage("connections")}>Подключения</button><button aria-current={page==="permissions"?"page":undefined} onClick={()=>setPage("permissions")}>Разрешения{pendingPermissions?` (${pendingPermissions})`:""}</button><button aria-current={["settings","browser","overview","tasks"].includes(page)?"page":undefined} onClick={()=>setPage("settings")}>Система</button></nav></>:null}
@@ -149,7 +162,7 @@ export default function App(){
         {page==="knowledge"&&<KnowledgePage connected={connected}/>}
         {page==="skills"&&<SkillsPage connected={connected} onApply={item=>{setInstruction(item);setPage("ai");}}/>}
         <div hidden={page!=="ai"} className="chat-host"><Chat visible={page==="ai"} connected={connected} conversationId={conversationId} onConversation={setConversationId} onChanged={()=>void loadConversations()} instruction={instruction} onClearInstruction={()=>setInstruction(null)} onOpenSettings={()=>setPage("models")} onOpenTools={()=>setPage("tools")} onUiAction={action=>{if(action.result?.ui==="open_inventory"){setPage("sources");if(action.result.start)setAutoStart(Date.now());}}}/></div>
-        {page==="settings"&&<section className="page"><div className="settings-links"><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Ядро Малении на этом компьютере: хранит диалоги, память и подключения. Модели настраиваются во вкладке «Модели ИИ»." value={connected?"Запущен":"Остановлен"} action={connected?<button className="secondary" onClick={()=>{if(window.confirm("Перезапустить Малению? Это займёт несколько секунд."))void (async()=>{await stopAgent();await runAgent();})();}} disabled={busy}><RefreshCw size={14}/> Перезапустить</button>:<button className="primary" onClick={runAgent} disabled={busy}><Play size={14}/> Запустить</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Диалоги, память и ключи хранятся на этом компьютере. В режиме «Приватно» запросы не уходят в облако. Важные изменения в рабочих системах требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение во вкладке «Подключения»." value="Browser Bridge"/></div></section>}
+        {page==="settings"&&<section className="page"><Comfort onUpdate={setUpdate}/><div className="settings-links"><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Ядро Малении на этом компьютере: хранит диалоги, память и подключения. Модели настраиваются во вкладке «Модели ИИ»." value={connected?"Запущен":"Остановлен"} action={connected?<button className="secondary" onClick={()=>{if(window.confirm("Перезапустить Малению? Это займёт несколько секунд."))void (async()=>{await stopAgent();await runAgent();})();}} disabled={busy}><RefreshCw size={14}/> Перезапустить</button>:<button className="primary" onClick={runAgent} disabled={busy}><Play size={14}/> Запустить</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Диалоги, память и ключи хранятся на этом компьютере. В режиме «Приватно» запросы не уходят в облако. Важные изменения в рабочих системах требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение во вкладке «Подключения»." value="Browser Bridge"/></div></section>}
       </div>
     </main>
 

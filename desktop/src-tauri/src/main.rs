@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod runtime_setup;
+mod extras;
 mod browser_setup;
 
 use rand::{rngs::OsRng, RngCore};
@@ -832,21 +833,39 @@ async fn register_browser_bridge(app: tauri::AppHandle, extension_id: String) ->
 fn main() {
     tauri::Builder::default()
         // Activate the original window before a second shell can own another agent.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if argv.iter().any(|arg| arg == extras::QUIT_ARG) {
+                extras::quit(app);
+                return;
+            }
+            if !argv.iter().any(|arg| arg == extras::HIDDEN_ARG) {
+                extras::show_main(app);
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(extras::autostart_plugin())
+        .plugin(extras::shortcut_plugin())
         .manage(AgentState::default())
         .on_window_event(|window, event| {
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                window.state::<AgentState>().shutdown();
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    if !extras::quitting() {
+                        // Keep working in the tray (inventory checks continue).
+                        api.prevent_close();
+                        extras::hide_to_tray(window.app_handle());
+                    }
+                }
             }
         })
         .setup(|app| {
+            if std::env::args().any(|arg| arg == extras::QUIT_ARG) {
+                std::process::exit(0);
+            }
+            let _ = extras::setup(app);
+            if !std::env::args().any(|arg| arg == extras::HIDDEN_ARG) {
+                extras::show_main(app.handle());
+            }
             let handle = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let state = handle.state::<AgentState>();
@@ -862,9 +881,21 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![get_browser_bridge_setup, open_browser_extension_folder, register_browser_bridge, agent_api, start_agent, stop_agent, get_dashboard,
-            request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, local_ai_engine, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
-        .run(tauri::generate_context!())
-        .expect("error while running Malenia");
+            request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, local_ai_engine, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch,
+            extras::comfort_status, extras::set_autostart, extras::notify, extras::show_main_window, extras::hide_quick_window, extras::check_update, extras::install_update])
+        .build(tauri::generate_context!())
+        .expect("error while running Malenia")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                // Closing the last window must not stop Malenia unless the user chose "Выход".
+                if code.is_none() && !extras::quitting() {
+                    api.prevent_exit();
+                }
+            }
+            if let tauri::RunEvent::Exit = event {
+                app.state::<AgentState>().shutdown();
+            }
+        });
 }
 
 #[cfg(test)]

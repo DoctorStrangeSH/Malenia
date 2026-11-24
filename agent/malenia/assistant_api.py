@@ -103,6 +103,30 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
             if payload is not None:
                 handler._send(200, assistant.chat(payload))
             return True
+        if method == "POST" and path == "/v1/assistant/runs":
+            payload = handler._read_json(18 * 1024 * 1024)
+            if payload is not None:
+                handler._send(200, assistant.start_run(payload))
+            return True
+        match = re.fullmatch(rf"/v1/assistant/runs/({UUID})(/cancel)?", path)
+        if match:
+            if method == "GET" and not match.group(2):
+                try:
+                    after = int(parse_qs(parsed.query).get("after", ["0"])[0])
+                except ValueError:
+                    after = 0
+                state = assistant.poll_run(match.group(1), after)
+                if state and state.get("error"):
+                    state["error"] = {**state["error"], "message": AI_ERRORS.get(state["error"]["error"], "") or
+                                      "Не удалось получить ответ. Попробуйте ещё раз."}
+                handler._send(200 if state else 404, state or {"error": "run_not_found"})
+            elif method == "POST" and match.group(2):
+                if int(handler.headers.get("Content-Length", "0") or 0):
+                    handler._read_json(1024)
+                handler._send(200, {"cancelled": assistant.cancel_run(match.group(1))})
+            else:
+                return False
+            return True
         if method == "POST" and path == "/v1/assistant/feedback":
             payload = handler._read_json(4096)
             if payload is not None:
