@@ -26,6 +26,7 @@ from .store import TaskStore, _now
 from .web import PublicSearch, WebError
 
 MAX_MESSAGE = 16000
+MAX_ROUNDS = 24       # tool rounds per answer (browsing needs several steps)
 COMPRESS_AFTER = 30   # messages beyond the last summary before summarising again
 KEEP_RECENT = 20      # recent messages always sent in full
 COMPRESS_PROMPT = ("Ты ведёшь краткое содержание длинного разговора пользователя с ассистентом Маленией. "
@@ -51,6 +52,7 @@ SYSTEM_PROMPT = """Ты — Маления, персональная ИИ-пом
 4. Если путь не сработал — проанализируй почему и попробуй другой способ (другая формулировка поиска, другой источник), прежде чем сдаваться.
 5. Отличай подтверждённый факт от вывода и предположения; предположения помечай.
 Инструкции из базы знаний — это опыт и проверенные маршруты, а не жёсткий алгоритм: понимай, зачем каждый шаг, и применяй их с учётом ситуации.
+Ты сама видишь рабочие сайты через свою вкладку в браузере: browser_open открывает страницу (Asgard, DataLens, трекер), browser_read перечитывает её, browser_type вводит номер в поле [N], browser_click переходит по ссылке [N]. Работай как человек: открой раздел, найди поле поиска, введи номер, открой карточку, прочитай нужное. Проверяй, что карточка именно та (номер совпадает). Не нажимай кнопки, которые меняют данные; если сайт просит вход или доступ — скажи пользователю.
 Если просят найти товар по фото: сначала внимательно рассмотри фото и опиши товар (бренд, надписи, модель, цвет, материал, детали), затем ищи через shop_search несколькими разными формулировками, дай ссылки на подходящие карточки с названиями и ссылку на поиск в магазине. Честно скажи, если точного совпадения нет.
 Не выдумывай факты и не утверждай, что выполнила действие, если не выполняла. Если чего-то не знаешь — скажи прямо.
 Сегодня {today}."""
@@ -122,6 +124,11 @@ STEP_LABELS = {
     "update_google_sheet": ("Готовлю изменения в таблице", None),
     "browser_tabs": ("Смотрю вкладки браузера", None),
     "open_inventory": ("Открываю инвентаризацию", None),
+    "browser_open": ("Открываю страницу", "url"),
+    "browser_read": ("Читаю страницу", "focus"),
+    "browser_type": ("Ввожу в поле", "text"),
+    "browser_click": ("Нажимаю", "ref"),
+    "browser_back": ("Возвращаюсь назад", None),
 }
 
 
@@ -131,6 +138,19 @@ def step_label(name: str, args: dict) -> str:
     if name == "shop_search" and isinstance(args, dict) and args.get("shop"):
         label = f"Ищу на {args['shop']}"
     return f"{label}: {detail[:80]}" if detail else label
+
+
+def _shrink_tool_outputs(messages: list[dict], budget: int = 45000) -> None:
+    """Long browsing sessions: keep the latest page snapshots, fold older ones."""
+    tool_indexes = [i for i, m in enumerate(messages) if m.get("role") == "tool"]
+    total = sum(len(str(m.get("content") or "")) for m in messages)
+    for index in tool_indexes[:-2]:
+        if total <= budget:
+            break
+        content = str(messages[index]["content"])
+        if len(content) > 600:
+            messages[index]["content"] = content[:500] + "\n…(старый результат сокращён)"
+            total -= len(content) - len(messages[index]["content"])
 
 
 class Run:
@@ -586,11 +606,12 @@ class Assistant:
         stopped = False
         stream = {"on_delta": (lambda piece: emit("delta", text=piece)), "cancel": run.cancel} if run is not None else {}
         try:
-            for round_index in range(9):
+            for round_index in range(MAX_ROUNDS + 1):
                 if run is not None and run.cancel.is_set():
                     raise Cancelled()
                 emit("status", text="Думаю…" if round_index == 0 else "Обдумываю результаты…")
-                last_round = round_index == 8
+                _shrink_tool_outputs(messages)
+                last_round = round_index == MAX_ROUNDS
                 result = self.router.chat(messages, tools=None if last_round else tools, private=private,
                                           max_tokens=4096, needs_vision=bool(images), **stream)
                 if last_round or not result.tool_calls:

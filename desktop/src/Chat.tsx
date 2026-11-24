@@ -22,6 +22,8 @@ type Props = {
   visible?: boolean;
   compact?: boolean;
   project?: Project | null;
+  /** A task handed over by the app (e.g. "разбери оставшиеся строки"): sent once in a new chat. */
+  autoPrompt?: { id: number; text: string } | null;
 };
 
 const MAX_FILES = 6;
@@ -296,6 +298,14 @@ export function Chat(props: Props) {
     }
   };
   useEffect(() => () => recorder.current?.cancel(), []);
+
+  const autoSent = useRef(0);
+  useEffect(() => {
+    const task = props.autoPrompt;
+    if (!task || task.id === autoSent.current || !connected || busy || conversationId) return;
+    autoSent.current = task.id;
+    void send(task.text);
+  });
 
   const stop = () => { if (runRef.current) void api("POST", `/v1/assistant/runs/${runRef.current}/cancel`).catch(() => undefined); };
 

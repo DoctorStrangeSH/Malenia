@@ -538,7 +538,7 @@ class OllamaProvider:
              timeout: float = 300, on_delta=None, cancel=None) -> ChatResult:
         body: dict[str, Any] = {"model": model, "messages": self._convert(messages), "stream": bool(on_delta),
                                 "keep_alive": self.keep_alive,
-                                "options": {"num_ctx": 8192, "num_predict": max_tokens, "temperature": temperature}}
+                                "options": {"num_ctx": 16384, "num_predict": max_tokens, "temperature": temperature}}
         if tools:
             body["tools"] = tools
         if json_mode:

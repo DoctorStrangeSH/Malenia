@@ -165,8 +165,10 @@ def spreadsheet_id(value: str) -> str:
 class ToolBox:
     """Registry of tools offered to the model."""
 
-    def __init__(self, store: TaskStore, settings, skills=None, sheets=None, web=None, knowledge=None, vault=None):
+    def __init__(self, store: TaskStore, settings, skills=None, sheets=None, web=None, knowledge=None, vault=None,
+                 browser=None):
         self.vault = vault
+        self.browser = browser
         self.store = store
         self.settings = settings
         self.skills = skills
@@ -247,12 +249,72 @@ class ToolBox:
                  _schema({"path": {**text, "description": "Путь документа из результатов поиска или часть названия"},
                           "section": {**text, "description": "Необязательно: часть заголовка раздела"}}, ["path"]),
                  "safe", self._kb_document)
+        if self.browser is not None:
+            ref = {"type": "integer", "description": "Номер элемента [N] из последнего снимка страницы"}
+            self.add("browser_open",
+                     "Открыть страницу в своей рабочей вкладке браузера (Asgard, DataLens, трекер и другие сайты, разрешённые "
+                     "пользователем в расширении) и получить её текст и список элементов [N]. Используй, когда нужно самой "
+                     "посмотреть данные в рабочей системе.",
+                     _schema({"url": {**text, "description": "Полный адрес https://…"}}, ["url"]), "safe",
+                     lambda a: self._browser("open", {"url": str(a.get("url") or "")[:2000]}))
+            self.add("browser_read",
+                     "Прочитать текущую страницу рабочей вкладки ещё раз (после загрузки или чтобы найти нужное). "
+                     "focus — слова, вокруг которых показать текст (например номер заказа или «Наименование»).",
+                     _schema({"focus": {**text, "description": "Необязательно: что искать на странице"}}, []), "safe",
+                     lambda a: self._browser("read", {"focus": str(a.get("focus") or "")[:200]}))
+            self.add("browser_type",
+                     "Ввести текст в поле [N] на странице (например номер в поле поиска) и при submit=true нажать Enter.",
+                     _schema({"ref": ref, "text": {**text, "description": "Что ввести"},
+                              "submit": {"type": "boolean", "description": "Нажать Enter после ввода"}}, ["ref", "text"]), "safe",
+                     lambda a: self._browser("type", {"ref": int(a.get("ref") or 0), "text": str(a.get("text") or "")[:500],
+                                                      "submit": bool(a.get("submit", True))}))
+            self.add("browser_click",
+                     "Нажать на ссылку, вкладку или кнопку [N] на странице. Кнопки, которые меняют данные (сохранить, удалить, "
+                     "изменить статус), расширение не нажимает — для них попроси пользователя.",
+                     _schema({"ref": ref}, ["ref"]), "safe",
+                     lambda a: self._browser("click", {"ref": int(a.get("ref") or 0)}))
+            self.add("browser_back", "Вернуться на предыдущую страницу в рабочей вкладке.", _schema({}, []), "safe",
+                     lambda a: self._browser("back", {}))
         self.add("open_inventory",
                  "Открыть инструмент инвентаризации (сверка листа ИНВенты с DataLens и Asgard) и при start=true запустить проверку выбранного листа.",
                  _schema({"start": {"type": "boolean"}}, []), "ui", lambda a: {"ui": "open_inventory", "start": bool(a.get("start"))},
                  lambda a: "Запустить проверку инвентаризации" if a.get("start") else "Открыть инвентаризацию")
 
     # ---- handlers -------------------------------------------------------
+    BROWSER_ERRORS = {
+        "extension_not_connected": "Расширение Маления не отвечает. Попроси пользователя открыть Яндекс Браузер с расширением.",
+        "site_not_allowed": "Этот сайт не разрешён в расширении. Попроси пользователя разрешить сайт (кнопка «Поделиться вкладкой» или настройка источников).",
+        "browser_timeout": "Браузер не ответил вовремя. Попробуй ещё раз или browser_read.",
+        "risky_button": "Эта кнопка меняет данные — нажимать её можно только пользователю. Объясни ему, что нажать.",
+        "element_not_found": "Элемент [N] не найден — страница изменилась. Сделай browser_read и возьми новый номер.",
+        "no_work_tab": "Рабочая вкладка ещё не открыта — сначала browser_open.",
+        "login_required": "Сайт просит войти. Попроси пользователя войти в рабочей вкладке и повтори.",
+    }
+
+    def _browser(self, action: str, args: dict) -> dict:
+        result = self.browser.run(action, args)
+        error = result.get("error")
+        if error:
+            raise ToolError(self.BROWSER_ERRORS.get(error, f"Браузер: {error}"))
+        # Compact page snapshot: fewer tokens, easier for the model to act on.
+        lines = []
+        for item in result.get("elements") or []:
+            if not isinstance(item, dict):
+                continue
+            kind = {"field": "поле", "link": "ссылка", "button": "кнопка"}.get(item.get("kind"), item.get("kind", ""))
+            line = f"[{item.get('ref')}] {kind} «{str(item.get('label') or '').strip()[:80]}»"
+            if item.get("value"):
+                line += f" = {str(item['value'])[:60]}"
+            if item.get("href") and kind == "ссылка":
+                line += f" → {str(item['href'])[:120]}"
+            lines.append(line)
+        page = {"url": result.get("url"), "title": result.get("title"), "text": result.get("text", "")}
+        if result.get("truncated"):
+            page["note"] = "Текст обрезан. Используй browser_read с focus, чтобы увидеть нужную часть."
+        if lines:
+            page["elements"] = "\n".join(lines[:120])
+        return page
+
     def _kb_search(self, args: dict) -> dict:
         if self.vault is None:
             raise ToolError("База знаний не подключена")

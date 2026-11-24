@@ -20,7 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { PermissionsPage, type PermissionRequest, type PermissionDecision } from "./PermissionsPage";
 import {
   Activity, ArrowUpRight, BrainCircuit, Check, CircleHelp,
-  Clock3, Cpu, Database, Globe2, ListTodo,
+  Clock3, Cpu, Database, Globe2, ListTodo, Sparkles,
   LoaderCircle, LockKeyhole, MemoryStick, MessageSquare, Play, Plus, Plug,
   RefreshCw, Search, Settings2, ShieldCheck, X
 } from "lucide-react";
@@ -65,6 +65,19 @@ export default function App(){
   const [activeProject,setActiveProject]=useState<string|null>(null);
   const [editingProject,setEditingProject]=useState<Project|null|undefined>(undefined);
   const loadProjects=useCallback(async()=>{try{setProjects((await api<{projects:Project[]}>("GET","/v1/assistant/projects"))?.projects??[]);}catch{/* agent starting */}},[]);
+  const [autoPrompt,setAutoPrompt]=useState<{id:number;text:string}|null>(null);
+  /** Hand a work task to Malenia: new chat in the "Инвентаризация" project, sent right away. */
+  const askMalenia=useCallback(async(text:string)=>{
+    let project:Project|undefined;
+    try{
+      const list=(await api<{projects:Project[]}>("GET","/v1/assistant/projects"))?.projects??[];
+      project=list.find(p=>p.name==="Инвентаризация")??(await api<{project:Project}>("POST","/v1/assistant/projects",{name:"Инвентаризация",
+        instructions:"Работа с листами ИНВента: статусы и наименования. Опирайся на инструкции из базы знаний, сама смотри DataLens и Asgard через браузер, объясняй выводы, а в таблицу пиши только после моего подтверждения.",
+        kb_scope:"05-Операционные-инструкции"}))?.project;
+      void loadProjects();
+    }catch{/* chat works without a project */}
+    setActiveProject(project?.id??null);setConversationId(null);setPage("ai");setAutoPrompt({id:Date.now(),text});
+  },[loadProjects]);
   // Check for a new version shortly after start (quietly, no errors shown).
   useEffect(()=>{const id=window.setTimeout(()=>{invoke<UpdateInfo>("check_update").then(info=>{if(info?.available)setUpdate(info);}).catch(()=>undefined);},8000);return()=>window.clearTimeout(id);},[]);
   // The quick window asks to continue a conversation here.
@@ -73,7 +86,7 @@ export default function App(){
   useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="n"){event.preventDefault();setConversationId(null);setPage("ai");}};window.addEventListener("keydown",onKey);return()=>window.removeEventListener("keydown",onKey);},[]);
   // Tell the user when a long inventory check ends while they are in another program.
   const lastPhase=useRef(runState.phase);
-  useEffect(()=>{if(lastPhase.current!==runState.phase){if(runState.phase==="completed")void invoke("notify",{title:"Инвентаризация завершена",body:runState.message}).catch(()=>undefined);if(runState.phase==="error")void invoke("notify",{title:"Инвентаризация остановилась",body:runState.message}).catch(()=>undefined);lastPhase.current=runState.phase;}},[runState]);
+  useEffect(()=>{if(lastPhase.current!==runState.phase){if(runState.phase==="completed"&&lastPhase.current!=="idle"&&inventaMode()==="ai"&&selectedSheet)void askMalenia(statusTask(selectedSheet));if(runState.phase==="completed")void invoke("notify",{title:"Инвентаризация завершена",body:runState.message}).catch(()=>undefined);if(runState.phase==="error")void invoke("notify",{title:"Инвентаризация остановилась",body:runState.message}).catch(()=>undefined);lastPhase.current=runState.phase;}},[runState]);
   const loadConversations=useCallback(async()=>{try{setConversations((await api<{conversations:Conversation[]}>("GET","/v1/assistant/conversations")).conversations);}catch{/* agent starting */}},[]);
   useEffect(()=>{if(connected){void loadConversations();void loadProjects();}},[connected,loadConversations,loadProjects]);
   const loadConversationsRef=useRef(loadConversations);loadConversationsRef.current=loadConversations;
@@ -122,7 +135,7 @@ export default function App(){
       <div className="side-foot">
         <span className={"dot"+(connected?" on":"")}/>{connected?"Маления работает":"Запуск…"}
         <button className="icon-btn tiny" title="С чего начать?" aria-label="Открыть справку" onClick={()=>setShowHelp(true)}><CircleHelp size={15}/></button>
-        <span className="side-version">0.14.0</span>
+        <span className="side-version">0.15.0</span>
       </div>
     </aside>
 
@@ -154,7 +167,7 @@ export default function App(){
 
         {page==="permissions"&&<PermissionsPage requests={data?.permissions??[]} connected={connected} busy={busy} onDecide={decidePermission}/>}
         {page==="browser"&&<BrowserPage tabs={data?.browser_tabs??[]} audit={data?.browser_audit??null} job={data?.browser_audit_job??null} connected={connected} onRequested={()=>void refresh()} onOpenSources={()=>setPage("sources")}/>}
-        {(page==="sources"||page==="connections")&&<SourcesPage autoStart={page==="sources"?autoStart:0} onAutoStarted={started=>{setAutoStart(0);if(!started)setNotice("Маления открыла инвентаризацию. Выберите лист и нажмите «Начать проверку» — запустить автоматически не удалось.");}} mode={page==="sources"?"work":"connections"} selectedSheet={selectedSheet} onSelectSheet={setSelectedSheet} onOpenConnections={()=>setPage("connections")} tabs={data?.browser_tabs??[]} connected={connected} runState={runState} runner={inventaRun}/>} 
+        {(page==="sources"||page==="connections")&&<SourcesPage onAskMalenia={text=>void askMalenia(text)} autoStart={page==="sources"?autoStart:0} onAutoStarted={started=>{setAutoStart(0);if(!started)setNotice("Маления открыла инвентаризацию. Выберите лист и нажмите «Начать проверку» — запустить автоматически не удалось.");}} mode={page==="sources"?"work":"connections"} selectedSheet={selectedSheet} onSelectSheet={setSelectedSheet} onOpenConnections={()=>setPage("connections")} tabs={data?.browser_tabs??[]} connected={connected} runState={runState} runner={inventaRun}/>} 
         {page==="orders"&&<OrderCheckPage connected={connected}/>}
         {page==="memory"&&<Memories connected={connected}/>}
         {page==="vault"&&<KnowledgeVault connected={connected}/>}
@@ -163,7 +176,7 @@ export default function App(){
         {page==="server"&&<ServerSettings connected={connected} onOpenModels={()=>setPage("models")}/>}
         {page==="knowledge"&&<KnowledgePage connected={connected}/>}
         {page==="skills"&&<SkillsPage connected={connected} onApply={item=>{setInstruction(item);setPage("ai");}}/>}
-        <div hidden={page!=="ai"} className="chat-host"><Chat visible={page==="ai"} project={projects.find(p=>p.id===activeProject)??null} connected={connected} conversationId={conversationId} onConversation={setConversationId} onChanged={()=>void loadConversations()} instruction={instruction} onClearInstruction={()=>setInstruction(null)} onOpenSettings={()=>setPage("models")} onOpenTools={()=>setPage("tools")} onUiAction={action=>{if(action.result?.ui==="open_inventory"){setPage("sources");if(action.result.start)setAutoStart(Date.now());}}}/></div>
+        <div hidden={page!=="ai"} className="chat-host"><Chat visible={page==="ai"} autoPrompt={autoPrompt} project={projects.find(p=>p.id===activeProject)??null} connected={connected} conversationId={conversationId} onConversation={setConversationId} onChanged={()=>void loadConversations()} instruction={instruction} onClearInstruction={()=>setInstruction(null)} onOpenSettings={()=>setPage("models")} onOpenTools={()=>setPage("tools")} onUiAction={action=>{if(action.result?.ui==="open_inventory"){setPage("sources");if(action.result.start)setAutoStart(Date.now());}}}/></div>
         {page==="settings"&&<section className="page"><Comfort onUpdate={setUpdate}/><div className="settings-links"><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Ядро Малении на этом компьютере: хранит диалоги, память и подключения. Модели настраиваются во вкладке «Модели ИИ»." value={connected?"Запущен":"Остановлен"} action={connected?<button className="secondary" onClick={()=>{if(window.confirm("Перезапустить Малению? Это займёт несколько секунд."))void (async()=>{await stopAgent();await runAgent();})();}} disabled={busy}><RefreshCw size={14}/> Перезапустить</button>:<button className="primary" onClick={runAgent} disabled={busy}><Play size={14}/> Запустить</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Диалоги, память и ключи хранятся на этом компьютере. В режиме «Приватно» запросы не уходят в облако. Важные изменения в рабочих системах требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение во вкладке «Подключения»." value="Browser Bridge"/></div></section>}
       </div>
     </main>
@@ -250,7 +263,7 @@ function BrowserPage({tabs,audit,job,connected,onRequested,onOpenSources}:{tabs:
 
 type GoogleSheetsStatus = {connected:boolean;status:string;error:string|null;client_id?:string};
 
-function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,connected,runState,runner,autoStart=0,onAutoStarted}:{autoStart?:number;onAutoStarted?:(started:boolean)=>void;mode:"work"|"connections";selectedSheet:string;onSelectSheet:(url:string)=>void;onOpenConnections:()=>void;tabs:BrowserTab[];connected:boolean;runState:RunState;runner:InventaRun}){
+function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,connected,runState,runner,autoStart=0,onAutoStarted,onAskMalenia}:{onAskMalenia?:(text:string)=>void;autoStart?:number;onAutoStarted?:(started:boolean)=>void;mode:"work"|"connections";selectedSheet:string;onSelectSheet:(url:string)=>void;onOpenConnections:()=>void;tabs:BrowserTab[];connected:boolean;runState:RunState;runner:InventaRun}){
   const [clarifiedYear,setClarifiedYear]=useState("");
   const [sheetOptions,setSheetOptions]=useState<{url:string;title:string}[]>([]);
   const [loadingSheets,setLoadingSheets]=useState(false);
@@ -354,6 +367,7 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
     {sheetError?<p className="alert error" role="alert">{sheetError}</p>:null}
     {sheetNotice?<p className="alert success" role="status">{sheetNotice}</p>:null}
     {mode==="work"?<article className="panel inventa-workbench" aria-label="Инвентаризация">
+      <InventaMode/>
       <div className="workbench-heading"><div><h2>Проверка листа</h2><p>Сначала DataLens, затем Asgard для остальных заказов.</p></div><span className={"workbench-status "+(runBusy?"working":"")}>{runBusy?"В процессе":runState.phase==="completed"?"Завершено":"Инвентаризация"}</span></div>
       <label>Таблица и лист<select value={sheetUrl} disabled={runBusy} onChange={e=>{onSelectSheet(e.target.value);setClarifiedYear("");}}>
         {!sheetTabs.length?<option value="">Передай вкладку инвентаризации через расширение</option>:null}
@@ -367,6 +381,8 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
       <div className="google-actions">
         <button className="primary" disabled={!connected||!sheetsAuthorized||!sheetUrl||loadingSheets||runBusy||(needsYear&&!clarifiedDate)} onClick={()=>void runner.start(sheetUrl,clarifiedDate)}><Play size={16}/>{runState.phase==="paused"||runState.phase==="error"?"Продолжить проверку":"Начать проверку"}</button>
         
+        <button className="secondary malenia-task" disabled={!connected||!sheetUrl||runBusy} title="Маления сама разберёт строки по вашим инструкциям и спросит перед записью" onClick={()=>onAskMalenia?.(statusTask(sheetUrl,selectedTitle))}><Sparkles size={15}/>Статусы с Маленией</button>
+        <button className="secondary malenia-task" disabled={!connected||!sheetUrl} title="Маления определит наименования товаров по инструкции и спросит перед записью" onClick={()=>onAskMalenia?.(namingTask(sheetUrl,selectedTitle))}><Sparkles size={15}/>Наименования с Маленией</button>
         {runBusy?<button className="secondary" disabled={runState.phase==="pausing"} onClick={()=>runner.pause()}>{runState.phase==="pausing"?"Ставим на паузу…":"Приостановить"}</button>:null}
         
       </div>
@@ -431,3 +447,34 @@ function SourcesPage({mode,selectedSheet,onSelectSheet,onOpenConnections,tabs,co
 }
 
 function Setting({icon,title,text,value,action}:{icon:ReactNode;title:string;text:string;value:string;action?:ReactNode}){return <div className="panel setting"><div className="setting-icon">{icon}</div><h3>{title}</h3><p>{text}</p><div className="setting-bottom"><b>{value}</b>{action}</div></div>;}
+
+// ---- "Маления думает": rules for the obvious, Malenia for the rest ----
+type InventaModeValue="ai"|"rules";
+function inventaMode():InventaModeValue{try{return localStorage.getItem("malenia:inventa-mode")==="rules"?"rules":"ai";}catch{return "ai";}}
+function InventaMode(){
+  const [mode,setMode]=useState<InventaModeValue>(inventaMode);
+  const choose=(value:InventaModeValue)=>{setMode(value);try{localStorage.setItem("malenia:inventa-mode",value);}catch{/* not saved */}};
+  return <div className="inventa-mode" role="radiogroup" aria-label="Режим разбора">
+    <button role="radio" aria-checked={mode==="ai"} className={mode==="ai"?"on":""} onClick={()=>choose("ai")}><Sparkles size={16}/><span><b>Правила + Маления</b><small>Очевидное — по правилам за секунды. Остальное Маления разберёт сама по вашей инструкции и спросит перед записью.</small></span></button>
+    <button role="radio" aria-checked={mode==="rules"} className={mode==="rules"?"on":""} onClick={()=>choose("rules")}><ListTodo size={16}/><span><b>Только правила</b><small>Быстро и строго. Спорные строки остаются вам.</small></span></button>
+  </div>;
+}
+function statusTask(url:string,title=""){
+  return `Разбери статусы на листе инвентаризации${title?` «${title}»`:""}: ${url}
+
+Правила уже поставили статусы там, где всё очевидно. Твоя задача — строки, где статус не поставлен или требует ручной проверки.
+1. Найди в базе знаний инструкцию по статусам (search_knowledge_base) и пойми её смысл.
+2. Прочитай лист (read_google_sheet) и выбери такие строки.
+3. По каждой сама посмотри DataLens и Asgard в браузере, рассуди и реши статус и комментарий.
+4. Покажи итог таблицей «строка — грузоместо — статус — комментарий — почему так».
+5. Подготовь запись в таблицу — я подтвержу. Где не уверена — так и напиши и не записывай.`;
+}
+function namingTask(url:string,title=""){
+  return `Определи наименования товаров на листе инвентаризации${title?` «${title}»`:""}: ${url}
+
+1. Найди в базе знаний инструкцию по наименованиям (search_knowledge_base) и пойми её.
+2. Прочитай лист (read_google_sheet) и выбери строки, где «Наименование» пустое.
+3. По каждой определи тип номера, сама найди товар в Asgard через браузер и скопируй название дословно.
+4. Выводы и предположения помечай в «Комментарий», как в инструкции.
+5. Покажи итог таблицей «строка — номер — наименование — комментарий», затем подготовь запись в таблицу — я подтвержу.`;
+}

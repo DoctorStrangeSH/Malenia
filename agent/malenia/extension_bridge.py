@@ -19,7 +19,7 @@ from .native_messaging import configured_extension_id, handle_message
 
 BUNDLED_EXTENSION_ID = "cbalbbednlnkjakimgigdnfmkgdpccbi"
 PATH = "/v1/extension/message"
-MAX_BODY = 512 * 1024
+MAX_BODY = 1024 * 1024
 
 
 def allowed_origins() -> set[str]:

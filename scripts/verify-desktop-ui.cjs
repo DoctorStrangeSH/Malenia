@@ -55,7 +55,7 @@ fs.mkdirSync(output,{recursive:true});
      if(p.startsWith("/v1/assistant/runs/11111111-2222-4333-8444-555555555555")){const r=state.run;return {run_id:"x",next:3,done:true,error:null,result:r,events:[{type:"started",conversation_id:r.conversation_id,user_message:r.user_message},{type:"step",id:"s1",tool:"web_search",label:"Ищу в интернете",status:"done"},{type:"delta",text:r.message.content}]};}
      if(p.startsWith("/v1/ai/hardware"))return {hardware:{ram_gb:16,gpu:null,vram_gb:0,cpu_threads:8,os:"Windows",recommendation:{tier:"cpu-16",label:"16 ГБ",models:["qwen3.5:4b"],note:""}},installed:[],ollama_running:false,pull:{status:"idle",model:null,completed:0,total:0,error:null}};
      if(p==="/v1/assistant/memories")return {memories:[]};
-     if(p==="/v1/assistant/projects"){state.projects=state.projects||[];if(args.method==="POST"){const pr={id:"aaaaaaaa-0000-4000-8000-000000000001",name:args.body.name,instructions:args.body.instructions,kb_scope:args.body.kb_scope,created_at:"",updated_at:""};state.projects.push(pr);return {project:pr};}return {projects:state.projects};}
+     if(p==="/v1/assistant/projects"){state.projects=state.projects||[];if(args.method==="POST"){const pr={id:"aaaaaaaa-0000-4000-8000-00000000000"+(state.projects.length+1),name:args.body.name,instructions:args.body.instructions,kb_scope:args.body.kb_scope,created_at:"",updated_at:""};state.projects.push(pr);return {project:pr};}return {projects:state.projects};}
      if(p==="/v1/assistant/kb/sync")return {...state.kb,documents:34,sections:813,last_sync:"2026-11-24T10:00:00Z",items:[{path:"05-Операционные-инструкции/INVENTORY_PRODUCT_NAMING.md",title:"Наименования товаров",type:"operational-instruction",status:"active"}],status:{state:"done",error:null}};
      if(p==="/v1/assistant/kb"){if(args.method==="POST"){state.kb={...state.kb,...args.body,has_token:state.kb.has_token||!!args.body.token};delete state.kb.token;}return state.kb;}
      if(p==="/v1/ai/detect-key")return {provider:"gigachat"};
@@ -90,7 +90,7 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByLabel("Сообщение",{exact:true}).fill("Несохранённый черновик");
   const openInventory=async()=>{
     await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
-    await page.getByRole("button",{name:/^Инвентаризация/}).click();
+    await page.getByRole("button",{name:/^Инвентаризация Сверить/}).click();
   };
   await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
   assert.equal(await page.locator(".tool-row").count(),1);
@@ -156,6 +156,9 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByText("2026-11-16",{exact:true}).waitFor();
   await page.screenshot({path:path.join(output,"03-workspace.png"),fullPage:true});
   assert.equal(await page.getByRole("button",{name:"Начать проверку",exact:true}).count(),1);
+  // Two modes: rules + Malenia (default) or rules only. This scenario checks the rules pass.
+  assert.equal(await page.getByRole("radio",{name:/Правила \+ Маления/}).getAttribute("aria-checked"),"true");
+  await page.getByRole("radio",{name:/Только правила/}).click();
   await page.getByRole("button",{name:"Начать проверку",exact:true}).click();
   await page.getByRole("button",{name:"Приостановить",exact:true}).waitFor();
   assert.equal(await select.isDisabled(),true);
@@ -182,6 +185,15 @@ fs.mkdirSync(output,{recursive:true});
   const queued=await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="check_inventa_order_batch"));
   assert.equal(queued.length,2);
   assert.ok(queued.every(x=>x.args.spreadsheetUrl.endsWith("gid=2")));
+  await page.screenshot({path:path.join(output,"inventa-modes.png"),fullPage:true});
+  // Hand the rest to Malenia: a new chat in the "Инвентаризация" project with the task.
+  await page.getByRole("button",{name:/Статусы с Маленией/}).click();
+  await page.getByLabel("Сообщение",{exact:true}).waitFor();
+  for(let i=0;i<50&&!(await page.evaluate(()=>window.__uiMock.calls.some(x=>x.args?.path==="/v1/assistant/runs"&&/Разбери статусы/.test(x.args.body?.message||""))));i++)await page.waitForTimeout(100);
+  const task=await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.args?.path==="/v1/assistant/runs").at(-1).args.body);
+  assert.match(task.message,/Разбери статусы/);
+  assert.match(task.message,/gid=2/);
+  assert.ok(task.project_id,"task goes to the Инвентаризация project");
   for(const width of [1440,1080,850]){
    await page.setViewportSize({width,height:900});
    await mainNav.getByRole("button",{name:"Память",exact:true}).click();

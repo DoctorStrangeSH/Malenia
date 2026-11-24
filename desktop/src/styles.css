@@ -810,3 +810,14 @@ details.card[open]>summary{margin-bottom:14px}
 .toast{position:fixed;right:24px;bottom:24px;z-index:30;display:flex;align-items:center;gap:9px;padding:11px 14px;border-radius:12px;background:#18352c;border:1px solid #285b49;color:#9de2c2;font-size:13px;box-shadow:0 12px 40px #0007;animation:toast-in .2s ease-out}
 .toast button{background:none;border:0;color:inherit;display:grid;place-items:center;margin-left:4px}
 @keyframes toast-in{from{opacity:0;transform:translateY(8px)}}
+/* 0.15 inventory modes */
+.inventa-mode{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.inventa-mode button{display:flex;gap:10px;align-items:flex-start;text-align:left;background:#15171d;border:1px solid #2a2d37;border-radius:12px;padding:12px 14px;color:#c9ccd6}
+.inventa-mode button>svg{flex-shrink:0;margin-top:2px;color:#8a93a3}
+.inventa-mode button span{display:grid;gap:4px}
+.inventa-mode button b{font-size:13px;color:#e6e8ef}
+.inventa-mode button small{font-size:11.5px;line-height:1.45;color:#8a93a3}
+.inventa-mode button.on{border-color:#6a5cd6;background:#211e36}
+.inventa-mode button.on>svg{color:var(--accent2)}
+.malenia-task svg{color:var(--accent2)}
+@media(max-width:900px){.inventa-mode{grid-template-columns:1fr}}

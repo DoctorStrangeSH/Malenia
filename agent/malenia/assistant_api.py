@@ -59,7 +59,10 @@ class AssistantServices:
         self.vault = KnowledgeVault(store, self.settings, secrets or self.router.secrets,
                                     embedder=getattr(self.router, "ollama", None))
         self.voice = VoiceEngine()
-        self.toolbox = ToolBox(store, self.settings, skills=skills, knowledge=knowledge, vault=self.vault)
+        from .browser_commands import BrowserCommands
+        self.browser = BrowserCommands(store)
+        self.toolbox = ToolBox(store, self.settings, skills=skills, knowledge=knowledge, vault=self.vault,
+                               browser=self.browser)
         self.assistant = Assistant(store, self.router, knowledge, skills, web=web, background=background,
                                    toolbox=self.toolbox)
         self.lan = LanServer(self.settings, self.router)

@@ -1,5 +1,5 @@
 /* Background task, bounded to three explicitly permitted resources. */
-importScripts("automation.js");
+importScripts("automation.js", "agent-browser.js");
 const HOST = "com.malenia.browser";
 let running = false;
 
@@ -296,5 +296,8 @@ chrome.runtime.onInstalled.addListener(enableDesktopAuditPolling);
 chrome.runtime.onStartup.addListener(enableDesktopAuditPolling);
 chrome.alarms.onAlarm.addListener(alarm => {
   if (alarm.name === DESKTOP_AUDIT_ALARM || alarm.name === DESKTOP_AUDIT_ALARM + "-soon") void pollDesktopAudit();
+  // Malenia's own browsing: keep listening for her commands while the app runs.
+  if (alarm.name === DESKTOP_AUDIT_ALARM && typeof MaleniaBrowser !== "undefined") void MaleniaBrowser.loop();
 });
 enableDesktopAuditPolling();
+if (typeof MaleniaBrowser !== "undefined") void MaleniaBrowser.loop();
