@@ -112,13 +112,18 @@ pub fn setup(app: &tauri::App) -> tauri::Result<()> {
     tray.build(handle)?;
 
     // Alt+Space like ChatGPT; fall back to Ctrl+Alt+Space if it is taken.
-    let shortcuts = handle.global_shortcut();
-    for (modifiers, label) in [(Modifiers::ALT, "Alt+Space"), (Modifiers::CONTROL | Modifiers::ALT, "Ctrl+Alt+Space")] {
-        if shortcuts.register(Shortcut::new(Some(modifiers), Code::Space)).is_ok() {
-            if let Ok(mut current) = HOTKEY.lock() { *current = label.to_string(); }
-            break;
+    // Registered off the main thread once the event loop runs (never blocks startup).
+    let later = handle.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let shortcuts = later.global_shortcut();
+        for (modifiers, label) in [(Modifiers::ALT, "Alt+Space"), (Modifiers::CONTROL | Modifiers::ALT, "Ctrl+Alt+Space")] {
+            if shortcuts.register(Shortcut::new(Some(modifiers), Code::Space)).is_ok() {
+                if let Ok(mut current) = HOTKEY.lock() { *current = label.to_string(); }
+                break;
+            }
         }
-    }
+    });
     Ok(())
 }
 

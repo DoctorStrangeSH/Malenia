@@ -862,10 +862,11 @@ fn main() {
             if std::env::args().any(|arg| arg == extras::QUIT_ARG) {
                 std::process::exit(0);
             }
-            let _ = extras::setup(app);
-            if !std::env::args().any(|arg| arg == extras::HIDDEN_ARG) {
-                extras::show_main(app.handle());
+            if std::env::args().any(|arg| arg == extras::HIDDEN_ARG) {
+                // Started with Windows: stay in the tray.
+                if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); }
             }
+            let _ = extras::setup(app);
             let handle = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let state = handle.state::<AgentState>();
