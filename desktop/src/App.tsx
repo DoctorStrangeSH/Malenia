@@ -68,6 +68,11 @@ export default function App(){
   const [autoPrompt,setAutoPrompt]=useState<{id:number;text:string}|null>(null);
   /** Hand a work task to Malenia: new chat in the "Инвентаризация" project, sent right away. */
   const askMalenia=useCallback(async(text:string)=>{
+    // Work tasks rely on the user's instructions: without the knowledge base Malenia would only guess.
+    try{
+      const kb=await api<{documents:number}>("GET","/v1/assistant/kb");
+      if(kb&&!kb.documents){setPage("vault");setNotice("Сначала подключите базу знаний — там ваши инструкции. Укажите репозиторий и токен и нажмите «Сохранить и синхронизировать».");return;}
+    }catch{/* agent starting: continue */}
     let project:Project|undefined;
     try{
       const list=(await api<{projects:Project[]}>("GET","/v1/assistant/projects"))?.projects??[];
@@ -135,7 +140,7 @@ export default function App(){
       <div className="side-foot">
         <span className={"dot"+(connected?" on":"")}/>{connected?"Маления работает":"Запуск…"}
         <button className="icon-btn tiny" title="С чего начать?" aria-label="Открыть справку" onClick={()=>setShowHelp(true)}><CircleHelp size={15}/></button>
-        <span className="side-version">0.15.1</span>
+        <span className="side-version">0.15.2</span>
       </div>
     </aside>
 

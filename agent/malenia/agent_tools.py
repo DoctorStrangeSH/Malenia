@@ -324,9 +324,16 @@ class ToolBox:
     def _kb_search(self, args: dict) -> dict:
         if self.vault is None:
             raise ToolError("База знаний не подключена")
+        info = self.vault.describe()
+        if not info.get("documents"):
+            raise ToolError("База знаний пуста: пользователь ещё не подключил её или не синхронизировал. Скажи ему прямо: "
+                            "«Подключите базу знаний: Память → База знаний → репозиторий и токен → Сохранить и синхронизировать». "
+                            "Не делай вид, что инструкции нет.")
         found = self.vault.search(str(args.get("query") or "")[:500], 6)
         if not found:
-            return {"results": [], "note": "Ничего не найдено. Попробуй другие слова или скажи, что в базе этого нет."}
+            documents = [f"{item['title']} — {item['path']}" for item in info.get("items", [])[:60]]
+            return {"results": [], "note": "По этим словам ничего не найдено. Вот все документы базы — открой подходящий "
+                                           "через read_knowledge_document по пути:", "documents": documents}
         return {"results": [{"path": f["path"], "section": f["heading"], "text": f["content"][:1500]} for f in found]}
 
     def _kb_document(self, args: dict) -> dict:

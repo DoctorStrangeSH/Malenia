@@ -59,6 +59,7 @@ export function KnowledgeVault({ connected }: { connected: boolean }) {
   };
   const operational = info?.items.filter(item => (item.type || "").startsWith("operational")) ?? [];
   return <div className="settings-stack">
+    {info && !info.documents ? <div className="alert error">База знаний пока пуста — Маления не видит ваши инструкции и будет работать «вслепую». Подключите репозиторий ниже.</div> : null}
     <p className="muted">Подключите свою базу знаний — папку Obsidian или репозиторий GitHub с заметками в Markdown. Маления сама находит нужные разделы под задачу и понимает их как ваш опыт, а не как жёсткий алгоритм. Обновляется автоматически каждые 30 минут.</p>
     {error ? <div className="alert error">{error}<button onClick={() => setError("")}><X size={14} /></button></div> : null}
     {notice ? <div className="alert success">{notice}<button onClick={() => setNotice("")}><X size={14} /></button></div> : null}

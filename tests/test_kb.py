@@ -144,3 +144,14 @@ class KnowledgeVaultTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmptyVaultToolTests(unittest.TestCase):
+    def test_empty_knowledge_base_is_reported_plainly(self):
+        with tempfile.TemporaryDirectory() as folder:
+            store = TaskStore(Path(folder) / "db.sqlite3")
+            settings = SettingsStore(store)
+            tools = ToolBox(store, settings, vault=KnowledgeVault(store, settings, MemorySecretStore()))
+            outcome = tools.run("search_knowledge_base", {"query": "наименования"}, "c1")
+            self.assertEqual(outcome["status"], "error")
+            self.assertIn("Подключите базу знаний", outcome["error"])

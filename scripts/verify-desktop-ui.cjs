@@ -186,6 +186,12 @@ fs.mkdirSync(output,{recursive:true});
   assert.equal(queued.length,2);
   assert.ok(queued.every(x=>x.args.spreadsheetUrl.endsWith("gid=2")));
   await page.screenshot({path:path.join(output,"inventa-modes.png"),fullPage:true});
+  // Without a knowledge base Malenia would guess: the app sends the user to connect it first.
+  await page.getByRole("button",{name:/Статусы с Маленией/}).click();
+  await page.getByText(/База знаний пока пуста/).waitFor();
+  await page.evaluate(()=>{window.__uiMock.kb.documents=34;});
+  await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
+  await openInventory();
   // Hand the rest to Malenia: a new chat in the "Инвентаризация" project with the task.
   await page.getByRole("button",{name:/Статусы с Маленией/}).click();
   await page.getByLabel("Сообщение",{exact:true}).waitFor();
