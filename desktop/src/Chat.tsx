@@ -18,20 +18,50 @@ type Props = {
   onOpenSettings: () => void;
   onOpenTools: () => void;
   onUiAction: (action: AgentAction) => void;
+  visible?: boolean;
 };
 
 const MAX_FILES = 6;
 const MAX_TOTAL = 12 * 1024 * 1024;
 const ACCEPT = "image/*,.txt,.md,.csv,.tsv,.json,.xlsx,.xlsm,.docx,.pptx,.pdf,.log,.xml,.html";
 
-function readFile(file: File): Promise<Attachment> {
+function readDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Не удалось прочитать " + file.name));
-    reader.onload = () => resolve({ name: file.name || "вставка.png", mime: file.type, size: file.size,
-      data: String(reader.result).split(",", 2)[1] ?? "" });
+    reader.onerror = () => reject(new Error("Не удалось прочитать файл"));
+    reader.onload = () => resolve(String(reader.result));
     reader.readAsDataURL(file);
   });
+}
+
+/** Downscale a photo in the browser: smaller uploads, faster models, and a thumbnail for the chat. */
+async function scaleImage(dataUrl: string, max: number, quality: number): Promise<string> {
+  const image = new Image();
+  await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error("Не удалось открыть изображение")); image.src = dataUrl; });
+  const scale = Math.min(1, max / Math.max(image.naturalWidth, image.naturalHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) return dataUrl;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+async function readFile(file: File): Promise<Attachment> {
+  const name = file.name || "фото.png";
+  const original = await readDataUrl(file);
+  if (file.type.startsWith("image/") && !/svg/.test(file.type)) {
+    try {
+      const full = await scaleImage(original, 1600, 0.88);
+      const preview = await scaleImage(original, 360, 0.8);
+      return { name: name.replace(/\.(png|webp|gif|bmp|heic)$/i, ".jpg"), mime: "image/jpeg", size: Math.round(full.length * 0.75),
+        data: full.split(",", 2)[1] ?? "", preview };
+    } catch { /* fall back to the original file */ }
+  }
+  return { name, mime: file.type, size: file.size, data: original.split(",", 2)[1] ?? "" };
 }
 
 const SUGGESTIONS = [
@@ -46,6 +76,7 @@ const openLink = (url: string) => { void invoke("open_search_source", { url }).c
 
 export function Chat(props: Props) {
   const { connected, conversationId, onConversation, onChanged, instruction, onClearInstruction } = props;
+  const visible = props.visible ?? true;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -54,21 +85,31 @@ export function Chat(props: Props) {
   const [useWeb, setUseWeb] = useState(true);
   const [providers, setProviders] = useState<ProvidersInfo | null>(null);
   const [pendingText, setPendingText] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<Attachment[]>([]);
   const [files, setFiles] = useState<Attachment[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const addFiles = async (list: FileList | File[]) => {
-    const incoming = Array.from(list);
-    if (!incoming.length) return;
-    try {
-      const read = await Promise.all(incoming.map(readFile));
-      setFiles(current => {
-        const next = [...current, ...read].slice(0, MAX_FILES);
-        if (next.reduce((sum, f) => sum + f.size, 0) > MAX_TOTAL) { setError("Вложения больше 12 МБ"); return current; }
-        if (current.length + read.length > MAX_FILES) setError(`Можно приложить до ${MAX_FILES} файлов`);
-        return next;
-      });
-    } catch (reason) { setError(String(reason)); }
+    const incoming = Array.from(list).slice(0, MAX_FILES - files.length);
+    if (!incoming.length) { if (list.length) setError(`Можно приложить до ${MAX_FILES} файлов`); return; }
+    // Show the chips immediately with a spinner, like ChatGPT/Claude, then fill them in.
+    const placeholders = incoming.map((file, index) => ({ name: file.name || "фото", mime: file.type, size: file.size, data: "", loading: true, key: Date.now() + "-" + index }));
+    setFiles(current => [...current, ...placeholders]);
+    await Promise.all(incoming.map(async (file, index) => {
+      const key = placeholders[index].key;
+      try {
+        const read = await readFile(file);
+        setFiles(current => {
+          const next = current.map(item => (item as Attachment & { key?: string }).key === key ? { ...read, key } : item);
+          if (next.reduce((sum, f) => sum + f.size, 0) > MAX_TOTAL) { setError("Вложения больше 12 МБ"); return current.filter(item => (item as Attachment & { key?: string }).key !== key); }
+          return next;
+        });
+      } catch (reason) {
+        setError(String(reason));
+        setFiles(current => current.filter(item => (item as Attachment & { key?: string }).key !== key));
+      }
+    }));
   };
+  const [dragging, setDragging] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const key = conversationId ?? "new";
@@ -83,7 +124,13 @@ export function Chat(props: Props) {
       setLocalReady(hw.ollama_running && hw.installed.length > 0);
     } catch { /* optional */ }
   }, []);
-  useEffect(() => { if (connected) void loadProviders(); }, [connected, loadProviders]);
+  useEffect(() => { if (connected && visible) void loadProviders(); }, [connected, visible, loadProviders]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const refresh = () => void loadProviders();
+    window.addEventListener("malenia:models-changed", refresh);
+    return () => window.removeEventListener("malenia:models-changed", refresh);
+  }, [loadProviders]);
 
   useEffect(() => {
     let active = true;
@@ -101,13 +148,13 @@ export function Chat(props: Props) {
   const send = async (textOverride?: string) => {
     const sending = files;
     const text = (textOverride ?? draft).trim() || (sending.length ? "Посмотри вложения" : "");
-    if (!text || busy || !connected) return;
-    setBusy(true); setError(""); setPendingText(text); setDraft(""); setFiles([]);
+    if (!text || busy || !connected || sending.some(f => f.loading)) return;
+    setBusy(true); setError(""); setPendingText(text); setPendingFiles(sending); setDraft(""); setFiles([]);
     try {
       const reply = await api<ChatReply>("POST", "/v1/assistant/chat", {
         message: text, conversation_id: conversationId, private: privateMode, use_web: useWeb,
         instruction: instruction ? `${instruction.title}\n${instruction.instructions}` : null,
-        attachments: sending.map(({ name, mime, data }) => ({ name, mime, data })),
+        attachments: sending.map(({ name, mime, data, preview }) => ({ name, mime, data, preview })),
       });
       setMessages(current => [...current, reply.user_message, reply.message]);
       for (const action of reply.message.meta?.actions ?? []) if (action.status === "ui") props.onUiAction(action);
@@ -118,7 +165,7 @@ export function Chat(props: Props) {
       onChanged();
     } catch (reason) {
       setError(String(reason)); setDraft(text); setFiles(sending);
-    } finally { setBusy(false); setPendingText(""); inputRef.current?.focus(); }
+    } finally { setBusy(false); setPendingText(""); setPendingFiles([]); inputRef.current?.focus(); }
   };
 
   const rate = async (message: ChatMessage, rating: number, comment?: string) => {
@@ -137,7 +184,12 @@ export function Chat(props: Props) {
   };
 
   const empty = !messages.length && !busy;
-  return <section className="chat" aria-label="Чат">
+  return <section className={"chat" + (dragging ? " dragging" : "")} aria-label="Чат"
+    onDragEnter={event => { if (Array.from(event.dataTransfer.types).includes("Files")) { event.preventDefault(); setDragging(true); } }}
+    onDragOver={event => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }}
+    onDragLeave={event => { if (event.currentTarget === event.target || !event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
+    onDrop={event => { event.preventDefault(); setDragging(false); if (event.dataTransfer.files.length) void addFiles(event.dataTransfer.files); }}>
+    {dragging ? <div className="drop-overlay"><Paperclip size={28} /><b>Отпустите, чтобы прикрепить</b><small>Фото, Excel, Word, PDF, текст</small></div> : null}
     <h1 className="visually-hidden">Ассистент</h1>
     <div className="chat-scroll" ref={listRef}>
       {empty ? <div className="chat-welcome">
@@ -155,7 +207,9 @@ export function Chat(props: Props) {
       </div> : <div className="chat-thread">
         {messages.map(message => <Message key={message.id} message={message} onRate={rate} onDecide={decide} />)}
         {busy ? <>
-          <div className="msg user"><div className="bubble">{pendingText}</div></div>
+          <div className="msg user"><div className="bubble">
+            {pendingFiles.some(f => f.preview) ? <div className="bubble-photos">{pendingFiles.filter(f => f.preview).map((file, index) => <img key={index} src={file.preview} alt={file.name} />)}</div> : null}
+            {pendingText}</div></div>
           <div className="msg assistant"><Logo size={28} className="avatar" /><div className="thinking"><span /><span /><span /></div></div>
         </> : null}
       </div>}
@@ -164,12 +218,10 @@ export function Chat(props: Props) {
     <div className="composer-wrap">
       {error ? <div className="chat-error" role="alert"><span>{error}</span>{/настро|ключ|модел/i.test(error) ? <button onClick={props.onOpenSettings}>Открыть настройки</button> : null}<button aria-label="Скрыть ошибку" onClick={() => setError("")}><X size={14} /></button></div> : null}
       {instruction ? <div className="instruction-chip"><ListChecks size={14} /><span>Инструкция: <b>{instruction.title}</b></span><button onClick={onClearInstruction}>Убрать</button></div> : null}
-      <div className={"composer" + (privateMode ? " private" : "")}
-        onDragOver={event => event.preventDefault()}
-        onDrop={event => { event.preventDefault(); void addFiles(event.dataTransfer.files); }}>
-        {files.length ? <div className="attachments">{files.map((file, index) => <span key={index} className="attachment">
-          {file.mime.startsWith("image/") ? <img src={`data:${file.mime};base64,${file.data}`} alt="" /> : <FileText size={14} />}
-          <span>{file.name}</span>
+      <div className={"composer" + (privateMode ? " private" : "")}>
+        {files.length ? <div className="attachments">{files.map((file, index) => <span key={index} className={"attachment" + (file.preview ? " photo" : "") + (file.loading ? " loading" : "")}>
+          {file.loading ? <LoaderCircle className="spin" size={16} /> : file.preview ? <img src={file.preview} alt={file.name} /> : <FileText size={14} />}
+          {file.preview ? null : <span>{file.loading ? "Загружается…" : file.name}</span>}
           <button aria-label={`Убрать ${file.name}`} onClick={() => setFiles(current => current.filter((_, i) => i !== index))}><X size={12} /></button>
         </span>)}</div> : null}
         <textarea ref={inputRef} aria-label="Сообщение" rows={1} value={draft} disabled={!connected}
@@ -185,7 +237,7 @@ export function Chat(props: Props) {
           <button className={"chip-toggle" + (privateMode ? " on private" : "")} aria-pressed={privateMode}
             title="Только локальная модель или ваш сервер, без облака" onClick={() => setPrivateMode(value => !value)}><Lock size={14} />Приватно</button>
           <span className="composer-model">{privateMode ? "Локально" : providers ? (cloudReady && providers.mode !== "local" ? "Облако + резерв" : providers.local_model ? providers.local_model.replace(/:latest$/, "") : "Локальная модель") : ""}</span>
-          <button className="send" aria-label="Отправить" disabled={(!draft.trim() && !files.length) || busy || !connected} onClick={() => void send()}>
+          <button className="send" aria-label="Отправить" disabled={(!draft.trim() && !files.length) || busy || !connected || files.some(f => f.loading)} onClick={() => void send()}>
             {busy ? <LoaderCircle className="spin" size={17} /> : <ArrowUp size={18} />}
           </button>
         </div>
@@ -201,8 +253,10 @@ function Message({ message, onRate, onDecide }: { message: ChatMessage; onRate: 
   const [asking, setAsking] = useState(false);
   const [comment, setComment] = useState("");
   if (message.role === "user") return <div className="msg user"><div className="bubble">
-    {message.meta?.attachments?.length ? <div className="bubble-files">{message.meta.attachments.map(file =>
-      <span key={file.name}>{file.kind === "image" ? <ImageIcon size={13} /> : <FileText size={13} />}{file.name}</span>)}</div> : null}
+    {message.meta?.attachments?.some(file => file.preview) ? <div className="bubble-photos">{message.meta.attachments.filter(file => file.preview).map((file, index) =>
+      <img key={index} src={file.preview} alt={file.name} />)}</div> : null}
+    {message.meta?.attachments?.some(file => !file.preview) ? <div className="bubble-files">{message.meta.attachments.filter(file => !file.preview).map((file, index) =>
+      <span key={index}>{file.kind === "image" ? <ImageIcon size={13} /> : <FileText size={13} />}{file.name}</span>)}</div> : null}
     {message.content}</div></div>;
   const sources = message.meta?.sources ?? [];
   const learned = message.meta?.learned ?? [];

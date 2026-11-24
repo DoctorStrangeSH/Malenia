@@ -681,3 +681,34 @@ details.card[open]>summary{margin-bottom:14px}
 .advanced-setup input{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:9px 12px;font-size:13.5px;color:var(--text);font-family:Consolas,monospace}
 .advanced-row{display:flex;gap:8px}
 .browser-setup-steps code{font-family:Consolas,monospace;font-size:12.5px;background:#24252d;border-radius:5px;padding:1px 5px}
+
+/* 0.13 — photos in chat, drag & drop */
+.chat{position:relative}
+.drop-overlay{position:absolute;inset:12px;z-index:20;display:grid;place-content:center;justify-items:center;gap:8px;border:2px dashed #6f62d8;border-radius:20px;background:#15131fe6;color:#d8d2ff;pointer-events:none}
+.drop-overlay b{font-size:17px}.drop-overlay small{color:var(--muted)}
+.attachment.photo{padding:0;border:0;background:none;position:relative}
+.attachment.photo img{width:72px;height:72px;border-radius:12px;object-fit:cover;border:1px solid var(--line2);display:block}
+.attachment.photo button{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:#2a2b33;border:1px solid var(--line2);color:var(--text)}
+.attachment.loading{min-width:72px;min-height:40px;justify-content:center;color:var(--muted)}
+.bubble-photos{display:flex;flex-wrap:wrap;gap:6px;margin:-2px -4px 8px}
+.bubble-photos img{max-width:260px;max-height:220px;border-radius:12px;object-fit:cover;display:block;border:1px solid #3a3b46}
+
+/* 0.13 knowledge base */
+.kb-form{display:grid;gap:12px}
+.kb-form label{display:grid;gap:6px}
+.kb-form label span{display:flex;align-items:center;gap:6px;font-weight:600;font-size:13px}
+.kb-form em{font-style:normal;font-weight:400;color:var(--muted,#8a8f98);font-size:12px}
+.kb-form em.ok{color:#3fb27f}
+.kb-form details{font-size:13px;color:var(--muted,#8a8f98)}
+.kb-form details ol{margin:6px 0 4px 18px;padding:0;display:grid;gap:4px}
+.kb-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kb-stats div{display:grid;gap:2px}
+.kb-stats b{font-size:18px}
+.kb-stats small{color:var(--muted,#8a8f98)}
+.kb-error{grid-column:1/-1;color:#e5484d;margin:0}
+.kb-list{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:6px;max-height:360px;overflow:auto}
+.kb-list li{display:grid}
+.kb-list small{color:var(--muted,#8a8f98);font-size:12px}
+@media (max-width:720px){.kb-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kb-form .row-actions{display:flex;gap:8px;flex-wrap:wrap}
+.kb-form input{width:100%;background:#0e131b;border:1px solid #303949;border-radius:8px;padding:10px 11px;color:#e8edf6;outline:none;font-size:12px}.kb-form input:focus{border-color:#8879e8;box-shadow:0 0 0 3px #8b7bed20}

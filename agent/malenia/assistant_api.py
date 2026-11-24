@@ -10,6 +10,7 @@ from urllib.parse import parse_qs
 from . import hardware
 from . import training
 from .agent_tools import ToolBox, ToolError
+from .kb import KnowledgeBaseError, KnowledgeVault
 from .assistant import Assistant, AssistantError
 from .knowledge import KnowledgeBase
 from .lan import LanServer
@@ -51,7 +52,8 @@ class AssistantServices:
         self.router = router or ModelRouter(self.settings, secrets or _LazySecrets(),
                                             hardware_recommendation=lambda: self.hardware_profile()["recommendation"]["models"])
         knowledge, skills = KnowledgeBase(store), SkillRegistry(store)
-        self.toolbox = ToolBox(store, self.settings, skills=skills, knowledge=knowledge)
+        self.vault = KnowledgeVault(store, self.settings, secrets or self.router.secrets)
+        self.toolbox = ToolBox(store, self.settings, skills=skills, knowledge=knowledge, vault=self.vault)
         self.assistant = Assistant(store, self.router, knowledge, skills, web=web, background=background,
                                    toolbox=self.toolbox)
         self.lan = LanServer(self.settings, self.router)
@@ -67,6 +69,7 @@ AI_ERRORS = {
     "ai_tools_unsupported": "Модель не поддерживает инструменты. Выберите другую модель.",
     "ai_region_blocked": "Этот провайдер недоступен из вашего региона. Используйте GigaChat, локальную модель или свой сервер.",
     "ai_certificate": "Не удалось проверить сертификат GigaChat. Установите сертификаты Минцифры (gosuslugi.ru/crt) и перезапустите Малению.",
+    "ai_no_vision_model": "Чтобы смотреть фото, нужна модель со зрением. Скачайте Gemma 4 в «Настройки → Модели ИИ» (она видит картинки) или подключите облачную модель со зрением.",
     "ai_payment_required": "Бесплатный лимит этой модели закончился. Выберите другую модель или провайдера.",
 }
 
@@ -130,6 +133,29 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
                         handler._send(422, {"error": "invalid_workspace", "message": str(error)})
             else:
                 return False
+            return True
+
+        # ---- knowledge base (Obsidian / GitHub) ----------------------------
+        if path == "/v1/assistant/kb":
+            try:
+                if method == "GET":
+                    handler._send(200, services.vault.describe())
+                elif method == "POST":
+                    payload = handler._read_json(4096)
+                    if payload is not None:
+                        handler._send(200, services.vault.configure(payload))
+                else:
+                    return False
+            except KnowledgeBaseError as error:
+                handler._send(422, {"error": "kb_invalid", "message": str(error)})
+            return True
+        if method == "POST" and path == "/v1/assistant/kb/sync":
+            if int(handler.headers.get("Content-Length", "0") or 0):
+                handler._read_json(1024)
+            try:
+                handler._send(200, services.vault.sync())
+            except KnowledgeBaseError as error:
+                handler._send(422, {"error": "kb_sync_failed", "message": str(error)})
             return True
 
         # ---- own model ----------------------------------------------------

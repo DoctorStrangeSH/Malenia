@@ -36,7 +36,15 @@ SYSTEM_PROMPT = """Ты — Маления, персональная ИИ-пом
 Ты не только отвечаешь, но и действуешь: считай через calculate, сохраняй планы, читай и создавай файлы в рабочей папке, читай и правь Google-таблицы, открывай и запускай инвентаризацию. Если задачу можно выполнить инструментом — выполни, а не объясняй пользователю, как сделать самому.
 Действия, которые меняют файлы или таблицы, требуют подтверждения: вызови инструмент, и пользователь увидит кнопку «Выполнить». Не утверждай, что такое действие уже сделано.
 Пользователь — твой учитель. Когда он объясняет, как что-то делать, или поправляет тебя («делай так», «в следующий раз…», «запомни порядок»), вызови learn_skill и подтверди, что выучил. Применяй выученные навыки.
-Не выдумывай факты и не утверждай, что выполнил действие, если не выполнял. Если чего-то не знаешь — скажи прямо.
+Как ты работаешь над задачей — как опытная коллега, а не как скрипт:
+1. Пойми цель и что уже известно; если не хватает важного — уточни одним вопросом или найди сама.
+2. Составь короткий план и выбери подходящие инструменты и знания (база знаний, навыки, память).
+3. Действуй, затем проверь результат: совпадает ли он с целью, нет ли противоречий.
+4. Если путь не сработал — проанализируй почему и попробуй другой способ (другая формулировка поиска, другой источник), прежде чем сдаваться.
+5. Отличай подтверждённый факт от вывода и предположения; предположения помечай.
+Инструкции из базы знаний — это опыт и проверенные маршруты, а не жёсткий алгоритм: понимай, зачем каждый шаг, и применяй их с учётом ситуации.
+Если просят найти товар по фото: сначала внимательно рассмотри фото и опиши товар (бренд, надписи, модель, цвет, материал, детали), затем ищи через shop_search несколькими разными формулировками, дай ссылки на подходящие карточки с названиями и ссылку на поиск в магазине. Честно скажи, если точного совпадения нет.
+Не выдумывай факты и не утверждай, что выполнила действие, если не выполняла. Если чего-то не знаешь — скажи прямо.
 Сегодня {today}."""
 
 TOOLS = [
@@ -272,6 +280,13 @@ class Assistant:
         if memories:
             system += "\n\nЧто ты знаешь о пользователе (учитывай, но не пересказывай без повода):\n" + "\n".join(
                 f"- [{m['kind']}] {m['content']}" for m in memories)
+        vault = getattr(self.toolbox, "vault", None) if self.toolbox is not None else None
+        knowledge_used = vault.context_for(text) if vault is not None else []
+        if knowledge_used:
+            system += ("\n\nФрагменты из базы знаний пользователя, которые могут относиться к задаче. Это опыт и проверенные "
+                       "маршруты: пойми их смысл и применяй с учётом ситуации; если фрагмента мало — открой документ через "
+                       "read_knowledge_document:\n" + "\n\n".join(
+                           f"[{item['path']} › {item['heading']}]\n{item['content']}" for item in knowledge_used))
         skills = []
         if self.skills is not None:
             try:
@@ -305,8 +320,9 @@ class Assistant:
         skills_learned: list[dict] = []
         result = None
         try:
-            for _ in range(5):
-                result = self.router.chat(messages, tools=tools, private=private, max_tokens=4096)
+            for _ in range(8):
+                result = self.router.chat(messages, tools=tools, private=private, max_tokens=4096,
+                                          needs_vision=bool(images))
                 if not result.tool_calls:
                     break
                 messages.append({"role": "assistant", "content": result.content or "", "tool_calls": [
@@ -318,7 +334,8 @@ class Assistant:
                     messages.append({"role": "tool", "tool_call_id": call["id"], "name": call["name"],
                                      "content": output})
             else:
-                result = self.router.chat(messages, tools=None, private=private, max_tokens=4096)
+                result = self.router.chat(messages, tools=None, private=private, max_tokens=4096,
+                                          needs_vision=bool(images))
         except ProviderError as error:
             with self.store._session() as db:
                 db.execute("DELETE FROM chat_messages WHERE id = ?", (user_message["id"],))
@@ -327,7 +344,8 @@ class Assistant:
             raise AssistantError(f"ai_{error.code}", 503 if error.code != "invalid_key" else 401) from None
 
         answer = (result.content or "").strip() or "Не удалось сформулировать ответ. Попробуйте переформулировать вопрос."
-        meta = {"sources": sources, "memory_ids": [m["id"] for m in memories],
+        meta = {"knowledge": [{"path": k["path"], "heading": k["heading"]} for k in knowledge_used],
+                "sources": sources, "memory_ids": [m["id"] for m in memories],
                 "skill_ids": [s["id"] for s in skills], "learned": learned, "private": private,
                 "actions": actions, "skills_learned": skills_learned}
         with self.store._session() as db:

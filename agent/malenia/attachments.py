@@ -220,7 +220,12 @@ def prepare(attachments) -> tuple[str, list[dict], list[dict]]:
         mime = str(item.get("mime") or "")
         if mime in IMAGE_TYPES:
             images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{item['data']}"}})
-            meta.append({"name": name, "kind": "image", "size": len(data)})
+            entry = {"name": name, "kind": "image", "size": len(data)}
+            preview = item.get("preview")
+            # A small thumbnail made by the app, kept so the chat can show the photo later.
+            if isinstance(preview, str) and len(preview) <= 300_000 and re.fullmatch(r"data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+", preview):
+                entry["preview"] = preview
+            meta.append(entry)
             continue
         text = extract_text(name, data)
         truncated = len(text) > MAX_TEXT

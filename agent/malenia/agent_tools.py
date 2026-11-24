@@ -17,6 +17,7 @@ import re
 import uuid
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 from .store import TaskStore, _now
 
@@ -140,6 +141,14 @@ class Workspace:
         return str(path.relative_to(self.root()))
 
 
+SHOPS = {
+    "market": {"domain": "market.yandex.ru", "search": "https://market.yandex.ru/search?text="},
+    "lamoda": {"domain": "lamoda.ru", "search": "https://www.lamoda.ru/catalogsearch/result/?q="},
+    "ozon": {"domain": "ozon.ru", "search": "https://www.ozon.ru/search/?text="},
+    "wildberries": {"domain": "wildberries.ru", "search": "https://www.wildberries.ru/catalog/0/search.aspx?search="},
+    "avito": {"domain": "avito.ru", "search": "https://www.avito.ru/rossiya?q="},
+}
+
 SPREADSHEET = re.compile(r"/spreadsheets/d/([A-Za-z0-9_-]{20,})")
 
 
@@ -156,7 +165,8 @@ def spreadsheet_id(value: str) -> str:
 class ToolBox:
     """Registry of tools offered to the model."""
 
-    def __init__(self, store: TaskStore, settings, skills=None, sheets=None, web=None, knowledge=None):
+    def __init__(self, store: TaskStore, settings, skills=None, sheets=None, web=None, knowledge=None, vault=None):
+        self.vault = vault
         self.store = store
         self.settings = settings
         self.skills = skills
@@ -222,12 +232,64 @@ class ToolBox:
         self.add("browser_tabs", "Список рабочих вкладок, которые пользователь передал Малении из браузера.",
                  _schema({}, []), "safe",
                  lambda a: {"tabs": [{"title": t["title"], "url": t["url"]} for t in self.store.list_browser_tabs(20)]})
+        self.add("shop_search",
+                 "Найти товар в интернет-магазине (Яндекс Маркет, Lamoda, Ozon, Wildberries, Avito) по описанию. "
+                 "Возвращает найденные карточки товаров и ссылку на поиск в самом магазине.",
+                 _schema({"query": {**text, "description": "Описание товара: бренд, модель, тип, цвет, надписи"},
+                          "shop": {"type": "string", "enum": list(SHOPS) + ["any"]}}, ["query"]),
+                 "safe", self._shop_search)
+        self.add("search_knowledge_base",
+                 "Поиск по базе знаний пользователя (рабочие инструкции, процедуры, архитектура, решения). "
+                 "Используй перед работой с рабочими процессами (инвентаризация, Asgard, статусы) и когда нужен опыт пользователя.",
+                 _schema({"query": text}, ["query"]), "safe", self._kb_search)
+        self.add("read_knowledge_document",
+                 "Открыть документ базы знаний целиком или его раздел, чтобы понять процедуру полностью, а не по фрагменту.",
+                 _schema({"path": {**text, "description": "Путь документа из результатов поиска или часть названия"},
+                          "section": {**text, "description": "Необязательно: часть заголовка раздела"}}, ["path"]),
+                 "safe", self._kb_document)
         self.add("open_inventory",
                  "Открыть инструмент инвентаризации (сверка листа ИНВенты с DataLens и Asgard) и при start=true запустить проверку выбранного листа.",
                  _schema({"start": {"type": "boolean"}}, []), "ui", lambda a: {"ui": "open_inventory", "start": bool(a.get("start"))},
                  lambda a: "Запустить проверку инвентаризации" if a.get("start") else "Открыть инвентаризацию")
 
     # ---- handlers -------------------------------------------------------
+    def _kb_search(self, args: dict) -> dict:
+        if self.vault is None:
+            raise ToolError("База знаний не подключена")
+        found = self.vault.search(str(args.get("query") or "")[:500], 6)
+        if not found:
+            return {"results": [], "note": "Ничего не найдено. Попробуй другие слова или скажи, что в базе этого нет."}
+        return {"results": [{"path": f["path"], "section": f["heading"], "text": f["content"][:1500]} for f in found]}
+
+    def _kb_document(self, args: dict) -> dict:
+        if self.vault is None:
+            raise ToolError("База знаний не подключена")
+        from .kb import KnowledgeBaseError
+        try:
+            return self.vault.document(str(args.get("path") or "")[:300], (args.get("section") or None))
+        except KnowledgeBaseError as error:
+            raise ToolError(str(error)) from None
+
+    def _shop_search(self, args: dict) -> dict:
+        if self.web is None:
+            raise ToolError("Поиск недоступен")
+        query = re.sub(r"\s+", " ", str(args.get("query") or "")).strip()[:200]
+        if not query:
+            raise ToolError("Нужно описание товара")
+        shop = args.get("shop") if args.get("shop") in SHOPS else "any"
+        results = []
+        domains = [SHOPS[shop]["domain"]] if shop != "any" else [s["domain"] for s in SHOPS.values()][:2]
+        for domain in domains:
+            try:
+                for item in self.web.search(f"site:{domain} {query}", limit=8):
+                    results.append({"title": item.get("title"), "url": item.get("url"), "snippet": item.get("excerpt", "")[:200]})
+            except Exception:
+                continue
+        links = {name: info["search"] + quote(query) for name, info in SHOPS.items() if shop in ("any", name)}
+        return {"results": results[:10], "shop_search_links": links,
+                "note": "Если карточки не найдены, предложи пользователю ссылку на поиск в магазине."}
+
+
     def _create_plan(self, args: dict) -> dict:
         title = str(args.get("title") or "").strip()[:200]
         if not title:

@@ -252,3 +252,51 @@ class TrainingTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VisionAndShopTests(Base):
+    def test_photo_goes_to_a_local_model_that_can_see(self):
+        class Local(FakeLocal):
+            def list_models(self):
+                return ["qwen3:1.7b", "gemma4:12b"]
+
+            def capabilities(self, model):
+                return {"vision", "tools"} if model.startswith("gemma4") else {"tools"}
+
+        local = Local([ChatResult("Это ботинок")])
+        router = ModelRouter(self.settings, MemorySecretStore(), lambda: ["qwen3:1.7b"], ollama=local)
+        router.save_config({**router.config(), "local_model": "qwen3:1.7b"})
+        result = router.chat([{"role": "user", "content": "что на фото"}], private=True, needs_vision=True)
+        self.assertEqual(result.model, "gemma4:12b")
+
+    def test_no_vision_model_is_explained(self):
+        from malenia.providers import ProviderError
+        local = FakeLocal([])
+        local.capabilities = lambda model: {"tools"}
+        router = ModelRouter(self.settings, MemorySecretStore(), lambda: [], ollama=local)
+        with self.assertRaises(ProviderError) as caught:
+            router.chat([{"role": "user", "content": "x"}], private=True, needs_vision=True)
+        self.assertEqual(caught.exception.code, "no_vision_model")
+
+    def test_shop_search_restricts_to_the_shop_and_gives_a_search_link(self):
+        queries = []
+
+        class Web:
+            def search(self, query, limit=4):
+                queries.append((query, limit))
+                return [{"title": "Ботинки Ecco Track 25", "url": "https://www.lamoda.ru/p/rtl1/", "excerpt": "Ботинки"}]
+
+        self.toolbox.web = Web()
+        result = self.toolbox.run("shop_search", {"query": "ботинки ecco коричневые", "shop": "lamoda"}, "c")
+        self.assertEqual(queries, [("site:lamoda.ru ботинки ecco коричневые", 8)])
+        self.assertEqual(result["result"]["results"][0]["url"], "https://www.lamoda.ru/p/rtl1/")
+        self.assertTrue(result["result"]["shop_search_links"]["lamoda"].startswith("https://www.lamoda.ru/catalogsearch/result/?q="))
+
+
+class PreviewTests(unittest.TestCase):
+    def test_only_safe_small_previews_are_kept(self):
+        good = "data:image/jpeg;base64," + base64.b64encode(b"thumb").decode()
+        _, _, meta = prepare([{"name": "a.jpg", "mime": "image/jpeg", "data": base64.b64encode(b"x").decode(), "preview": good},
+                              {"name": "b.jpg", "mime": "image/jpeg", "data": base64.b64encode(b"x").decode(), "preview": "javascript:alert(1)"}])
+        self.assertEqual(meta[0]["preview"], good)
+        self.assertNotIn("preview", meta[1])

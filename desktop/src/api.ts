@@ -12,13 +12,13 @@ export type AgentAction = {
   id: string; tool: string; summary: string; status: "pending" | "running" | "done" | "failed" | "cancelled" | "ui";
   arguments: Record<string, unknown>; result: ({ ui?: string; start?: boolean; error?: string } & Record<string, unknown>) | null;
 };
-export type Attachment = { name: string; mime: string; data: string; size: number };
+export type Attachment = { name: string; mime: string; data: string; size: number; preview?: string; loading?: boolean };
 export type ChatMessage = {
   id: string; conversation_id: string; role: "user" | "assistant"; content: string;
   created_at: string; provider: string | null; model: string | null; feedback: number;
   meta: {
     sources?: Source[]; learned?: { id: string; content: string }[]; private?: boolean;
-    attachments?: { name: string; kind: "image" | "file"; size: number }[];
+    attachments?: { name: string; kind: "image" | "file"; size: number; preview?: string }[];
     actions?: AgentAction[]; skills_learned?: { id: string; title: string }[];
   };
 };

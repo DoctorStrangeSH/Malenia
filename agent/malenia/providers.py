@@ -373,6 +373,19 @@ class OllamaProvider:
                 if isinstance(item, dict) and isinstance(item.get("name"), str)
                 and not item.get("remote_host") and "embed" not in item["name"]]
 
+    _capabilities: dict[str, set[str]] = {}
+
+    def capabilities(self, model: str) -> set[str]:
+        """Model features reported by Ollama (e.g. "vision", "tools", "thinking")."""
+        if model not in self._capabilities:
+            try:
+                data = _post_json(self.opener, self.base_url + "/api/show", {"model": model}, {}, 10)
+                caps = data.get("capabilities")
+                self._capabilities[model] = {str(c) for c in caps} if isinstance(caps, list) else set()
+            except ProviderError:
+                return set()
+        return self._capabilities[model]
+
     @staticmethod
     def _convert(messages: list[dict]) -> list[dict]:
         converted = []
@@ -559,14 +572,33 @@ class ModelRouter:
             return clouds + server
         return clouds + server + ["ollama"]
 
+    VISION_HINT = re.compile(r"gemini|gemma[-_]?[34]|vl|vision|llava|pixtral|scout|maverick|gpt-4o|gpt-5|minicpm-v", re.I)
+
+    def _vision_local_model(self, preferred: str | None) -> str | None:
+        caps = getattr(self.ollama, "capabilities", None)
+        candidates = ([preferred] if preferred else []) + [m for m in self.models("ollama") if m != preferred]
+        for model in candidates:
+            if caps is not None and "vision" in caps(model):
+                return model
+        return None
+
     def chat(self, messages: list[dict], tools: list[dict] | None = None, private: bool = False,
-             **options) -> ChatResult:
+             needs_vision: bool = False, **options) -> ChatResult:
         errors = []
         for provider_id in self.candidates(private):
             try:
                 model = self.model_for(provider_id)
+                if needs_vision:
+                    if provider_id == "gigachat":
+                        errors.append((provider_id, "no_vision_model"))
+                        continue
+                    if provider_id == "ollama":
+                        model = self._vision_local_model(model)
+                    elif model and provider_id != "malenia" and not self.VISION_HINT.search(model):
+                        errors.append((provider_id, "no_vision_model"))
+                        continue
                 if not model:
-                    errors.append((provider_id, "no_model"))
+                    errors.append((provider_id, "no_vision_model" if needs_vision else "no_model"))
                     continue
                 provider = self.provider(provider_id)
                 chosen = (self.config().get("local_model") if provider_id == "ollama"
@@ -598,6 +630,8 @@ class ModelRouter:
             raise ProviderError("rate_limited", "; ".join(f"{p}:{c}" for p, c in errors))
         if len(errors) == 1 and errors[0][1] in ("invalid_key", "region_blocked", "certificate", "payment_required"):
             raise ProviderError(errors[0][1], errors[0][0])
+        if needs_vision and all(code in ("no_vision_model", "bad_request", "unavailable") for code in codes) and "no_vision_model" in codes:
+            raise ProviderError("no_vision_model", "; ".join(f"{p}:{c}" for p, c in errors))
         raise ProviderError("unavailable", "; ".join(f"{p}:{c}" for p, c in errors))
 
     def describe(self) -> dict:

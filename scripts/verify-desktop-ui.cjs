@@ -17,7 +17,7 @@ fs.mkdirSync(output,{recursive:true});
   const errors=[];page.on("pageerror",e=>errors.push(String(e)));
   await page.addInitScript(()=>{
    const base="https://docs.google.com/spreadsheets/d/demo/edit";
-   const state=window.__uiMock={running:false,authorized:false,extensionId:null,skills:Array.from({length:1000},(_,i)=>({id:"rule-"+i,title:"Правило "+i,terms:"",description:"",instructions:"Шаг "+i,status:"approved",builtin:false})),calls:[],job:null};
+   const state=window.__uiMock={running:false,authorized:false,extensionId:null,skills:Array.from({length:1000},(_,i)=>({id:"rule-"+i,title:"Правило "+i,terms:"",description:"",instructions:"Шаг "+i,status:"approved",builtin:false})),calls:[],job:null,kb:{folder:"",repo:"",branch:"",has_token:false,documents:0,sections:0,items:[],last_sync:null,status:{state:"idle",error:null}}};
    window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
     state.calls.push({command,args});
     if(command==="start_agent"){state.running=true;return "Маления запущена";}
@@ -54,6 +54,8 @@ fs.mkdirSync(output,{recursive:true});
      }
      if(p.startsWith("/v1/ai/hardware"))return {hardware:{ram_gb:16,gpu:null,vram_gb:0,cpu_threads:8,os:"Windows",recommendation:{tier:"cpu-16",label:"16 ГБ",models:["qwen3.5:4b"],note:""}},installed:[],ollama_running:false,pull:{status:"idle",model:null,completed:0,total:0,error:null}};
      if(p==="/v1/assistant/memories")return {memories:[]};
+     if(p==="/v1/assistant/kb/sync")return {...state.kb,documents:34,sections:813,last_sync:"2026-11-24T10:00:00Z",items:[{path:"05-Операционные-инструкции/INVENTORY_PRODUCT_NAMING.md",title:"Наименования товаров",type:"operational-instruction",status:"active"}],status:{state:"done",error:null}};
+     if(p==="/v1/assistant/kb"){if(args.method==="POST"){state.kb={...state.kb,...args.body,has_token:state.kb.has_token||!!args.body.token};delete state.kb.token;}return state.kb;}
      if(p==="/v1/ai/detect-key")return {provider:"gigachat"};
      if(p==="/v1/assistant/workspace")return {path:"C:\\Users\\demo\\Documents\\Маления"};
      if(p==="/v1/assistant/training")return {stats:{conversations:1,answers:2,liked:1,disliked:0,memories:0,lessons:0,skills:0,ready_for_finetune:false},personal_model:"sherlock-personal"};
@@ -183,6 +185,15 @@ fs.mkdirSync(output,{recursive:true});
    await mainNav.getByRole("button",{name:"Память",exact:true}).click();
    await page.getByRole("navigation",{name:"Знания и навыки"}).getByRole("button",{name:"Своя модель",exact:true}).click();
    await page.getByText("Чему Маления уже научилась").waitFor();
+   if(width===1440){
+    await page.getByRole("navigation",{name:"Знания и навыки"}).getByRole("button",{name:"База знаний",exact:true}).click();
+    await page.getByLabel("Репозиторий GitHub").fill("DoctorStrangeSH/Malenia_Knowledge_Base");
+    await page.getByLabel("Токен GitHub").fill("github_pat_"+"x".repeat(30));
+    await page.getByRole("button",{name:/Сохранить и синхронизировать/}).click();
+    await page.getByText(/Готово: 34 документов, 813 разделов/).waitFor();
+    await page.getByText("сохранён",{exact:true}).waitFor();
+    await page.screenshot({path:path.join(output,"kb-1440.png"),fullPage:true});
+   }
    for(const destination of ["Чат","Инструменты","Память","Настройки"]){
     await mainNav.getByRole("button",{name:destination,exact:true}).click();
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), destination+" horizontal overflow at "+width);

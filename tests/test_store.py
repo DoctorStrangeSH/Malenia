@@ -101,6 +101,20 @@ class TaskStoreTests(unittest.TestCase):
         self.assertFalse(self.store.finish_browser_audit(second["job_id"], True))
         self.assertEqual(self.store.latest_browser_audit_job()["status"], "expired")
 
+    def test_running_job_lives_while_extension_sends_heartbeats(self):
+        job = self.store.request_browser_audit()
+        self.assertEqual(self.store.claim_browser_audit()["job_id"], job["job_id"])
+        # 40 minutes after creation, but the extension is still checking in.
+        with self.store._session() as db:
+            db.execute("UPDATE browser_audit_job SET created_unix=created_unix-2400 WHERE id=1")
+        self.assertTrue(self.store.browser_audit_active(job["job_id"]))
+        self.assertEqual(self.store.latest_browser_audit_job()["status"], "running")
+        # Silence for longer than the timeout expires it.
+        with self.store._session() as db:
+            db.execute("UPDATE browser_audit_job SET heartbeat_unix=heartbeat_unix-400 WHERE id=1")
+        self.assertFalse(self.store.browser_audit_active(job["job_id"]))
+        self.assertEqual(self.store.latest_browser_audit_job()["status"], "expired")
+
     def test_browser_batch_is_bounded_unique_and_seed_is_one_time(self):
         rows = [{"cargo_place": f"BOX-{i}", "inventory_date": "2026-08-22"}
                 for i in range(20)]

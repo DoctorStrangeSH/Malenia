@@ -650,6 +650,7 @@ def create_server(host: str, port: int, store: TaskStore, token: str) -> Malenia
         raise
     # Share the local model with other computers only if the user enabled it.
     services.lan.start_if_enabled()
+    services.vault.start_background_sync()
     return server
 
 

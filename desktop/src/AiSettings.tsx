@@ -62,6 +62,8 @@ export function AiSettings({ connected, onOpenOwnModel }: { connected: boolean; 
     try { setHardware(await api<HardwareInfo>("GET", "/v1/ai/hardware" + (refresh ? "?refresh=1" : ""))); } catch { /* optional */ }
   }, []);
   useEffect(() => { if (connected) { void load(); void loadHardware(); } }, [connected, load, loadHardware]);
+  // Any change of models or keys must show up in the chat at once.
+  useEffect(() => { if (info) window.dispatchEvent(new Event("malenia:models-changed")); }, [info]);
   useEffect(() => {
     if (hardware?.pull.status !== "running") return;
     const id = window.setInterval(() => void loadHardware(), 1500);
@@ -69,7 +71,10 @@ export function AiSettings({ connected, onOpenOwnModel }: { connected: boolean; 
   }, [hardware?.pull.status, loadHardware]);
 
   const save = async (body: Record<string, unknown>) => {
-    try { setInfo(await api<ProvidersInfo>("POST", "/v1/ai/settings", body)); } catch (reason) { setError(String(reason)); }
+    try {
+      setInfo(await api<ProvidersInfo>("POST", "/v1/ai/settings", body));
+      window.dispatchEvent(new Event("malenia:models-changed"));
+    } catch (reason) { setError(String(reason)); }
   };
   if (!connected) return <p className="muted">Маления запускается…</p>;
   if (!info) return error ? <div className="alert error">{error}</div> : <p className="muted"><LoaderCircle className="spin" size={14} /> Загрузка…</p>;

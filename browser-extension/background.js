@@ -184,7 +184,7 @@ async function pollDesktopAudit() {
   // Reserve the worker before the first await: alarms and popup requests can
   // arrive while permissions or the native host handshake are still pending.
   running = true;
-  let session;
+  let session, claimedAny = false;
   try {
     const stored = await chrome.storage.local.get(["maleniaTargets", "maleniaExactGetSearch"]);
     session = nativeSession();
@@ -197,6 +197,7 @@ async function pollDesktopAudit() {
     const claimed = await session.send({type:"claim_browser_audit"});
     const jobId = claimed?.job?.job_id;
     if (!claimed?.ok || !claimed.job || typeof jobId !== "string") return;
+    claimedAny = true;
     let succeeded = false;
     let failureReason = "execution_failed";
     let watcher,watchTimer,controller,checkActive,jobStopped=false;
@@ -249,7 +250,11 @@ async function pollDesktopAudit() {
           }).catch(error=>{controller.abort('audit_progress_unavailable');throw error;}).finally(()=>{checking=null;});
           return checking;
         };
+        let keepAlive=Date.now();
         const watch=async()=>{try{await checkActive();}catch{/* Fail closed on loss of the stop channel. */}
+          // Calling an extension API keeps the MV3 service worker alive during
+          // long batches, also when the app is reached over HTTP (no native port).
+          if(Date.now()-keepAlive>20000){keepAlive=Date.now();try{await chrome.runtime.getPlatformInfo();}catch{/* best effort */}}
           if(!controller.signal.aborted)watchTimer=setTimeout(watch,500);};
         await checkActive();watchTimer=setTimeout(watch,500);
       }
@@ -275,7 +280,13 @@ async function pollDesktopAudit() {
   } catch { /* Host unavailable, no permissions, or extension restarting. */ }
   finally {
     try { session?.close(); }
-    finally { running = false; }
+    finally {
+      running = false;
+      // The app queues the next batch right after this one: pick it up in
+      // seconds instead of waiting for the next one-minute alarm.
+      // (Alarms survive a sleeping service worker; unpacked extensions are not clamped to 30 s.)
+      if (claimedAny) chrome.alarms.create(DESKTOP_AUDIT_ALARM + "-soon", {when: Date.now() + 3000});
+    }
   }
 }
 function enableDesktopAuditPolling() {
@@ -284,6 +295,6 @@ function enableDesktopAuditPolling() {
 chrome.runtime.onInstalled.addListener(enableDesktopAuditPolling);
 chrome.runtime.onStartup.addListener(enableDesktopAuditPolling);
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === DESKTOP_AUDIT_ALARM) void pollDesktopAudit();
+  if (alarm.name === DESKTOP_AUDIT_ALARM || alarm.name === DESKTOP_AUDIT_ALARM + "-soon") void pollDesktopAudit();
 });
 enableDesktopAuditPolling();

@@ -167,11 +167,9 @@ class TaskStore:
                     ON events(created_at DESC);
                 """
             )
-            try:
-                db.execute("ALTER TABLE browser_audit_job ADD COLUMN failure_reason TEXT")
-            except sqlite3.OperationalError as error:
-                if "duplicate column name" not in str(error):
-                    raise
+            for column, definition in (("failure_reason", "TEXT"), ("heartbeat_unix", "REAL NOT NULL DEFAULT 0")):
+                if column not in {row[1] for row in db.execute("PRAGMA table_info(browser_audit_job)")}:
+                    db.execute(f"ALTER TABLE browser_audit_job ADD COLUMN {column} {definition}")
             for column, definition in (("asgard_state", "TEXT NOT NULL DEFAULT 'pending'"), ("asgard_written", "INTEGER NOT NULL DEFAULT 0")):
                 if column not in {row[1] for row in db.execute("PRAGMA table_info(inventa_writeback)")}:
                     db.execute(f"ALTER TABLE inventa_writeback ADD COLUMN {column} {definition}")
@@ -342,14 +340,23 @@ class TaskStore:
                             "manual_review": row["manual_review"]},
                 "read_only": True, "source": "browser_tables"}
 
+    # A pending job must be claimed within this time (the extension polls at
+    # least once a minute, a sleeping service worker can need a little longer).
+    PENDING_TIMEOUT = 300
+    # A running job expires only after this long WITHOUT any sign of life from
+    # the extension. Slow batches (Asgard anti-bot checks) may take far longer
+    # than 30 minutes in total and must not be cut off while they progress.
+    SILENCE_TIMEOUT = 300
+    RUNNING_HARD_LIMIT = 6 * 3600
+
     def _expire_browser_audit(self, db: sqlite3.Connection) -> None:
         # Never leave a job indefinitely stuck after the extension crashes.
         now = time.time()
         db.execute(
             """UPDATE browser_audit_job SET status='expired', updated_at=?
                WHERE id=1 AND ((status='pending' AND created_unix < ?)
-                  OR (status='running' AND created_unix < ?))""",
-            (_now(), now - 120, now - 1800),
+                  OR (status='running' AND (MAX(created_unix, heartbeat_unix) < ? OR created_unix < ?)))""",
+            (_now(), now - self.PENDING_TIMEOUT, now - self.SILENCE_TIMEOUT, now - self.RUNNING_HARD_LIMIT),
         )
         db.execute("DELETE FROM browser_audit_seed WHERE job_id NOT IN "
                    "(SELECT job_id FROM browser_audit_job WHERE status='pending')")
@@ -360,9 +367,11 @@ class TaskStore:
 
 
     def browser_audit_active(self, job_id: str) -> bool:
+        """Polled by the extension during a job; doubles as its heartbeat."""
         with self._session() as db:
             self._expire_browser_audit(db)
-            return db.execute("SELECT 1 FROM browser_audit_job WHERE id=1 AND job_id=? AND status='running'", (job_id,)).fetchone() is not None
+            return db.execute("UPDATE browser_audit_job SET heartbeat_unix=? WHERE id=1 AND job_id=? AND status='running'",
+                              (time.time(), job_id)).rowcount == 1
 
     def claim_inventa_writeback(self, job_id: str, *, asgard: bool = False) -> dict[str, Any]:
         with self._session() as db:
@@ -498,7 +507,7 @@ class TaskStore:
                    ON CONFLICT(id) DO UPDATE SET
                    job_id=excluded.job_id,status=excluded.status,
                    created_at=excluded.created_at,created_unix=excluded.created_unix,
-                   updated_at=excluded.updated_at,failure_reason=NULL""",
+                   updated_at=excluded.updated_at,failure_reason=NULL,heartbeat_unix=0""",
                 (job_id, now, time.time(), now),
             )
             db.execute(
@@ -547,8 +556,8 @@ class TaskStore:
             if row is None:
                 return None
             db.execute(
-                "UPDATE browser_audit_job SET status='running',updated_at=? WHERE id=1",
-                (_now(),),
+                "UPDATE browser_audit_job SET status='running',updated_at=?,heartbeat_unix=? WHERE id=1",
+                (_now(), time.time()),
             )
             seed = db.execute("SELECT cargo_place,inventory_date FROM browser_audit_seed "
                               "WHERE id=1 AND job_id=?", (row["job_id"],)).fetchone()
@@ -654,4 +663,5 @@ class TaskStore:
                 (current_role, completed_sources, attention_sources,
                  failed_role, _now(), job_id),
             )
+            db.execute("UPDATE browser_audit_job SET heartbeat_unix=? WHERE id=1 AND job_id=?", (time.time(), job_id))
         return True

@@ -38,7 +38,7 @@ class PublicSearch:
     def __init__(self):
         self._opener = build_opener(ProxyHandler({}), NoRedirect())
 
-    def search(self, query):
+    def search(self, query, limit=4):
         if not isinstance(query, str) or not 1 <= len(query.strip()) <= 2000:
             raise WebError("invalid_web_query")
         # Fixed endpoint: links in results are displayed, never followed here.
@@ -64,7 +64,7 @@ class PublicSearch:
                 seen.add(link)
                 sources.append({"id": "web-" + str(len(sources) + 1), "title": title,
                                 "source": link, "url": link, "kind": "web", "excerpt": excerpt})
-                if len(sources) == 4:
+                if len(sources) == limit:
                     break
             return sources
         except WebError:
