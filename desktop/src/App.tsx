@@ -53,6 +53,8 @@ export default function App(){
   const permissionDecisionBusy=useRef(false);
   const [error,setError]=useState("");
   const [notice,setNotice]=useState("");
+  // Short confirmations disappear by themselves instead of hanging over every page.
+  useEffect(()=>{if(!notice)return;const id=window.setTimeout(()=>setNotice(""),4000);return()=>window.clearTimeout(id);},[notice]);
   const [title,setTitle]=useState("");
   const [description,setDescription]=useState("");
   const [filter,setFilter]=useState("");
@@ -133,7 +135,7 @@ export default function App(){
         {["sources","orders"].includes(page)?<button className="tool-back" onClick={()=>setPage("tools")}>← Все инструменты</button>:null}
         {page==="tools"?<ToolCatalog onOpen={setPage}/>:null}
         {error&&<div className="alert error"><X size={15}/>{error}<button onClick={()=>setError("")}><X size={14}/></button></div>}
-        {notice&&<div className="alert success"><Check size={15}/>{notice}<button onClick={()=>setNotice("")}><X size={14}/></button></div>}
+        {notice&&<div className="toast" role="status"><Check size={15}/>{notice}<button aria-label="Скрыть" onClick={()=>setNotice("")}><X size={14}/></button></div>}
 
         {page==="overview"&&<>
           <section className="metrics">

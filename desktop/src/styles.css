@@ -803,3 +803,10 @@ details.card[open]>summary{margin-bottom:14px}
 .report-modal{width:min(640px,100%)}
 .report-modal textarea{display:block;width:100%;margin-top:8px;background:#0e131b;border:1px solid #303949;border-radius:8px;padding:11px;color:#e8edf6;outline:none;font-size:12px}
 .report-preview{max-height:220px;overflow:auto;background:#0c0f15;border:1px solid #232a36;border-radius:8px;padding:10px;font-size:11px;color:#9aa4b6;white-space:pre-wrap}
+/* 0.14.1 clearer navigation, toasts */
+.nav-item:hover{background:#1a1b21}
+.nav-item.active{background:#8b7cf62e;color:#fff;box-shadow:inset 3px 0 var(--accent2)}
+.nav-item.active svg{color:var(--accent2)}
+.toast{position:fixed;right:24px;bottom:24px;z-index:30;display:flex;align-items:center;gap:9px;padding:11px 14px;border-radius:12px;background:#18352c;border:1px solid #285b49;color:#9de2c2;font-size:13px;box-shadow:0 12px 40px #0007;animation:toast-in .2s ease-out}
+.toast button{background:none;border:0;color:inherit;display:grid;place-items:center;margin-left:4px}
+@keyframes toast-in{from{opacity:0;transform:translateY(8px)}}
