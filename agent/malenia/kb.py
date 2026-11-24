@@ -109,6 +109,7 @@ class KnowledgeVault:
         self.secrets = secrets
         self.opener = opener or build_opener()
         self._lock = threading.Lock()
+        self._sync_thread: threading.Thread | None = None
         self.status: dict[str, Any] = {"state": "idle", "error": None}
         with store._session() as db:
             db.executescript("""
@@ -155,6 +156,9 @@ class KnowledgeVault:
                     pass
         self.settings.set("kb.config", config)
         return self.describe()
+
+    def enable_auto_sync(self) -> None:
+        self.start_background_sync()
 
     def describe(self) -> dict:
         config = self.config()
@@ -261,16 +265,22 @@ class KnowledgeVault:
                     db.execute("INSERT INTO kb_chunks(path, heading, content) VALUES (?,?,?)", (path, heading, content))
 
     def start_background_sync(self, interval: int = 1800) -> None:
-        """Keep a GitHub knowledge base fresh while the app runs."""
+        """Keep a configured knowledge base fresh while the app runs."""
+        config = self.config()
+        if self._sync_thread is not None or not (config.get("repo") or config.get("folder")):
+            return
+
         def loop():
             while True:
-                if self.config().get("repo") or self.config().get("folder"):
+                config = self.config()
+                if config.get("repo") or config.get("folder"):
                     try:
                         self.sync()
                     except KnowledgeBaseError:
                         pass
                 time.sleep(interval)
-        threading.Thread(target=loop, daemon=True).start()
+        self._sync_thread = threading.Thread(target=loop, name="malenia-kb-sync", daemon=True)
+        self._sync_thread.start()
 
     # ---- retrieval ------------------------------------------------------
     def search(self, query: str, limit: int = 5) -> list[dict]:

@@ -92,6 +92,11 @@ class KnowledgeVaultTests(unittest.TestCase):
         self.assertEqual(request.full_url, "https://api.github.com/repos/Owner/Repo/zipball")
         self.assertTrue(request.get_header("Authorization").startswith("Bearer github_pat_"))
 
+    def test_background_sync_only_when_configured(self):
+        vault = KnowledgeVault(self.store, self.settings, self.secrets)
+        vault.start_background_sync()
+        self.assertIsNone(vault._sync_thread)
+
     def test_invalid_configuration_is_rejected(self):
         vault = KnowledgeVault(self.store, self.settings, self.secrets)
         with self.assertRaises(KnowledgeBaseError):

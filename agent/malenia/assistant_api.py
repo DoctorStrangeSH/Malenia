@@ -153,7 +153,9 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
             if int(handler.headers.get("Content-Length", "0") or 0):
                 handler._read_json(1024)
             try:
-                handler._send(200, services.vault.sync())
+                result = services.vault.sync()
+                services.vault.enable_auto_sync()
+                handler._send(200, result)
             except KnowledgeBaseError as error:
                 handler._send(422, {"error": "kb_sync_failed", "message": str(error)})
             return True
