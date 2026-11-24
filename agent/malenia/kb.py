@@ -9,7 +9,9 @@ with tools, so instructions are understood in context rather than replayed.
 from __future__ import annotations
 
 import io
+import math
 import re
+from array import array
 import threading
 import time
 import zipfile
@@ -103,7 +105,9 @@ def _fts_query(text: str) -> str:
 
 
 class KnowledgeVault:
-    def __init__(self, store: TaskStore, settings, secrets=None, opener=None):
+    def __init__(self, store: TaskStore, settings, secrets=None, opener=None, embedder=None):
+        # embedder: object with embedding_model() -> str | None and embed(model, texts) -> vectors
+        self.embedder = embedder
         self.store = store
         self.settings = settings
         self.secrets = secrets
@@ -116,6 +120,7 @@ class KnowledgeVault:
                 CREATE TABLE IF NOT EXISTS kb_docs (
                     path TEXT PRIMARY KEY, title TEXT NOT NULL, type TEXT, status TEXT,
                     tags TEXT, body TEXT NOT NULL, updated_at TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS kb_vectors (chunk INTEGER PRIMARY KEY, vector BLOB NOT NULL);
                 CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks USING fts5(
                     path UNINDEXED, heading, content, tokenize='unicode61 remove_diacritics 2');
             """)
@@ -173,7 +178,10 @@ class KnowledgeVault:
                 has_token = bool(self.secrets.get("kb.github"))
             except Exception:
                 has_token = False
-        return {"folder": config.get("folder", ""), "repo": config.get("repo", ""), "branch": config.get("branch", ""),
+        with self.store._session() as db:
+            vectors = db.execute("SELECT COUNT(*) FROM kb_vectors").fetchone()[0]
+        return {"semantic": bool(self.settings.get("kb.embed_model")) and vectors > 0,
+                "embed_model": self.settings.get("kb.embed_model"), "folder": config.get("folder", ""), "repo": config.get("repo", ""), "branch": config.get("branch", ""),
                 "has_token": has_token, "documents": docs, "sections": chunks, "items": items,
                 "last_sync": self.settings.get("kb.last_sync"), "status": dict(self.status)}
 
@@ -238,10 +246,13 @@ class KnowledgeVault:
             if not config.get("folder") and not config.get("repo"):
                 raise KnowledgeBaseError("Укажите папку или репозиторий базы знаний")
             self._index(files)
+            self._embed_all()
             self.settings.set("kb.last_sync", _now())
             self.status = {"state": "done", "error": None}
             return self.describe()
         except KnowledgeBaseError as error:
+            from . import diagnostics
+            diagnostics.record("kb_sync_failed", str(error))
             self.status = {"state": "failed", "error": str(error)}
             raise
         except Exception as error:  # keep the agent running whatever the content is
@@ -255,6 +266,7 @@ class KnowledgeVault:
             db.execute("BEGIN IMMEDIATE")
             db.execute("DELETE FROM kb_docs")
             db.execute("DELETE FROM kb_chunks")
+            db.execute("DELETE FROM kb_vectors")
             for path, text in files.items():
                 meta, body = _frontmatter(text)
                 first = re.search(r"^#\s+(.+)$", body, re.M)
@@ -263,6 +275,54 @@ class KnowledgeVault:
                            (path, title[:200], meta.get("type"), meta.get("status"), meta.get("tags"), body, _now()))
                 for heading, content in split_sections(body, title):
                     db.execute("INSERT INTO kb_chunks(path, heading, content) VALUES (?,?,?)", (path, heading, content))
+
+    # ---- meaning-based search (embeddings) ------------------------------
+    def _embed_model(self) -> str | None:
+        if self.embedder is None:
+            return None
+        try:
+            return self.embedder.embedding_model()
+        except Exception:
+            return None
+
+    def _embed_all(self) -> None:
+        model = self._embed_model()
+        self.settings.set("kb.embed_model", model)
+        if not model:
+            return
+        with self.store._session() as db:
+            rows = [(r[0], r[1], r[2]) for r in db.execute("SELECT rowid, heading, content FROM kb_chunks")]
+        try:
+            for start in range(0, len(rows), 32):
+                batch = rows[start:start + 32]
+                vectors = self.embedder.embed(model, [f"{h}\n{c}"[:2000] for _, h, c in batch])
+                with self.store._session() as db:
+                    db.executemany("INSERT OR REPLACE INTO kb_vectors VALUES (?, ?)",
+                                   [(rowid, _pack(vector)) for (rowid, _, _), vector in zip(batch, vectors)])
+                self.status = {"state": "syncing", "error": None, "embedded": start + len(batch), "total": len(rows)}
+        except Exception:
+            # Meaning search is a bonus: keyword search keeps working.
+            self.settings.set("kb.embed_model", None)
+
+    def _semantic(self, query: str, limit: int, scope: str | None) -> list[tuple[int, float]]:
+        model = self.settings.get("kb.embed_model")
+        if not model or self.embedder is None:
+            return []
+        try:
+            target = _normalise(self.embedder.embed(model, [query[:2000]])[0])
+        except Exception:
+            return []
+        with self.store._session() as db:
+            rows = db.execute("""SELECT v.chunk, v.vector FROM kb_vectors v JOIN kb_chunks c ON c.rowid = v.chunk
+                                 WHERE (? = '' OR c.path LIKE ?)""", (scope or "", (scope or "") + "%")).fetchall()
+        scored = []
+        for chunk, blob in rows:
+            vector = array("f")
+            vector.frombytes(blob)
+            if len(vector) == len(target):
+                scored.append((chunk, sum(a * b for a, b in zip(target, vector))))
+        scored.sort(key=lambda item: -item[1])
+        return scored[:limit]
 
     def start_background_sync(self, interval: int = 1800) -> None:
         """Keep a configured knowledge base fresh while the app runs."""
@@ -290,18 +350,39 @@ class KnowledgeVault:
         with self.store._session() as db:
             try:
                 rows = db.execute(
-                    """SELECT c.path, c.heading, c.content, d.type, bm25(kb_chunks, 0, 2.0, 1.0) AS score
+                    """SELECT c.rowid AS chunk, c.path, c.heading, c.content, d.type, bm25(kb_chunks, 0, 2.0, 1.0) AS score
                        FROM kb_chunks c JOIN kb_docs d ON d.path = c.path
                        WHERE kb_chunks MATCH ? AND (? = '' OR c.path LIKE ?) ORDER BY score LIMIT ?""",
                     (fts, scope or "", (scope or "") + "%", limit * 3)).fetchall()
             except Exception:
-                return []
+                rows = []
+        keyword = [dict(r) for r in rows]
+        for item in keyword:
+            item["score"] -= 1.5 if (item["type"] or "").startswith("operational") else 0
+        keyword.sort(key=lambda item: item["score"])
+        meaning = self._semantic(query, limit * 3, scope)
+        if not meaning:
+            return [{k: item[k] for k in ("path", "heading", "content", "score")} for item in keyword[:limit]]
+        # Reciprocal rank fusion of keyword and meaning results.
+        fused: dict[int, float] = {}
+        for rank, item in enumerate(keyword):
+            fused[item["chunk"]] = fused.get(item["chunk"], 0) + 1 / (60 + rank)
+        for rank, (chunk, _) in enumerate(meaning):
+            fused[chunk] = fused.get(chunk, 0) + 1 / (60 + rank)
+        best = sorted(fused, key=lambda chunk: -fused[chunk])[:limit]
+        known = {item["chunk"]: item for item in keyword}
         results = []
-        for row in rows:
-            score = row["score"] - (1.5 if (row["type"] or "").startswith("operational") else 0)
-            results.append({"path": row["path"], "heading": row["heading"], "content": row["content"], "score": score})
-        results.sort(key=lambda item: item["score"])
-        return results[:limit]
+        with self.store._session() as db:
+            for chunk in best:
+                item = known.get(chunk)
+                if item is None:
+                    row = db.execute("SELECT path, heading, content FROM kb_chunks WHERE rowid = ?", (chunk,)).fetchone()
+                    if row is None:
+                        continue
+                    item = dict(row)
+                results.append({"path": item["path"], "heading": item["heading"], "content": item["content"],
+                                "score": -fused[chunk]})
+        return results
 
     def document(self, path: str, section: str | None = None) -> dict:
         with self.store._session() as db:
@@ -327,3 +408,11 @@ class KnowledgeVault:
             used += len(item["content"])
         return chosen
 
+
+def _normalise(vector) -> list[float]:
+    norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+    return [v / norm for v in vector]
+
+
+def _pack(vector) -> bytes:
+    return array("f", _normalise(vector)).tobytes()

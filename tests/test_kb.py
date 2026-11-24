@@ -92,6 +92,28 @@ class KnowledgeVaultTests(unittest.TestCase):
         self.assertEqual(request.full_url, "https://api.github.com/repos/Owner/Repo/zipball")
         self.assertTrue(request.get_header("Authorization").startswith("Bearer github_pat_"))
 
+    def test_meaning_search_finds_section_without_shared_words(self):
+        class Embedder:
+            # "Toy" meanings: dimension 0 = returns/boxes, 1 = logistics, 2 = direct orders.
+            def embedding_model(self):
+                return "embeddinggemma:latest"
+
+            def embed(self, model, texts):
+                out = []
+                for text in texts:
+                    t = text.casefold()
+                    out.append([1.0 if ("возврат" in t or "коробк" in t or "вернул" in t) else 0.0,
+                                1.0 if "логист" in t else 0.0, 1.0 if "прям" in t or "asgard" in t else 0.1])
+                return out
+        extra = "# Возвраты\n## Возвратная коробка\nСмотри обратный поток по штрихкоду коробки.\n"
+        (self.folder / "05-Инструкции" / "RETURNS.md").write_text(extra, "utf-8")
+        vault = KnowledgeVault(self.store, self.settings, self.secrets, embedder=Embedder())
+        vault.configure({"folder": str(self.folder)})
+        info = vault.sync()
+        self.assertTrue(info["semantic"])
+        found = vault.search("клиент вернул посылку, что делать", 2)
+        self.assertEqual(found[0]["path"], "05-Инструкции/RETURNS.md")
+
     def test_background_sync_only_when_configured(self):
         vault = KnowledgeVault(self.store, self.settings, self.secrets)
         vault.start_background_sync()

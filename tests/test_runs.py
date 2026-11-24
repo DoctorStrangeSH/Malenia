@@ -185,3 +185,19 @@ class ProjectAndSearchTests(RunBase):
         self.assertEqual(assistant.list_projects()[0]["conversations"], 1)
         assistant.delete_project(project["id"])
         self.assertIsNone(assistant.list_conversations()[0]["project_id"])
+
+
+class CompressionTests(RunBase):
+    def test_long_chat_is_summarised_and_summary_is_used(self):
+        assistant = self.assistant([])
+        cid = assistant.chat({"message": "Начало: мой склад — СЦ Север"})["conversation_id"]
+        for index in range(16):
+            assistant.chat({"conversation_id": cid, "message": f"Вопрос {index}"})
+        with self.store._session() as db:
+            row = db.execute("SELECT summary, summary_upto FROM conversations WHERE id = ?", (cid,)).fetchone()
+        self.assertTrue(row["summary"])
+        self.assertGreater(row["summary_upto"], 0)
+        assistant.chat({"conversation_id": cid, "message": "А какой у меня склад?"})
+        call = next(m for m in reversed(self.local.seen) if m[-1]["content"] == "А какой у меня склад?")
+        system = call[0]["content"]
+        self.assertIn("Краткое содержание начала", system)

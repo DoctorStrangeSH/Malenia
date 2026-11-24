@@ -18,6 +18,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from . import diagnostics
 from .attachments import AttachmentError, prepare as prepare_attachments
 from .knowledge import KnowledgeBase, KnowledgeError, words
 from .providers import Cancelled, ModelRouter, ProviderError
@@ -25,6 +26,12 @@ from .store import TaskStore, _now
 from .web import PublicSearch, WebError
 
 MAX_MESSAGE = 16000
+COMPRESS_AFTER = 30   # messages beyond the last summary before summarising again
+KEEP_RECENT = 20      # recent messages always sent in full
+COMPRESS_PROMPT = ("Ты ведёшь краткое содержание длинного разговора пользователя с ассистентом Маленией. "
+                   "Обнови содержание с учётом новых сообщений: цели и задачи пользователя, принятые решения, важные "
+                   "факты, числа, имена, договорённости и что осталось сделать. Пиши по-русски, сжато, списком, "
+                   "до 1500 символов. Не выдумывай.")
 MAX_MEMORIES = 500
 MEMORY_KINDS = {"fact", "preference", "lesson"}
 
@@ -412,8 +419,10 @@ class Assistant:
             try:
                 run.result = self.chat(payload, run=run)
             except AssistantError as error:
+                diagnostics.record("chat_error", error.code)
                 run.error = {"error": error.code, "status": error.status}
-            except Exception:  # never leave the UI waiting forever
+            except Exception as error:  # never leave the UI waiting forever
+                diagnostics.record("chat_crash", type(error).__name__, error)
                 run.error = {"error": "internal_error", "status": 500}
             finally:
                 run.done = True
@@ -506,6 +515,10 @@ class Assistant:
                     stored = None
                 history.append({"role": row["role"], "content": stored or row["content"]})
             history.reverse()
+            total = db.execute("SELECT COUNT(*) FROM chat_messages WHERE conversation_id = ?", (conversation_id,)).fetchone()[0]
+            summary_row = db.execute("SELECT summary, summary_upto FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+            summary = (summary_row["summary"] or "") if summary_row else ""
+            summary_upto = (summary_row["summary_upto"] or 0) if summary_row else 0
             if regenerate:
                 history = history[:-1]  # the repeated question itself
             else:
@@ -546,6 +559,8 @@ class Assistant:
                 json.dumps(skills, ensure_ascii=False)
         if instruction:
             system += "\n\nВ этом сообщении пользователь попросил следовать инструкции:\n" + instruction.strip()
+        if summary and total > len(history) + 1:
+            system += ("\n\nКраткое содержание начала этого разговора (старые сообщения не показаны целиком):\n" + summary)
 
         budget = 12000 if private else 120000
         kept, used = [], len(model_text)
@@ -600,6 +615,7 @@ class Assistant:
         except Cancelled:
             stopped = True
         except ProviderError as error:
+            diagnostics.record("model_error", f"{error.code}: {error.detail}")
             if not regenerate:
                 with self.store._session() as db:
                     db.execute("DELETE FROM chat_messages WHERE id = ?", (user_message["id"],))
@@ -626,6 +642,12 @@ class Assistant:
                                [(_now(), m["id"]) for m in memories])
         if self.toolbox is not None and actions:
             self.toolbox.attach([a["id"] for a in actions], reply["id"])
+
+        if not stopped and total + 2 - summary_upto > COMPRESS_AFTER:
+            if self.background:
+                threading.Thread(target=self._compress, args=(conversation_id, private), daemon=True).start()
+            else:
+                self._compress(conversation_id, private)
 
         if not stopped and not regenerate and config.get("learning", True) and PERSONAL_SIGNALS.search(text) and not learned:
             if self.background:
@@ -673,6 +695,32 @@ class Assistant:
         except (WebError, KnowledgeError, AssistantError) as error:
             return f"Ошибка инструмента: {error}"
         return "Инструмент недоступен"
+
+    def _compress(self, conversation_id: str, private: bool) -> None:
+        """Fold old messages into a running summary so long chats stay coherent and fast."""
+        try:
+            with self.store._session() as db:
+                row = db.execute("SELECT summary, summary_upto FROM conversations WHERE id = ?", (conversation_id,)).fetchone()
+                messages = [dict(r) for r in db.execute(
+                    "SELECT role, content FROM chat_messages WHERE conversation_id = ? ORDER BY created_at, rowid",
+                    (conversation_id,))]
+            if row is None:
+                return
+            upto = max(0, len(messages) - KEEP_RECENT)
+            older = messages[row["summary_upto"]:upto]
+            if not older:
+                return
+            transcript = "\n".join(f"{'Пользователь' if m['role'] == 'user' else 'Маления'}: {m['content'][:1500]}" for m in older)
+            prompt = [{"role": "system", "content": COMPRESS_PROMPT},
+                      {"role": "user", "content": f"Текущее краткое содержание:\n{row['summary'] or '(пусто)'}\n\nНовые сообщения:\n{transcript[:24000]}"}]
+            result = self.router.chat(prompt, private=private, max_tokens=900, temperature=0.2)
+            summary = (result.content or "").strip()[:3000]
+            if summary:
+                with self.store._session() as db:
+                    db.execute("UPDATE conversations SET summary = ?, summary_upto = ? WHERE id = ?",
+                               (summary, upto, conversation_id))
+        except Exception:
+            pass  # a summary is an optimisation; never break the chat
 
     def _reflect(self, text: str, answer: str, private: bool) -> None:
         try:

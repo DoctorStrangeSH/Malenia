@@ -795,3 +795,11 @@ details.card[open]>summary{margin-bottom:14px}
 .table-tools{display:flex;gap:6px;justify-content:flex-end;margin-bottom:6px}
 .table-tools button{background:#171b23;border:1px solid #2a303c;color:#aeb5c3;border-radius:7px;font-size:11px;padding:4px 8px}
 .table-tools button:hover{color:#fff;border-color:#5b4fa0}
+.kb-meaning{display:flex;align-items:center;gap:12px}
+.kb-meaning>svg{color:#b1a5ff;flex-shrink:0}
+.kb-meaning>span{flex:1;display:grid;gap:3px}
+.kb-meaning small{color:#8a94a7;font-size:12px}
+.kb-meaning .kb-progress{color:#c8beff}
+.report-modal{width:min(640px,100%)}
+.report-modal textarea{display:block;width:100%;margin-top:8px;background:#0e131b;border:1px solid #303949;border-radius:8px;padding:11px;color:#e8edf6;outline:none;font-size:12px}
+.report-preview{max-height:220px;overflow:auto;background:#0c0f15;border:1px solid #232a36;border-radius:8px;padding:10px;font-size:11px;color:#9aa4b6;white-space:pre-wrap}

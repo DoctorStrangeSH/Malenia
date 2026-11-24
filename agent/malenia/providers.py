@@ -477,6 +477,28 @@ class OllamaProvider:
                 and not item.get("remote_host") and "embed" not in item["name"]]
 
     _capabilities: dict[str, set[str]] = {}
+    EMBEDDING_MODELS = ("embeddinggemma", "bge-m3", "multilingual-e5", "nomic-embed-text", "mxbai-embed")
+
+    def embedding_model(self) -> str | None:
+        """An installed embedding model for meaning-based search, if any."""
+        try:
+            data = _get_json(self.opener, self.base_url + "/api/tags", {}, 3)
+        except ProviderError:
+            return None
+        names = [item.get("name") for item in data.get("models", []) if isinstance(item, dict)]
+        for preferred in self.EMBEDDING_MODELS:
+            for name in names:
+                if isinstance(name, str) and name.startswith(preferred):
+                    return name
+        return None
+
+    def embed(self, model: str, texts: list[str]) -> list[list[float]]:
+        data = _post_json(self.opener, self.base_url + "/api/embed",
+                          {"model": model, "input": texts, "keep_alive": self.keep_alive}, {}, 300)
+        vectors = data.get("embeddings")
+        if not isinstance(vectors, list) or len(vectors) != len(texts):
+            raise ProviderError("unavailable", "bad embeddings")
+        return vectors
 
     def capabilities(self, model: str) -> set[str]:
         """Model features reported by Ollama (e.g. "vision", "tools", "thinking")."""

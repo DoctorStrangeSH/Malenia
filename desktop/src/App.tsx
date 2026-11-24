@@ -22,7 +22,7 @@ import {
   Activity, ArrowUpRight, BrainCircuit, Check, CircleHelp,
   Clock3, Cpu, Database, Globe2, ListTodo,
   LoaderCircle, LockKeyhole, MemoryStick, MessageSquare, Play, Plus, Plug,
-  RefreshCw, Search, Settings2, ShieldCheck, Trash2, X
+  RefreshCw, Search, Settings2, ShieldCheck, X
 } from "lucide-react";
 
 type Task = { id:string; title:string; description:string; status:"pending"|"cancelled"; created_at:string; };

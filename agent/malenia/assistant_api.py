@@ -5,6 +5,7 @@ Mounted by server.py after authentication; returns True when a route matched.
 from __future__ import annotations
 
 import re
+import threading
 from urllib.parse import parse_qs
 
 from . import hardware
@@ -12,6 +13,8 @@ from . import training
 from .agent_tools import ToolBox, ToolError
 from .kb import KnowledgeBaseError, KnowledgeVault
 from .voice import VoiceEngine, VoiceError
+from . import diagnostics
+from . import __version__
 from .assistant import Assistant, AssistantError
 from .knowledge import KnowledgeBase
 from .lan import LanServer
@@ -53,7 +56,8 @@ class AssistantServices:
         self.router = router or ModelRouter(self.settings, secrets or _LazySecrets(),
                                             hardware_recommendation=lambda: self.hardware_profile()["recommendation"]["models"])
         knowledge, skills = KnowledgeBase(store), SkillRegistry(store)
-        self.vault = KnowledgeVault(store, self.settings, secrets or self.router.secrets)
+        self.vault = KnowledgeVault(store, self.settings, secrets or self.router.secrets,
+                                    embedder=getattr(self.router, "ollama", None))
         self.voice = VoiceEngine()
         self.toolbox = ToolBox(store, self.settings, skills=skills, knowledge=knowledge, vault=self.vault)
         self.assistant = Assistant(store, self.router, knowledge, skills, web=web, background=background,
@@ -189,6 +193,31 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
                 return False
             return True
 
+        # ---- diagnostics for "Сообщить о проблеме" ------------------------
+        if method == "GET" and path == "/v1/assistant/diagnostics":
+            def safe(call):
+                try:
+                    return call()
+                except Exception as error:
+                    return {"error": type(error).__name__}
+            providers = safe(router.describe)
+            if isinstance(providers, dict):
+                providers = {"mode": providers.get("mode"), "local_model": providers.get("local_model"),
+                             "providers": [{k: p.get(k) for k in ("id", "enabled", "has_key", "model")}
+                                           for p in providers.get("providers", []) if isinstance(p, dict)]}
+            kb = safe(services.vault.describe)
+            if isinstance(kb, dict):
+                kb = {k: kb.get(k) for k in ("repo", "documents", "sections", "semantic", "embed_model", "last_sync", "status")}
+            hardware_info = safe(services.hardware_profile)
+            handler._send(200, {
+                "version": __version__, "created": diagnostics.datetime.now().isoformat(timespec="seconds"),
+                "environment": diagnostics.environment(),
+                "hardware": {k: hardware_info.get(k) for k in ("ram_gb", "gpu", "vram_gb", "cpu_threads")} if isinstance(hardware_info, dict) and "error" not in hardware_info else hardware_info,
+                "providers": providers, "knowledge_base": kb, "voice": safe(services.voice.status),
+                "conversations": len(safe(assistant.list_conversations) or []),
+                "problems": diagnostics.recent()})
+            return True
+
         # ---- voice input (local whisper.cpp) ------------------------------
         if path.startswith("/v1/assistant/voice"):
             try:
@@ -210,7 +239,8 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
                 messages = {"voice_not_installed": "Голосовой ввод ещё не установлен.",
                             "invalid_audio": "Не удалось прочитать запись. Попробуйте ещё раз."}
                 handler._send(422, {"error": code, "message": messages.get(code, code)})
-            except Exception:
+            except Exception as error:
+                diagnostics.record("voice_failed", type(error).__name__, error)
                 handler._send(500, {"error": "voice_failed", "message": "Не удалось распознать речь."})
             return True
 
@@ -293,7 +323,18 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
                 handler._send(200, {"provider": detect_provider(str(payload.get("key") or ""))})
             return True
         if method == "GET" and path == "/v1/ai/providers":
-            handler._send(200, router.describe())
+            description = router.describe()
+            handler._send(200, description)
+            # First look at the chat: load the local model into memory so the first answer is fast.
+            if not getattr(services, "_warmed", False):
+                services._warmed = True
+                if description.get("mode") != "cloud" and hasattr(router.ollama, "warm_up"):
+                    try:
+                        model = router.model_for("ollama")
+                    except Exception:
+                        model = None
+                    if model:
+                        threading.Thread(target=router.ollama.warm_up, args=(model,), daemon=True).start()
             return True
         if method == "POST" and path == "/v1/ai/settings":
             payload = handler._read_json(2048)

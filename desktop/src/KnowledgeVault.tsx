@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { BookOpen, FolderOpen, Github, RefreshCw, X } from "lucide-react";
+import { BookOpen, FolderOpen, Github, RefreshCw, Sparkles, X } from "lucide-react";
 import { api } from "./api";
 
 type VaultInfo = {
+  semantic?: boolean; embed_model?: string | null;
   folder: string; repo: string; branch: string; has_token: boolean;
   documents: number; sections: number; last_sync: string | null;
   items: { path: string; title: string; type: string | null; status: string | null }[];
@@ -39,6 +40,23 @@ export function KnowledgeVault({ connected }: { connected: boolean }) {
   const forgetToken = async () => {
     try { apply(await api<VaultInfo>("POST", "/v1/assistant/kb", { token: "" })); } catch (reason) { setError(String(reason)); }
   };
+  const [meaning, setMeaning] = useState("");
+  const enableMeaning = async () => {
+    setError(""); setMeaning("Скачиваю модель смыслового поиска…");
+    try {
+      await api("POST", "/v1/ai/local/pull", { model: "embeddinggemma" });
+      for (;;) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const pull = await api<{ status: string; completed: number; total: number; error: string | null }>("GET", "/v1/ai/local/pull");
+        if (pull.status === "running") { setMeaning(`Скачиваю модель смыслового поиска… ${pull.total ? Math.round(pull.completed / pull.total * 100) : 0}%`); continue; }
+        if (pull.status === "failed") throw new Error(pull.error === "ollama_unavailable" ? "Сначала запустите локальный движок в «Настройки → Модели ИИ»" : (pull.error || "Не удалось скачать модель"));
+        break;
+      }
+      setMeaning("Переиндексирую базу знаний…");
+      apply(await api<VaultInfo>("POST", "/v1/assistant/kb/sync"));
+      setMeaning("");
+    } catch (reason) { setMeaning(""); setError(String(reason)); }
+  };
   const operational = info?.items.filter(item => (item.type || "").startsWith("operational")) ?? [];
   return <div className="settings-stack">
     <p className="muted">Подключите свою базу знаний — папку Obsidian или репозиторий GitHub с заметками в Markdown. Маления сама находит нужные разделы под задачу и понимает их как ваш опыт, а не как жёсткий алгоритм. Обновляется автоматически каждые 30 минут.</p>
@@ -67,6 +85,13 @@ export function KnowledgeVault({ connected }: { connected: boolean }) {
       <div><b>{operational.length}</b><small>рабочих инструкций</small></div>
       <div><b>{info.last_sync ? new Date(info.last_sync).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "—"}</b><small>последняя синхронизация</small></div>
       {info.status.state === "failed" && info.status.error ? <p className="kb-error">{info.status.error}</p> : null}
+    </div> : null}
+    {info?.documents ? <div className="card kb-meaning">
+      <Sparkles size={16} /><span><b>Поиск по смыслу {info.semantic ? "включён" : "выключен"}</b>
+        <small>{info.semantic ? `Маления находит нужные инструкции, даже если вы пишете другими словами (${info.embed_model}).`
+          : "Маленькая локальная модель (~600 МБ) поможет находить инструкции не только по словам, но и по смыслу. Работает на вашем компьютере."}</small>
+        {meaning ? <small className="kb-progress">{meaning}</small> : null}</span>
+      {info.semantic ? null : <button className="secondary" disabled={!connected || !!meaning} onClick={() => void enableMeaning()}>Включить</button>}
     </div> : null}
     {info?.items.length ? <div className="card"><h3><BookOpen size={16} /> Что знает Маления</h3><ul className="kb-list">
       {info.items.map(item => <li key={item.path}><b>{item.title}</b><small>{item.path}{item.status ? ` · ${item.status}` : ""}</small></li>)}

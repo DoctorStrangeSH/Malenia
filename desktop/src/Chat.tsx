@@ -277,11 +277,12 @@ export function Chat(props: Props) {
       if (!status.ready) {
         if (!window.confirm("Для голосового ввода нужно один раз скачать распознавание речи (около 470 МБ). Всё работает на вашем компьютере, без интернета. Скачать?")) return;
         setVoice("installing");
-        let state = await api<{ ready: boolean; state: string; progress: number; error: string | null }>("POST", "/v1/assistant/voice/install", { model: "small" });
+        type VoiceStatus = { ready: boolean; state: string; progress: number; error: string | null };
+        let state = await api<VoiceStatus>("POST", "/v1/assistant/voice/install", { model: "small" });
         while (!state.ready && state.state !== "failed") {
           setVoiceProgress(state.progress);
           await sleep(1500);
-          state = await api("GET", "/v1/assistant/voice");
+          state = await api<VoiceStatus>("GET", "/v1/assistant/voice");
         }
         setVoice("idle");
         if (!state.ready) { setError(state.error || "Не удалось установить голосовой ввод"); return; }

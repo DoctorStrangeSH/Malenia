@@ -276,6 +276,21 @@ class ApiTests(Base):
             memory = call("POST", "/v1/assistant/memories", {"content": "Работает в СЦ"})
             self.assertTrue(call("DELETE", f"/v1/assistant/memories/{memory['memory']['id']}")["deleted"])
             self.assertIn("token", call("GET", "/v1/server"))
+            # streaming run through the API
+            self.local.script = [ChatResult("Поток")]
+            run = call("POST", "/v1/assistant/runs", {"message": "Ещё", "conversation_id": reply["conversation_id"]})
+            state = call("GET", f"/v1/assistant/runs/{run['run_id']}?after=0")
+            self.assertTrue(state["done"])
+            self.assertEqual(state["result"]["message"]["content"], "Поток")
+            self.assertTrue(call("POST", f"/v1/assistant/runs/{run['run_id']}/cancel", {})["cancelled"] in (True, False))
+            # projects and pinning
+            project = call("POST", "/v1/assistant/projects", {"name": "Работа"})["project"]
+            call("POST", f"/v1/assistant/conversations/{reply['conversation_id']}", {"pinned": True, "project_id": project["id"]})
+            listed = call("GET", f"/v1/assistant/conversations?project={project['id']}")["conversations"]
+            self.assertTrue(listed[0]["pinned"])
+            report = call("GET", "/v1/assistant/diagnostics")
+            self.assertIn("problems", report)
+            self.assertNotIn("api_key", json.dumps(report))
             self.assertTrue(call("DELETE", f"/v1/assistant/conversations/{reply['conversation_id']}")["deleted"])
             httpd.shutdown()
 
