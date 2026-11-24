@@ -12,8 +12,9 @@ import { Memories } from "./Memories";
 import { OwnModel } from "./OwnModel";
 import { KnowledgeVault } from "./KnowledgeVault";
 import { Comfort, UpdateBanner, type UpdateInfo } from "./Comfort";
+import { History, ProjectDialog } from "./History";
 import { Logo } from "./Logo";
-import { api, type Conversation } from "./api";
+import { api, type Conversation, type Project } from "./api";
 import { OrderCheckPage } from "./OrderCheckPage";
 import { invoke } from "@tauri-apps/api/core";
 import { PermissionsPage, type PermissionRequest, type PermissionDecision } from "./PermissionsPage";
@@ -58,6 +59,10 @@ export default function App(){
   const [composer,setComposer]=useState(false);
   const connected=!!data?.running;
   const [update,setUpdate]=useState<UpdateInfo|null>(null);
+  const [projects,setProjects]=useState<Project[]>([]);
+  const [activeProject,setActiveProject]=useState<string|null>(null);
+  const [editingProject,setEditingProject]=useState<Project|null|undefined>(undefined);
+  const loadProjects=useCallback(async()=>{try{setProjects((await api<{projects:Project[]}>("GET","/v1/assistant/projects"))?.projects??[]);}catch{/* agent starting */}},[]);
   // Check for a new version shortly after start (quietly, no errors shown).
   useEffect(()=>{const id=window.setTimeout(()=>{invoke<UpdateInfo>("check_update").then(info=>{if(info?.available)setUpdate(info);}).catch(()=>undefined);},8000);return()=>window.clearTimeout(id);},[]);
   // The quick window asks to continue a conversation here.
@@ -68,7 +73,7 @@ export default function App(){
   const lastPhase=useRef(runState.phase);
   useEffect(()=>{if(lastPhase.current!==runState.phase){if(runState.phase==="completed")void invoke("notify",{title:"Инвентаризация завершена",body:runState.message}).catch(()=>undefined);if(runState.phase==="error")void invoke("notify",{title:"Инвентаризация остановилась",body:runState.message}).catch(()=>undefined);lastPhase.current=runState.phase;}},[runState]);
   const loadConversations=useCallback(async()=>{try{setConversations((await api<{conversations:Conversation[]}>("GET","/v1/assistant/conversations")).conversations);}catch{/* agent starting */}},[]);
-  useEffect(()=>{if(connected)void loadConversations();},[connected,loadConversations]);
+  useEffect(()=>{if(connected){void loadConversations();void loadProjects();}},[connected,loadConversations,loadProjects]);
   const loadConversationsRef=useRef(loadConversations);loadConversationsRef.current=loadConversations;
 
   const refresh=useCallback(async()=>{
@@ -110,17 +115,12 @@ export default function App(){
         <Nav icon={<Settings2/>} label="Настройки" active={settingsPages.includes(page)} count={pendingPermissions} onClick={()=>setPage(pendingPermissions?"permissions":"models")}/>
       </nav>
       {["waiting","running","pausing","paused"].includes(runState.phase)?<button className="run-shortcut" onClick={()=>setPage("sources")}><Activity size={17}/><span><b>{runState.phase==="paused"?"Проверка на паузе":"Проверка инвентаризации"}</b><small>{runState.processed} из {runState.total||"…"} обработано</small></span></button>:null}
-      <div className="history" aria-label="Диалоги">
-        {conversations.length?<small className="history-label">Диалоги</small>:null}
-        {conversations.map(c=><div key={c.id} className={"history-item"+(page==="ai"&&conversationId===c.id?" active":"")}>
-          <button onClick={()=>openChat(c.id)} title={c.title}>{c.title}</button>
-          <button className="history-remove" aria-label={`Удалить диалог ${c.title}`} onClick={()=>void removeConversation(c.id)}><Trash2 size={13}/></button>
-        </div>)}
-      </div>
+      <History conversations={conversations} projects={projects} activeProject={activeProject} onProject={id=>{setActiveProject(id);setConversationId(null);setPage("ai");}}
+        onEditProject={p=>setEditingProject(p)} current={page==="ai"?conversationId:null} onOpen={openChat} onRemove={id=>void removeConversation(id)} onChanged={()=>{void loadConversations();void loadProjects();}}/>
       <div className="side-foot">
         <span className={"dot"+(connected?" on":"")}/>{connected?"Маления работает":"Запуск…"}
         <button className="icon-btn tiny" title="С чего начать?" aria-label="Открыть справку" onClick={()=>setShowHelp(true)}><CircleHelp size={15}/></button>
-        <span className="side-version">0.13.0</span>
+        <span className="side-version">0.14.0</span>
       </div>
     </aside>
 
@@ -161,11 +161,12 @@ export default function App(){
         {page==="server"&&<ServerSettings connected={connected} onOpenModels={()=>setPage("models")}/>}
         {page==="knowledge"&&<KnowledgePage connected={connected}/>}
         {page==="skills"&&<SkillsPage connected={connected} onApply={item=>{setInstruction(item);setPage("ai");}}/>}
-        <div hidden={page!=="ai"} className="chat-host"><Chat visible={page==="ai"} connected={connected} conversationId={conversationId} onConversation={setConversationId} onChanged={()=>void loadConversations()} instruction={instruction} onClearInstruction={()=>setInstruction(null)} onOpenSettings={()=>setPage("models")} onOpenTools={()=>setPage("tools")} onUiAction={action=>{if(action.result?.ui==="open_inventory"){setPage("sources");if(action.result.start)setAutoStart(Date.now());}}}/></div>
+        <div hidden={page!=="ai"} className="chat-host"><Chat visible={page==="ai"} project={projects.find(p=>p.id===activeProject)??null} connected={connected} conversationId={conversationId} onConversation={setConversationId} onChanged={()=>void loadConversations()} instruction={instruction} onClearInstruction={()=>setInstruction(null)} onOpenSettings={()=>setPage("models")} onOpenTools={()=>setPage("tools")} onUiAction={action=>{if(action.result?.ui==="open_inventory"){setPage("sources");if(action.result.start)setAutoStart(Date.now());}}}/></div>
         {page==="settings"&&<section className="page"><Comfort onUpdate={setUpdate}/><div className="settings-links"><button className="secondary" onClick={()=>setPage("browser")}><Globe2 size={16}/>Диагностика расширения</button><button className="secondary" onClick={()=>setPage("tasks")}>Сохранённые планы</button><button className="secondary" onClick={()=>setPage("overview")}>Состояние системы</button></div><details className="advanced-tools"><summary>Дополнительные инструменты</summary><p>Сохранённые планы и сведения о работе приложения. Рабочие действия собраны в разделе «Инструменты».</p></details><div className="settings-grid"><Setting icon={<Database/>} title="Локальный агент" text="Ядро Малении на этом компьютере: хранит диалоги, память и подключения. Модели настраиваются во вкладке «Модели ИИ»." value={connected?"Запущен":"Остановлен"} action={connected?<button className="secondary" onClick={()=>{if(window.confirm("Перезапустить Малению? Это займёт несколько секунд."))void (async()=>{await stopAgent();await runAgent();})();}} disabled={busy}><RefreshCw size={14}/> Перезапустить</button>:<button className="primary" onClick={runAgent} disabled={busy}><Play size={14}/> Запустить</button>}/><Setting icon={<ShieldCheck/>} title="Приватность" text="Диалоги, память и ключи хранятся на этом компьютере. В режиме «Приватно» запросы не уходят в облако. Важные изменения в рабочих системах требуют подтверждения." value="Локально"/><Setting icon={<Globe2/>} title="Рабочая среда" text="Подключите Google и передайте рабочие страницы через расширение во вкладке «Подключения»." value="Browser Bridge"/></div></section>}
       </div>
     </main>
 
+    {editingProject!==undefined?<ProjectDialog project={editingProject} onClose={()=>setEditingProject(undefined)} onSaved={p=>{setEditingProject(undefined);setActiveProject(p.id);setConversationId(null);setPage("ai");void loadProjects();}} onDeleted={id=>{setEditingProject(undefined);if(activeProject===id)setActiveProject(null);void loadProjects();void loadConversations();}}/>:null}
     {showHelp&&<div className="backdrop" onClick={()=>setShowHelp(false)}><section className="modal quick-help" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e=>e.stopPropagation()} onKeyDown={e=>{if(e.key==="Escape")setShowHelp(false);if(e.key==="Tab"){const buttons=e.currentTarget.querySelectorAll<HTMLButtonElement>("button");const first=buttons[0],last=buttons[buttons.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}}}><div className="modal-head"><div><div className="eyebrow">ПЕРВЫЕ ШАГИ</div><h2 id="help-title">Освоимся в Малении</h2></div><button autoFocus className="icon-btn" aria-label="Закрыть справку" onClick={()=>setShowHelp(false)}><X size={18}/></button></div><ol className="help-steps"><li><b>Расскажите ассистенту о задаче</b><p>Маления помогает с любыми задачами: тексты, планы, расчёты, поиск в интернете. Для умных ответов подключите бесплатную облачную модель в «Настройки → Модели ИИ».</p></li><li><b>Выберите подходящий инструмент</b><p>В разделе «Инструменты» собраны рабочие действия. Для инвентаризации выберите лист и запустите проверку.</p></li><li><b>Подключите нужные источники</b><p>Каждый инструмент подскажет, какой доступ ему нужен. Маления учится на ваших оценках 👍/👎 и запоминает важное о вас — всё это видно в разделе «Память».</p></li></ol><button className="primary" onClick={()=>{setShowHelp(false);setPage("tools");}}>Посмотреть инструменты <ArrowUpRight size={16}/></button></section></div>}
     {composer&&<div className="backdrop" onClick={()=>setComposer(false)}><div className="modal" onClick={e=>e.stopPropagation()}><div className="modal-head"><div><div className="eyebrow">НОВЫЙ ПЛАН</div><h2>Что хотите сохранить?</h2></div><button className="icon-btn" onClick={()=>setComposer(false)}><X size={17}/></button></div><label>Название плана<input autoFocus maxLength={200} value={title} onChange={e=>setTitle(e.target.value)} placeholder="Например: проверить новые заказы"/></label><label>Описание <small>необязательно</small><textarea rows={4} maxLength={2000} value={description} onChange={e=>setDescription(e.target.value)} placeholder="Дополнительные детали..."/></label><div className="modal-foot"><span><LockKeyhole size={12}/>Сохранится локально</span><button className="primary" disabled={!connected||!title.trim()||busy} onClick={addTask}>{busy?<LoaderCircle className="spin" size={15}/>:<Plus size={15}/>}Сохранить план</button></div><p className="hint">Пока задача только сохраняется в очереди — автоматическое выполнение ещё не подключено.</p></div></div>}
   </div>;

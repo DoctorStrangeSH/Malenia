@@ -283,7 +283,7 @@ class KnowledgeVault:
         self._sync_thread.start()
 
     # ---- retrieval ------------------------------------------------------
-    def search(self, query: str, limit: int = 5) -> list[dict]:
+    def search(self, query: str, limit: int = 5, scope: str | None = None) -> list[dict]:
         fts = _fts_query(query or "")
         if not fts:
             return []
@@ -292,7 +292,8 @@ class KnowledgeVault:
                 rows = db.execute(
                     """SELECT c.path, c.heading, c.content, d.type, bm25(kb_chunks, 0, 2.0, 1.0) AS score
                        FROM kb_chunks c JOIN kb_docs d ON d.path = c.path
-                       WHERE kb_chunks MATCH ? ORDER BY score LIMIT ?""", (fts, limit * 3)).fetchall()
+                       WHERE kb_chunks MATCH ? AND (? = '' OR c.path LIKE ?) ORDER BY score LIMIT ?""",
+                    (fts, scope or "", (scope or "") + "%", limit * 3)).fetchall()
             except Exception:
                 return []
         results = []
@@ -316,9 +317,10 @@ class KnowledgeVault:
             body = "\n\n".join(parts) if parts else body
         return {"path": row["path"], "title": row["title"], "content": body[:30000], "truncated": len(body) > 30000}
 
-    def context_for(self, query: str, budget: int = 5000) -> list[dict]:
+    def context_for(self, query: str, budget: int = 5000, scope: str | None = None) -> list[dict]:
         chosen, used = [], 0
-        for item in self.search(query, 6):
+        found = self.search(query, 6, scope) if scope else []
+        for item in found + [i for i in self.search(query, 6) if i["path"] not in {f["path"] for f in found}]:
             if used + len(item["content"]) > budget:
                 continue
             chosen.append(item)

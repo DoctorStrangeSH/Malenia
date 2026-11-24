@@ -55,6 +55,7 @@ fs.mkdirSync(output,{recursive:true});
      if(p.startsWith("/v1/assistant/runs/11111111-2222-4333-8444-555555555555")){const r=state.run;return {run_id:"x",next:3,done:true,error:null,result:r,events:[{type:"started",conversation_id:r.conversation_id,user_message:r.user_message},{type:"step",id:"s1",tool:"web_search",label:"Ищу в интернете",status:"done"},{type:"delta",text:r.message.content}]};}
      if(p.startsWith("/v1/ai/hardware"))return {hardware:{ram_gb:16,gpu:null,vram_gb:0,cpu_threads:8,os:"Windows",recommendation:{tier:"cpu-16",label:"16 ГБ",models:["qwen3.5:4b"],note:""}},installed:[],ollama_running:false,pull:{status:"idle",model:null,completed:0,total:0,error:null}};
      if(p==="/v1/assistant/memories")return {memories:[]};
+     if(p==="/v1/assistant/projects"){state.projects=state.projects||[];if(args.method==="POST"){const pr={id:"aaaaaaaa-0000-4000-8000-000000000001",name:args.body.name,instructions:args.body.instructions,kb_scope:args.body.kb_scope,created_at:"",updated_at:""};state.projects.push(pr);return {project:pr};}return {projects:state.projects};}
      if(p==="/v1/assistant/kb/sync")return {...state.kb,documents:34,sections:813,last_sync:"2026-11-24T10:00:00Z",items:[{path:"05-Операционные-инструкции/INVENTORY_PRODUCT_NAMING.md",title:"Наименования товаров",type:"operational-instruction",status:"active"}],status:{state:"done",error:null}};
      if(p==="/v1/assistant/kb"){if(args.method==="POST"){state.kb={...state.kb,...args.body,has_token:state.kb.has_token||!!args.body.token};delete state.kb.token;}return state.kb;}
      if(p==="/v1/ai/detect-key")return {provider:"gigachat"};
@@ -194,6 +195,12 @@ fs.mkdirSync(output,{recursive:true});
     await page.getByText(/Готово: 34 документов, 813 разделов/).waitFor();
     await page.getByText("сохранён",{exact:true}).waitFor();
     await page.screenshot({path:path.join(output,"kb-1440.png"),fullPage:true});
+    await page.getByRole("button",{name:"Новый проект"}).click();
+    await page.getByPlaceholder("Например: Инвентаризация").fill("Отпуск");
+    await page.getByRole("button",{name:"Сохранить",exact:true}).click();
+    await page.getByRole("heading",{name:"Отпуск"}).waitFor();
+    await page.screenshot({path:path.join(output,"project-1440.png"),fullPage:true});
+    await page.getByRole("button",{name:"Все чаты",exact:true}).click();
    }
    for(const destination of ["Чат","Инструменты","Память","Настройки"]){
     await mainNav.getByRole("button",{name:destination,exact:true}).click();

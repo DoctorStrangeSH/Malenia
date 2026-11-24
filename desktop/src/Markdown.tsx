@@ -39,7 +39,7 @@ export function Markdown({ text, onLink }: { text: string; onLink: (url: string)
         if (!/^\s*\|[\s:|-]+\|\s*$/.test(lines[i])) rows.push(lines[i].trim().slice(1, -1).split("|").map(c => c.trim()));
         i++;
       }
-      blocks.push(<div className="md-table" key={blocks.length}><table><tbody>{rows.map((row, r) =>
+      blocks.push(<div className="md-table" key={blocks.length}><TableTools rows={rows} /><table><tbody>{rows.map((row, r) =>
         <tr key={r}>{row.map((cell, c) => r === 0 ? <th key={c}>{inline(cell, onLink)}</th> : <td key={c}>{inline(cell, onLink)}</td>)}</tr>)}</tbody></table></div>);
       continue;
     }
@@ -85,5 +85,26 @@ function CodeBlock({ code }: { code: string }) {
   return <div className="md-code">
     <button type="button" onClick={() => void navigator.clipboard?.writeText(code)}>Копировать</button>
     <pre><code>{code}</code></pre>
+  </div>;
+}
+
+export function downloadText(name: string, text: string, mime = "text/plain") {
+  const blob = new Blob([mime === "text/csv" ? "\ufeff" + text : text], { type: mime + ";charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = name;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+const plain = (cell: string) => cell.replace(/\*\*|`/g, "");
+
+/** Tables from Malenia go to Excel in one click: paste-ready copy or a CSV file. */
+function TableTools({ rows }: { rows: string[][] }) {
+  return <div className="table-tools">
+    <button type="button" title="Скопировать — вставляется в Excel и Google Таблицы по ячейкам"
+      onClick={() => void navigator.clipboard?.writeText(rows.map(row => row.map(plain).join("\t")).join("\n"))}>Копировать для Excel</button>
+    <button type="button" title="Скачать как CSV (открывается в Excel)"
+      onClick={() => downloadText("таблица.csv", rows.map(row => row.map(cell => `"${plain(cell).replace(/"/g, '""')}"`).join(";")).join("\r\n"), "text/csv")}>Скачать CSV</button>
   </div>;
 }

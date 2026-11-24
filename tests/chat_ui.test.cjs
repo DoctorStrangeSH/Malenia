@@ -26,7 +26,7 @@ function harness(invoke, props = {}) {
   };
   const src = path.resolve(__dirname, '../desktop/src');
   const api = load(path.join(src, 'api.ts'), {'@tauri-apps/api/core': {invoke}});
-  const chat = load(path.join(src, 'Chat.tsx'), {react: hooks, '@tauri-apps/api/core': {invoke}, 'lucide-react': icons, './api': api, './Markdown': {Markdown: () => null}, './Logo': {Logo: () => null}});
+  const chat = load(path.join(src, 'Chat.tsx'), {react: hooks, '@tauri-apps/api/core': {invoke}, 'lucide-react': icons, './api': api, './Markdown': {Markdown: () => null, downloadText() {}}, './Logo': {Logo: () => null}, './voiceInput': {Recorder: class {}}});
   const events = {conversation: [], ui: []};
   const base = {connected: true, conversationId: null, onConversation: id => events.conversation.push(id), onChanged() {}, instruction: null, onClearInstruction() {}, onOpenSettings() {}, onOpenTools() {}, onUiAction: action => events.ui.push(action)};
   const render = () => { cursor = 0; return chat.Chat({...base, ...props}); };

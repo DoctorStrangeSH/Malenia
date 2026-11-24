@@ -756,3 +756,42 @@ details.card[open]>summary{margin-bottom:14px}
 .update-banner{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:14px;border:1px solid #4b4372;background:#221f38;border-radius:12px;color:#d9d3ff}
 .update-banner>span{flex:1;display:grid;gap:2px}
 .update-banner small{color:#a9a3cf;font-size:11px}
+/* 0.14 history, projects */
+.history-tools{padding:0 2px 6px}
+.history-search{display:flex;align-items:center;gap:7px;background:#14171e;border:1px solid #252b36;border-radius:9px;padding:0 9px;color:#7d879a}
+.history-search input{flex:1;min-width:0;height:32px;background:none;border:0;outline:0;color:#e6e8ef;font-size:12.5px}
+.history-search button{background:none;border:0;color:inherit;display:grid;place-items:center}
+.projects-bar{display:flex;flex-wrap:wrap;gap:5px;padding:2px 2px 8px}
+.project-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;background:#15181f;border:1px solid #262c37;color:#a9b0be;border-radius:20px;padding:4px 9px;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.project-chip.on{background:#2a2545;border-color:#5b4fa0;color:#ddd6ff}
+.project-chip.add{padding:4px 7px}
+.project-head{display:flex;align-items:center;gap:7px;padding:4px 10px 6px;color:#d6d0ff;font-size:12.5px}
+.project-head b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.history-item>button:first-child{display:grid;grid-template-columns:auto 1fr;align-items:center;column-gap:5px}
+.history-item>button:first-child>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.history-item>button:first-child>svg.pin-mark{color:#9a8cff}
+.history-snippet{grid-column:1/-1;color:#7d879a;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.history-more{opacity:0;background:none;border:0;color:#8a93a3;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex-shrink:0}
+.history-item:hover .history-more,.history-item.active .history-more{opacity:1}
+.history-more:hover{background:#2a2c35;color:#fff}
+.history-menu{position:absolute;right:4px;top:100%;z-index:20;min-width:190px;background:#1a1d25;border:1px solid #2f3542;border-radius:10px;padding:5px;box-shadow:0 12px 40px #0008;display:grid}
+.history-menu button{display:flex;align-items:center;gap:8px;background:none;border:0;color:#d4d8e1;font-size:12.5px;padding:7px 9px;border-radius:7px;text-align:left}
+.history-menu button:hover{background:#262a34}
+.history-menu .danger-item{color:#ff9aa6}
+.history-menu-sub{display:grid;border-top:1px solid #272c37;border-bottom:1px solid #272c37;margin:4px 0;padding:4px 0}
+.history-menu-sub small{color:#7d879a;font-size:10.5px;padding:2px 9px}
+.history-rename{flex:1;padding:3px 4px}
+.history-rename input{width:100%;background:#0e1117;border:1px solid #5b4fa0;border-radius:7px;color:#fff;padding:6px 8px;font-size:13px;outline:0}
+.project-modal textarea,.project-modal select{display:block;width:100%;margin-top:8px;background:#0e131b;border:1px solid #303949;border-radius:8px;padding:11px;color:#e8edf6;outline:none;font-size:12px}
+/* 0.14 voice, side panel, table tools */
+.icon-btn.mic.recording{background:#4a1f2a;border-color:#a3394f;color:#ff9aa6;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{box-shadow:0 0 0 5px #ff5d7322}}
+.voice-note{font-size:11.5px;color:#ff9aa6;white-space:nowrap}
+.side-panel{position:fixed;top:0;right:0;bottom:0;width:min(46vw,720px);background:#10131a;border-left:1px solid #252b36;z-index:15;display:flex;flex-direction:column;box-shadow:-20px 0 60px #0006}
+.side-panel header{display:flex;align-items:center;gap:6px;padding:14px 16px;border-bottom:1px solid #20252f}
+.side-panel header b{flex:1;min-width:0;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side-panel-body{flex:1;overflow:auto;padding:18px 22px 40px}
+.chat.with-panel .chat-scroll,.chat.with-panel .composer-wrap{margin-right:min(46vw,720px)}
+.table-tools{display:flex;gap:6px;justify-content:flex-end;margin-bottom:6px}
+.table-tools button{background:#171b23;border:1px solid #2a303c;color:#aeb5c3;border-radius:7px;font-size:11px;padding:4px 8px}
+.table-tools button:hover{color:#fff;border-color:#5b4fa0}

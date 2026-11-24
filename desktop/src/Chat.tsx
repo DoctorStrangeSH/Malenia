@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowUp, Bookmark, Brain, Check, CircleAlert, Copy, FileText, GraduationCap, Globe2, Image as ImageIcon, LoaderCircle, Lock,
-  Mail, ListChecks, Lightbulb, Paperclip, Pencil, Play, RotateCcw, Square, ThumbsDown, ThumbsUp, Wrench, X,
+  Mail, ListChecks, Lightbulb, Mic, PanelRight, Paperclip, Pencil, Play, RotateCcw, Square, ThumbsDown, ThumbsUp, Wrench, X,
 } from "lucide-react";
-import { api, providerLabel, type AgentAction, type Attachment, type ChatMessage, type ConversationDetail, type ProvidersInfo, type RunState, type RunStep } from "./api";
-import { Markdown } from "./Markdown";
+import { api, providerLabel, type AgentAction, type Attachment, type ChatMessage, type ConversationDetail, type Project, type ProvidersInfo, type RunState, type RunStep } from "./api";
+import { downloadText, Markdown } from "./Markdown";
 import { Logo } from "./Logo";
+import { Recorder } from "./voiceInput";
 
 type Props = {
   connected: boolean;
@@ -20,6 +21,7 @@ type Props = {
   onUiAction: (action: AgentAction) => void;
   visible?: boolean;
   compact?: boolean;
+  project?: Project | null;
 };
 
 const MAX_FILES = 6;
@@ -163,6 +165,7 @@ export function Chat(props: Props) {
 
   const cloudReady = !!providers?.providers.some(p => p.enabled);
   const [live, setLive] = useState<Live | null>(null);
+  const [panel, setPanel] = useState<{ id: string; content: string } | null>(null);
   const runRef = useRef<string | null>(null);
 
   /** Start an answer in the background and follow it: text appears as it is written. */
@@ -239,10 +242,59 @@ export function Chat(props: Props) {
     setPendingText(text); setPendingFiles(sending); setDraft(""); setFiles([]);
     await runChat({
       message: text, conversation_id: conversationId, private: privateMode, use_web: useWeb,
+      project_id: conversationId ? undefined : props.project?.id,
       instruction: instruction ? `${instruction.title}\n${instruction.instructions}` : null,
       attachments: sending.map(({ name, mime, data, preview }) => ({ name, mime, data, preview })),
     }, () => { setDraft(text); setFiles(sending); });
   };
+
+  // ---- voice input (local whisper.cpp) ----
+  const recorder = useRef<Recorder | null>(null);
+  const [voice, setVoice] = useState<"idle" | "recording" | "transcribing" | "installing">("idle");
+  const [voiceProgress, setVoiceProgress] = useState(0);
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    if (voice !== "recording") return;
+    setSeconds(0);
+    const id = window.setInterval(() => setSeconds(value => value + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [voice]);
+  const toggleVoice = async () => {
+    if (voice === "recording") {
+      setVoice("transcribing");
+      try {
+        const audio = await recorder.current!.stop();
+        const { text } = await api<{ text: string }>("POST", "/v1/assistant/voice/transcribe", { audio, language: "ru" });
+        if (text) setDraft((draft ? draft.trimEnd() + " " : "") + text);
+        else setError("Не расслышала. Попробуйте ещё раз, говорите ближе к микрофону.");
+        inputRef.current?.focus();
+      } catch (reason) { setError(String(reason)); } finally { setVoice("idle"); }
+      return;
+    }
+    if (voice !== "idle") return;
+    try {
+      const status = await api<{ ready: boolean; state: string; progress: number }>("GET", "/v1/assistant/voice");
+      if (!status.ready) {
+        if (!window.confirm("Для голосового ввода нужно один раз скачать распознавание речи (около 470 МБ). Всё работает на вашем компьютере, без интернета. Скачать?")) return;
+        setVoice("installing");
+        let state = await api<{ ready: boolean; state: string; progress: number; error: string | null }>("POST", "/v1/assistant/voice/install", { model: "small" });
+        while (!state.ready && state.state !== "failed") {
+          setVoiceProgress(state.progress);
+          await sleep(1500);
+          state = await api("GET", "/v1/assistant/voice");
+        }
+        setVoice("idle");
+        if (!state.ready) { setError(state.error || "Не удалось установить голосовой ввод"); return; }
+      }
+      recorder.current = new Recorder();
+      await recorder.current.start();
+      setVoice("recording");
+    } catch (reason) {
+      setVoice("idle");
+      setError(/NotAllowed|Permission/i.test(String(reason)) ? "Нет доступа к микрофону. Разрешите его в настройках Windows → Конфиденциальность → Микрофон." : String(reason));
+    }
+  };
+  useEffect(() => () => recorder.current?.cancel(), []);
 
   const stop = () => { if (runRef.current) void api("POST", `/v1/assistant/runs/${runRef.current}/cancel`).catch(() => undefined); };
 
@@ -287,7 +339,7 @@ export function Chat(props: Props) {
   };
 
   const empty = !messages.length && !busy;
-  return <section className={"chat" + (dragging ? " dragging" : "") + (props.compact ? " compact" : "")} aria-label="Чат"
+  return <section className={"chat" + (dragging ? " dragging" : "") + (props.compact ? " compact" : "") + (panel ? " with-panel" : "")} aria-label="Чат"
     onDragEnter={event => { if (Array.from(event.dataTransfer.types).includes("Files")) { event.preventDefault(); setDragging(true); } }}
     onDragOver={event => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }}
     onDragLeave={event => { if (event.currentTarget === event.target || !event.currentTarget.contains(event.relatedTarget as Node)) setDragging(false); }}
@@ -297,8 +349,8 @@ export function Chat(props: Props) {
     <div className="chat-scroll" ref={listRef} onScroll={event => { const el = event.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
       {empty ? <div className="chat-welcome">
         <Logo size={56} className="chat-logo" />
-        <h2>Чем помочь?</h2>
-        <p>Я Маления — ваша помощница для работы и не только. Пишите, спрашивайте, поручайте.</p>
+        <h2>{props.project ? props.project.name : "Чем помочь?"}</h2>
+        <p>{props.project ? "Новый чат в проекте: Маления учтёт его инструкции и базу знаний." : "Я Маления — ваша помощница для работы и не только. Пишите, спрашивайте, поручайте."}</p>
         {connected && providers && !cloudReady && !localReady ? <button className="setup-hint" onClick={props.onOpenSettings}>
           <Brain size={18} /><span><b>Настройте модель для Малении</b><small>Скачайте локальную модель под вашу видеокарту или подключите бесплатный GigaChat — это пара минут.</small></span>
         </button> : null}
@@ -309,7 +361,8 @@ export function Chat(props: Props) {
         </div>
       </div> : <div className="chat-thread">
         {messages.map((message, index) => <Message key={message.id} message={message} onRate={rate} onDecide={decide}
-          busy={busy} last={index === messages.length - 1} onRegenerate={() => void regenerate()} onEdit={text => void edit(message, text)} />)}
+          busy={busy} last={index === messages.length - 1} onRegenerate={() => void regenerate()} onEdit={text => void edit(message, text)}
+          onPanel={props.compact ? undefined : () => setPanel(panel?.id === message.id ? null : { id: message.id, content: message.content })} />)}
         {busy ? <>
           {pendingText ? <div className="msg user"><div className="bubble">
             {pendingFiles.some(f => f.preview) ? <div className="bubble-photos">{pendingFiles.filter(f => f.preview).map((file, index) => <img key={index} src={file.preview} alt={file.name} />)}</div> : null}
@@ -325,6 +378,13 @@ export function Chat(props: Props) {
       </div>}
     </div>
 
+    {panel ? <aside className="side-panel" aria-label="Панель документа">
+      <header><b>{panel.content.replace(/[#*`>]/g, "").split("\n").find(line => line.trim())?.trim().slice(0, 80) || "Документ"}</b>
+        <button className="icon-btn tiny" title="Копировать" aria-label="Копировать документ" onClick={() => void navigator.clipboard?.writeText(panel.content)}><Copy size={14} /></button>
+        <button className="icon-btn tiny" title="Сохранить как файл .md" aria-label="Сохранить документ" onClick={() => downloadText("Маления.md", panel.content, "text/markdown")}><FileText size={14} /></button>
+        <button className="icon-btn tiny" aria-label="Закрыть панель" onClick={() => setPanel(null)}><X size={14} /></button></header>
+      <div className="side-panel-body"><Markdown text={panel.content} onLink={openLink} /></div>
+    </aside> : null}
     <div className="composer-wrap">
       {error ? <div className="chat-error" role="alert"><span>{error}</span>{/настро|ключ|модел/i.test(error) ? <button onClick={props.onOpenSettings}>Открыть настройки</button> : null}<button aria-label="Скрыть ошибку" onClick={() => setError("")}><X size={14} /></button></div> : null}
       {instruction ? <div className="instruction-chip"><ListChecks size={14} /><span>Инструкция: <b>{instruction.title}</b></span><button onClick={onClearInstruction}>Убрать</button></div> : null}
@@ -341,6 +401,12 @@ export function Chat(props: Props) {
           onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
         <div className="composer-bar">
           <input ref={fileRef} type="file" multiple accept={ACCEPT} hidden onChange={event => { if (event.target.files) void addFiles(event.target.files); event.target.value = ""; }} />
+          <button className={"icon-btn mic" + (voice === "recording" ? " recording" : "")} aria-label={voice === "recording" ? "Остановить запись" : "Голосовой ввод"} disabled={!connected || voice === "transcribing" || voice === "installing"}
+            title={voice === "recording" ? "Нажмите, чтобы закончить" : "Голосовой ввод — распознаётся на вашем компьютере"} onClick={() => void toggleVoice()}>
+            {voice === "transcribing" || voice === "installing" ? <LoaderCircle className="spin" size={16} /> : <Mic size={16} />}</button>
+          {voice === "recording" ? <span className="voice-note">● {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</span> : null}
+          {voice === "installing" ? <span className="voice-note">Скачиваю распознавание речи… {Math.round(voiceProgress * 100)}%</span> : null}
+          {voice === "transcribing" ? <span className="voice-note">Распознаю…</span> : null}
           <button className="icon-btn" aria-label="Приложить файл" title="Фото, Excel, Word, PDF, текст — до 12 МБ" disabled={!connected} onClick={() => fileRef.current?.click()}><Paperclip size={17} /></button>
           <button className={"chip-toggle" + (useWeb && !privateMode ? " on" : "")} disabled={privateMode} aria-pressed={useWeb && !privateMode}
             title="Разрешить искать в интернете, когда нужно" onClick={() => setUseWeb(value => !value)}><Globe2 size={14} />Интернет</button>
@@ -360,10 +426,10 @@ export function Chat(props: Props) {
 type MessageProps = {
   message: ChatMessage; onRate: (m: ChatMessage, rating: number, comment?: string) => void;
   onDecide: (a: AgentAction, approve: boolean) => Promise<void>;
-  busy?: boolean; last?: boolean; onRegenerate?: () => void; onEdit?: (text: string) => void;
+  busy?: boolean; last?: boolean; onRegenerate?: () => void; onEdit?: (text: string) => void; onPanel?: () => void;
 };
 
-function Message({ message, onRate, onDecide, busy, last, onRegenerate, onEdit }: MessageProps) {
+function Message({ message, onRate, onDecide, busy, last, onRegenerate, onEdit, onPanel }: MessageProps) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState<"" | "ok" | "error">("");
   const [asking, setAsking] = useState(false);
@@ -402,6 +468,7 @@ function Message({ message, onRate, onDecide, busy, last, onRegenerate, onEdit }
           invoke("create_task", { title, description: message.content.slice(0, 2000), requestId: message.id })
             .then(() => setSaved("ok")).catch(() => setSaved("error"));
         }}>{saved === "ok" ? <Check size={14} /> : <Bookmark size={14} />}</button>
+        {onPanel && (message.content.length > 1200 || /```|^\s*\|.*\|\s*$/m.test(message.content)) ? <button title="Открыть в боковой панели" aria-label="Открыть в панели" onClick={onPanel}><PanelRight size={14} /></button> : null}
         {last && onRegenerate ? <button title="Ответить заново" aria-label="Ответить заново" disabled={busy} onClick={onRegenerate}><RotateCcw size={14} /></button> : null}
         {saved === "error" ? <span className="bad-text">не сохранено</span> : null}
         <span>{providerLabel(message.provider)}{message.model ? " · " + message.model : ""}{message.meta?.private ? " · приватно" : ""}</span>

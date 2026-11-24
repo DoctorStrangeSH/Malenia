@@ -186,17 +186,106 @@ class Assistant:
                     content TEXT NOT NULL, created_at TEXT NOT NULL, provider TEXT, model TEXT,
                     feedback INTEGER NOT NULL DEFAULT 0, meta TEXT NOT NULL DEFAULT '{}');
                 CREATE INDEX IF NOT EXISTS chat_messages_conversation ON chat_messages(conversation_id, created_at);
+                CREATE TABLE IF NOT EXISTS projects (
+                    id TEXT PRIMARY KEY, name TEXT NOT NULL, instructions TEXT NOT NULL DEFAULT '',
+                    kb_scope TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS memories (
                     id TEXT PRIMARY KEY, content TEXT NOT NULL, kind TEXT NOT NULL,
                     source TEXT NOT NULL, score INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL, last_used_at TEXT);
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(conversations)")}
+            if "project_id" not in columns:
+                db.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT")
+            if "pinned" not in columns:
+                db.execute("ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+            if "summary" not in columns:
+                db.execute("ALTER TABLE conversations ADD COLUMN summary TEXT NOT NULL DEFAULT ''")
+                db.execute("ALTER TABLE conversations ADD COLUMN summary_upto INTEGER NOT NULL DEFAULT 0")
 
     # ---- conversations --------------------------------------------------
-    def list_conversations(self, limit: int = 100) -> list[dict]:
+    def list_conversations(self, limit: int = 200, query: str | None = None, project_id: str | None = None) -> list[dict]:
+        sql = "SELECT c.id, c.title, c.created_at, c.updated_at, c.project_id, c.pinned FROM conversations c"
+        where, params = [], []
+        if project_id:
+            where.append("c.project_id = ?")
+            params.append(project_id)
+        if query and query.strip():
+            pattern = "%" + query.strip()[:100].replace("%", "").replace("_", "") + "%"
+            where.append("(c.title LIKE ? OR EXISTS (SELECT 1 FROM chat_messages m WHERE m.conversation_id = c.id AND m.content LIKE ?))")
+            params += [pattern, pattern]
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY c.pinned DESC, c.updated_at DESC LIMIT ?"
+        with self.store._session() as db:
+            rows = [dict(r) for r in db.execute(sql, (*params, limit))]
+            if query and query.strip():
+                for row in rows:
+                    hit = db.execute("SELECT content FROM chat_messages WHERE conversation_id = ? AND content LIKE ? LIMIT 1",
+                                     (row["id"], pattern)).fetchone()
+                    if hit:
+                        text = hit["content"]
+                        at = text.casefold().find(query.strip().casefold())
+                        row["snippet"] = ("…" if at > 40 else "") + text[max(0, at - 40):at + 80].replace("\n", " ")
+        for row in rows:
+            row["pinned"] = bool(row["pinned"])
+        return rows
+
+    def update_conversation(self, conversation_id: str, payload: dict) -> bool:
+        changes, params = [], []
+        if "title" in payload:
+            title = re.sub(r"\s+", " ", str(payload.get("title") or "")).strip()[:120]
+            if not title:
+                raise AssistantError("invalid_title")
+            changes.append("title = ?"); params.append(title)
+        if "pinned" in payload:
+            changes.append("pinned = ?"); params.append(1 if payload.get("pinned") else 0)
+        if "project_id" in payload:
+            project = payload.get("project_id") or None
+            if project is not None and self.get_project(project) is None:
+                raise AssistantError("project_not_found", 404)
+            changes.append("project_id = ?"); params.append(project)
+        if not changes:
+            raise AssistantError("invalid_request")
+        with self.store._session() as db:
+            return db.execute(f"UPDATE conversations SET {', '.join(changes)} WHERE id = ?",
+                              (*params, conversation_id)).rowcount > 0
+
+    # ---- projects -------------------------------------------------------
+    def list_projects(self) -> list[dict]:
         with self.store._session() as db:
             return [dict(r) for r in db.execute(
-                "SELECT * FROM conversations ORDER BY updated_at DESC LIMIT ?", (limit,))]
+                """SELECT p.*, (SELECT COUNT(*) FROM conversations c WHERE c.project_id = p.id) AS conversations
+                   FROM projects p ORDER BY p.updated_at DESC""")]
+
+    def get_project(self, project_id: str) -> dict | None:
+        with self.store._session() as db:
+            row = db.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        return dict(row) if row else None
+
+    def save_project(self, payload: dict, project_id: str | None = None) -> dict:
+        if not isinstance(payload, dict):
+            raise AssistantError("invalid_project")
+        name = re.sub(r"\s+", " ", str(payload.get("name") or "")).strip()[:80]
+        instructions = str(payload.get("instructions") or "").strip()[:8000]
+        scope = str(payload.get("kb_scope") or "").strip().strip("/")[:200]
+        if not name:
+            raise AssistantError("invalid_project")
+        now = _now()
+        with self.store._session() as db:
+            if project_id:
+                if not db.execute("UPDATE projects SET name = ?, instructions = ?, kb_scope = ?, updated_at = ? WHERE id = ?",
+                                  (name, instructions, scope, now, project_id)).rowcount:
+                    raise AssistantError("project_not_found", 404)
+            else:
+                project_id = str(uuid.uuid4())
+                db.execute("INSERT INTO projects VALUES (?,?,?,?,?,?)", (project_id, name, instructions, scope, now, now))
+        return self.get_project(project_id)
+
+    def delete_project(self, project_id: str) -> bool:
+        with self.store._session() as db:
+            db.execute("UPDATE conversations SET project_id = NULL WHERE project_id = ?", (project_id,))
+            return db.execute("DELETE FROM projects WHERE id = ?", (project_id,)).rowcount > 0
 
     def get_conversation(self, conversation_id: str) -> dict | None:
         with self.store._session() as db:
@@ -226,12 +315,7 @@ class Assistant:
             return db.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,)).rowcount > 0
 
     def rename_conversation(self, conversation_id: str, title: str) -> bool:
-        title = (title or "").strip()[:120]
-        if not title:
-            raise AssistantError("invalid_title")
-        with self.store._session() as db:
-            return db.execute("UPDATE conversations SET title = ? WHERE id = ?",
-                              (title, conversation_id)).rowcount > 0
+        return self.update_conversation(conversation_id, {"title": title})
 
     @staticmethod
     def _truncate(db, conversation_id: str, pivot, inclusive: bool) -> None:
@@ -407,7 +491,11 @@ class Assistant:
             else:
                 conversation_id = str(uuid.uuid4())
                 title = re.sub(r"\s+", " ", text).strip()[:60]
-                db.execute("INSERT INTO conversations VALUES (?, ?, ?, ?)", (conversation_id, title, _now(), _now()))
+                project_id = payload.get("project_id") if isinstance(payload.get("project_id"), str) else None
+                if project_id and not db.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone():
+                    project_id = None
+                db.execute("INSERT INTO conversations (id, title, created_at, updated_at, project_id) VALUES (?, ?, ?, ?, ?)",
+                           (conversation_id, title, _now(), _now(), project_id))
             history = []
             for row in db.execute(
                     "SELECT role, content, meta FROM chat_messages WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 30",
@@ -432,8 +520,16 @@ class Assistant:
         if memories:
             system += "\n\nЧто ты знаешь о пользователе (учитывай, но не пересказывай без повода):\n" + "\n".join(
                 f"- [{m['kind']}] {m['content']}" for m in memories)
+        with self.store._session() as db:
+            row = db.execute("""SELECT p.name, p.instructions, p.kb_scope FROM conversations c
+                                JOIN projects p ON p.id = c.project_id WHERE c.id = ?""", (conversation_id,)).fetchone()
+        project = dict(row) if row else None
+        if project:
+            system += f"\n\nЭтот разговор — в проекте «{project['name']}»."
+            if project["instructions"]:
+                system += " Инструкции проекта (следуй им во всех ответах этого проекта):\n" + project["instructions"]
         vault = getattr(self.toolbox, "vault", None) if self.toolbox is not None else None
-        knowledge_used = vault.context_for(text) if vault is not None else []
+        knowledge_used = vault.context_for(text, scope=(project or {}).get("kb_scope") or None) if vault is not None else []
         if knowledge_used:
             system += ("\n\nФрагменты из базы знаний пользователя, которые могут относиться к задаче. Это опыт и проверенные "
                        "маршруты: пойми их смысл и применяй с учётом ситуации; если фрагмента мало — открой документ через "

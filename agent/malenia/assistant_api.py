@@ -11,6 +11,7 @@ from . import hardware
 from . import training
 from .agent_tools import ToolBox, ToolError
 from .kb import KnowledgeBaseError, KnowledgeVault
+from .voice import VoiceEngine, VoiceError
 from .assistant import Assistant, AssistantError
 from .knowledge import KnowledgeBase
 from .lan import LanServer
@@ -53,6 +54,7 @@ class AssistantServices:
                                             hardware_recommendation=lambda: self.hardware_profile()["recommendation"]["models"])
         knowledge, skills = KnowledgeBase(store), SkillRegistry(store)
         self.vault = KnowledgeVault(store, self.settings, secrets or self.router.secrets)
+        self.voice = VoiceEngine()
         self.toolbox = ToolBox(store, self.settings, skills=skills, knowledge=knowledge, vault=self.vault)
         self.assistant = Assistant(store, self.router, knowledge, skills, web=web, background=background,
                                    toolbox=self.toolbox)
@@ -61,6 +63,10 @@ class AssistantServices:
 
 
 AI_ERRORS = {
+    "invalid_project": "Укажите название проекта.",
+    "project_not_found": "Проект не найден — возможно, он удалён.",
+    "nothing_to_regenerate": "Нечего повторять: в этом диалоге ещё нет вопросов.",
+    "message_not_found": "Сообщение не найдено — обновите диалог.",
     "ai_not_configured": "Модель не настроена. Откройте «Настройки → Модели ИИ»: подключите GigaChat или скачайте локальную модель.",
     "ai_invalid_key": "Ключ API не подошёл. Проверьте его в «Настройки → Модели ИИ».",
     "ai_rate_limited": "Бесплатный лимит модели исчерпан. Подождите немного или добавьте ещё одного провайдера.",
@@ -82,7 +88,30 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
     try:
         # ---- conversations ------------------------------------------------
         if method == "GET" and path == "/v1/assistant/conversations":
-            handler._send(200, {"conversations": assistant.list_conversations()})
+            query = parse_qs(parsed.query)
+            handler._send(200, {"conversations": assistant.list_conversations(
+                query=(query.get("q") or [None])[0], project_id=(query.get("project") or [None])[0])})
+            return True
+        if path == "/v1/assistant/projects":
+            if method == "GET":
+                handler._send(200, {"projects": assistant.list_projects()})
+            elif method == "POST":
+                payload = handler._read_json(16 * 1024)
+                if payload is not None:
+                    handler._send(200, {"project": assistant.save_project(payload)})
+            else:
+                return False
+            return True
+        match = re.fullmatch(rf"/v1/assistant/projects/({UUID})", path)
+        if match:
+            if method == "POST":
+                payload = handler._read_json(16 * 1024)
+                if payload is not None:
+                    handler._send(200, {"project": assistant.save_project(payload, match.group(1))})
+            elif method == "DELETE":
+                handler._send(200, {"deleted": assistant.delete_project(match.group(1))})
+            else:
+                return False
             return True
         match = re.fullmatch(rf"/v1/assistant/conversations/({UUID})", path)
         if match:
@@ -94,7 +123,8 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
             elif method == "POST":
                 payload = handler._read_json(2048)
                 if payload is not None:
-                    handler._send(200, {"renamed": assistant.rename_conversation(match.group(1), payload.get("title"))})
+                    handler._send(200, {"updated": assistant.update_conversation(match.group(1), payload),
+                                        "renamed": True})
             else:
                 return False
             return True
@@ -157,6 +187,31 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
                         handler._send(422, {"error": "invalid_workspace", "message": str(error)})
             else:
                 return False
+            return True
+
+        # ---- voice input (local whisper.cpp) ------------------------------
+        if path.startswith("/v1/assistant/voice"):
+            try:
+                if method == "GET" and path == "/v1/assistant/voice":
+                    handler._send(200, services.voice.status())
+                elif method == "POST" and path == "/v1/assistant/voice/install":
+                    payload = handler._read_json(1024)
+                    if payload is not None:
+                        handler._send(200, services.voice.install(str(payload.get("model") or "small")))
+                elif method == "POST" and path == "/v1/assistant/voice/transcribe":
+                    payload = handler._read_json(36 * 1024 * 1024)
+                    if payload is not None:
+                        handler._send(200, {"text": services.voice.transcribe(str(payload.get("audio") or ""),
+                                                                              str(payload.get("language") or "ru"))})
+                else:
+                    return False
+            except VoiceError as error:
+                code = str(error)
+                messages = {"voice_not_installed": "Голосовой ввод ещё не установлен.",
+                            "invalid_audio": "Не удалось прочитать запись. Попробуйте ещё раз."}
+                handler._send(422, {"error": code, "message": messages.get(code, code)})
+            except Exception:
+                handler._send(500, {"error": "voice_failed", "message": "Не удалось распознать речь."})
             return True
 
         # ---- knowledge base (Obsidian / GitHub) ----------------------------

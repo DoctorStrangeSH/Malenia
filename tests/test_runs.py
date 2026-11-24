@@ -43,7 +43,7 @@ class StreamingProvider:
         return item
 
 
-class RunTests(unittest.TestCase):
+class RunBase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.store = TaskStore(Path(self.tmp.name) / "db.sqlite3")
@@ -58,6 +58,8 @@ class RunTests(unittest.TestCase):
         router.save_config({**router.config(), "mode": "local"})
         return Assistant(self.store, router, background=background)
 
+
+class RunTests(RunBase):
     def test_answer_streams_with_visible_steps(self):
         tool = ChatResult("", tool_calls=[{"id": "c1", "name": "remember", "arguments": {"content": "Пользователь любит кофе"}}])
         assistant = self.assistant([tool, "Готово , запомнила"])
@@ -161,3 +163,25 @@ class ProviderStreamingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ProjectAndSearchTests(RunBase):
+    def test_projects_scope_instructions_and_search(self):
+        assistant = self.assistant(["Готово", "Второй ответ"])
+        project = assistant.save_project({"name": "Инвентаризация", "instructions": "Отвечай таблицей", "kb_scope": "05-Операционные-инструкции/"})
+        reply = assistant.chat({"message": "Проверь заказ 123", "project_id": project["id"]})
+        system = self.local.seen[-1][0]["content"]
+        self.assertIn("Инвентаризация", system)
+        self.assertIn("Отвечай таблицей", system)
+        other = assistant.chat({"message": "Рецепт борща"})
+        items = assistant.list_conversations(project_id=project["id"])
+        self.assertEqual([c["id"] for c in items], [reply["conversation_id"]])
+        found = assistant.list_conversations(query="борщ")
+        self.assertEqual([c["id"] for c in found], [other["conversation_id"]])
+        self.assertIn("борщ", found[0]["snippet"])
+        assistant.update_conversation(reply["conversation_id"], {"pinned": True, "title": "Заказ 123"})
+        first = assistant.list_conversations()[0]
+        self.assertEqual((first["id"], first["pinned"], first["title"]), (reply["conversation_id"], True, "Заказ 123"))
+        self.assertEqual(assistant.list_projects()[0]["conversations"], 1)
+        assistant.delete_project(project["id"])
+        self.assertIsNone(assistant.list_conversations()[0]["project_id"])

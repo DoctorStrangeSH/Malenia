@@ -31,7 +31,8 @@ export type RunEvent =
   | { type: "status"; text: string }
   | ({ type: "step" } & RunStep);
 export type RunState = { run_id: string; events: RunEvent[]; next: number; done: boolean; result: ChatReply | null; error: { error: string; message: string } | null };
-export type Conversation = { id: string; title: string; created_at: string; updated_at: string };
+export type Conversation = { id: string; title: string; created_at: string; updated_at: string; project_id?: string | null; pinned?: boolean; snippet?: string };
+export type Project = { id: string; name: string; instructions: string; kb_scope: string; conversations?: number; created_at: string; updated_at: string };
 export type ConversationDetail = Conversation & { messages: ChatMessage[] };
 export type ChatReply = { conversation_id: string; user_message: ChatMessage; message: ChatMessage; provider: string; model: string };
 export type Memory = { id: string; content: string; kind: "fact" | "preference" | "lesson"; source: string; score: number; uses: number; created_at: string };
