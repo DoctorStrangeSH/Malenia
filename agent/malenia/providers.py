@@ -460,6 +460,26 @@ class OllamaProvider:
     # Context window. 8K is safe on 32 GB machines with a big local model;
     # larger only when memory allows (see AssistantServices.tune_local).
     num_ctx = 8192
+    ram_gb = 0.0
+    vram_gb = 0.0
+    _sizes: dict[str, int] = {}
+    _sizes_at = 0.0
+
+    def context_for(self, model: str) -> int:
+        """16K when the model leaves enough memory (small model or big machine), else 8K."""
+        import time as _time
+        if _time.time() - self._sizes_at > 60:
+            try:
+                data = _get_json(self.opener, self.base_url + "/api/tags", {}, 3)
+                OllamaProvider._sizes = {item["name"]: int(item.get("size") or 0) for item in data.get("models", [])
+                                         if isinstance(item, dict) and isinstance(item.get("name"), str)}
+                OllamaProvider._sizes_at = _time.time()
+            except (ProviderError, ValueError, TypeError):
+                pass
+        size_gb = (self._sizes.get(model) or self._sizes.get(model + ":latest") or 0) / 1e9
+        roomy = self.vram_gb >= 16 or self.ram_gb >= 48 or (0 < size_gb <= 11)
+        self.num_ctx = 16384 if roomy else 8192
+        return self.num_ctx
 
     def warm_up(self, model: str) -> None:
         """Load a model into memory in advance (empty request)."""
@@ -541,7 +561,7 @@ class OllamaProvider:
              timeout: float = 300, on_delta=None, cancel=None) -> ChatResult:
         body: dict[str, Any] = {"model": model, "messages": self._convert(messages), "stream": bool(on_delta),
                                 "keep_alive": self.keep_alive,
-                                "options": {"num_ctx": self.num_ctx, "num_predict": max_tokens, "temperature": temperature}}
+                                "options": {"num_ctx": self.context_for(model), "num_predict": max_tokens, "temperature": temperature}}
         if tools:
             body["tools"] = tools
         if json_mode:

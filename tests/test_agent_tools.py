@@ -41,6 +41,9 @@ class FakeSheets:
         self.written = (sid, rng, values)
         return {"updatedCells": sum(len(r) for r in values)}
 
+    def sheet_titles(self, sid):
+        return [{"id": 0, "title": "Лист1"}, {"id": 7, "title": "03.10 (Тестик)"}]
+
 
 def xlsx_bytes():
     buffer = io.BytesIO()
@@ -135,6 +138,18 @@ class ToolTests(Base):
         self.assertIsNone(self.toolbox.sheets.written)
         self.assertEqual(self.toolbox.decide(pending["action"]["id"], True)["status"], "done")
         self.assertEqual(self.toolbox.sheets.written[2], [["new"]])
+        self.assertEqual(self.toolbox.sheets.written[1], "'Лист1'!A3")
+
+    def test_sheet_read_finds_loosely_named_sheet_and_gid(self):
+        url = "https://docs.google.com/spreadsheets/d/" + "a" * 30 + "/edit?gid=7#gid=7"
+        self.toolbox.sheets = FakeSheets([["Номер", "Наименование"], ["61225672960", ""]])
+        loose = self.toolbox.run("read_google_sheet", {"spreadsheet": url, "range": "03.10(тестик)!A1:H50"}, "c")
+        self.assertEqual(loose["status"], "done", loose)
+        self.assertEqual(loose["result"]["range"], "'03.10 (Тестик)'!A1:H50")
+        by_gid = self.toolbox.run("read_google_sheet", {"spreadsheet": url}, "c")
+        self.assertEqual(by_gid["result"]["sheet"], "03.10 (Тестик)")
+        missing = self.toolbox.run("read_google_sheet", {"spreadsheet": "a" * 30, "sheet": "нет такого"}, "c")
+        self.assertIn("03.10 (Тестик)", missing["error"])
 
     def test_ui_tool_is_returned_to_the_app(self):
         result = self.toolbox.run("open_inventory", {"start": True}, "c")

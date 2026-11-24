@@ -477,6 +477,28 @@ fetch("/", {method:"POST", headers:{"Content-Type":"application/x-www-form-urlen
                 return self._access_token
         return self._refresh_access_token()
 
+    def sheet_titles(self, spreadsheet_id: str) -> list[dict[str, Any]]:
+        """[{id, title}] of all tabs — lets the assistant find a sheet by a loosely written name."""
+        if not isinstance(spreadsheet_id, str) or _SPREADSHEET_ID_RE.fullmatch(spreadsheet_id) is None:
+            raise GoogleSheetsError("invalid_spreadsheet_id")
+        url = (f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+               "?fields=sheets.properties(sheetId,title,index)")
+        token = self._get_access_token()
+        try:
+            metadata = self._request_json(Request(url, headers={"Authorization": f"Bearer {token}",
+                                                                "Accept": "application/json"}, method="GET"),
+                                          _MAX_SHEETS_RESPONSE_BYTES)
+        except GoogleSheetsError as error:
+            if error.status != 401:
+                raise
+            token = self._refresh_access_token()
+            metadata = self._request_json(Request(url, headers={"Authorization": f"Bearer {token}",
+                                                                "Accept": "application/json"}, method="GET"),
+                                          _MAX_SHEETS_RESPONSE_BYTES)
+        return [{"id": item["properties"].get("sheetId"), "title": item["properties"].get("title")}
+                for item in metadata.get("sheets", []) if isinstance(item, dict) and isinstance(item.get("properties"), dict)
+                and isinstance(item["properties"].get("title"), str)]
+
     def read_active_sheet(self, spreadsheet_url: str, gid: str | None = None) -> dict[str, Any]:
         """Resolve an explicitly shared Google Sheets tab and read its used grid."""
         from urllib.parse import parse_qs, urlsplit

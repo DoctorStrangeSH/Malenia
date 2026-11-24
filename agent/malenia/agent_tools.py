@@ -221,13 +221,15 @@ class ToolBox:
                  _schema({"path": text, "content": text}, ["path", "content"]), "confirm",
                  lambda a: {"saved": self.workspace.write(a.get("path", ""), a.get("content", ""))},
                  lambda a: f"Сохранить файл «{a.get('path', '')}» ({len(a.get('content') or '')} символов) в рабочей папке")
-        self.add("read_google_sheet", "Прочитать диапазон Google-таблицы (нужно подключение Google Sheets).",
+        self.add("read_google_sheet", "Прочитать лист Google-таблицы. Название листа можно писать как удобно — найдётся похожий.",
                  _schema({"spreadsheet": {**text, "description": "Ссылка или ID таблицы"},
-                          "range": {**text, "description": "Например Лист1!A1:F50"}}, ["spreadsheet", "range"]),
+                          "sheet": {**text, "description": "Название листа, например 03.10 (Тестик). Можно не указывать, если в ссылке есть gid"},
+                          "range": {**text, "description": "Ячейки, например A1:H200 (по умолчанию A1:Z400)"}}, ["spreadsheet"]),
                  "safe", self._read_sheet)
         self.add("update_google_sheet",
                  "Записать значения в диапазон Google-таблицы. Формулы не перезаписываются. Требует подтверждения пользователя.",
-                 _schema({"spreadsheet": text, "range": text,
+                 _schema({"spreadsheet": text, "sheet": {**text, "description": "Название листа"},
+                          "range": {**text, "description": "Ячейки, например C5:C9 (столбец «Наименование», нужные строки)"},
                           "values": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}},
                          ["spreadsheet", "range", "values"]), "confirm", self._write_sheet,
                  lambda a: f"Записать {sum(len(r) for r in a.get('values') or [])} ячеек в {a.get('range', '')}")
@@ -404,25 +406,80 @@ class ToolBox:
         self.skills.approve(skill["id"])
         return {"learned_skill": {"id": skill["id"], "title": title}}
 
-    def _read_sheet(self, args: dict) -> dict:
+    SHEET_ERRORS = {
+        "google_sheets_not_connected": "Google Sheets не подключён — попроси пользователя подключить в «Инструменты → Подключения».",
+        "google_reauthorization_required": "Нужно заново подключить Google Sheets («Инструменты → Подключения»).",
+        "google_no_access": "У аккаунта Google нет доступа к этой таблице.",
+        "google_sheet_not_found": "Таблица не найдена — проверь ссылку.",
+        "google_rate_limited": "Google временно ограничил запросы — подожди минуту и повтори.",
+    }
+
+    def _sheet_target(self, args: dict) -> tuple[str, str, str, int]:
+        """(spreadsheet id, quoted A1 range, sheet title, first row) from loosely written arguments."""
+        raw = str(args.get("spreadsheet") or "")
+        sid = spreadsheet_id(raw)
+        rng = str(args.get("range") or "").strip()
+        sheet = str(args.get("sheet") or "").strip()
+        if "!" in rng:
+            sheet_part, cells = rng.rsplit("!", 1)
+            sheet = sheet or sheet_part.strip().strip("'").replace("''", "'")
+        elif re.fullmatch(r"\$?[A-Za-z]{1,3}\$?\d*(:\$?[A-Za-z]{1,3}\$?\d*)?", rng or "-"):
+            cells = rng
+        else:
+            sheet, cells = sheet or rng, ""
+        cells = cells or "A1:Z400"
+        tabs = self.sheets.sheet_titles(sid)
+        norm = lambda value: re.sub(r"[\s'\"«»]", "", str(value)).casefold()
+        title = None
+        if sheet:
+            title = next((t["title"] for t in tabs if t["title"] == sheet), None) or \
+                next((t["title"] for t in tabs if norm(t["title"]) == norm(sheet)), None) or \
+                next((t["title"] for t in tabs if norm(sheet) and norm(sheet) in norm(t["title"])), None)
+        if title is None:
+            gid = re.search(r"[?#&]gid=(\d+)", raw)
+            if gid:
+                title = next((t["title"] for t in tabs if str(t["id"]) == gid.group(1)), None)
+        if title is None:
+            names = ", ".join(f"«{t['title']}»" for t in tabs[:40])
+            raise ToolError(f"Лист «{sheet}» не найден. Листы в таблице: {names}" if sheet else
+                            f"Укажи лист (sheet). Листы в таблице: {names}")
+        first = re.match(r"\$?[A-Za-z]{1,3}\$?(\d+)", cells)
+        return sid, "'" + title.replace("'", "''") + "'!" + cells, title, int(first.group(1)) if first else 1
+
+    def _sheet_call(self, call):
+        from .google_sheets import GoogleSheetsError
         if self.sheets is None:
             raise ToolError("Google Sheets не подключён")
-        result = self.sheets.read_values(spreadsheet_id(args.get("spreadsheet", "")), str(args.get("range", "")))
-        values = result.get("values", [])
-        return {"range": result.get("range"), "rows": values[:300], "truncated": len(values) > 300}
+        try:
+            return call()
+        except GoogleSheetsError as error:
+            code = getattr(error, "code", str(error))
+            from . import diagnostics
+            diagnostics.record("sheet_tool_error", code)
+            raise ToolError(self.SHEET_ERRORS.get(code, f"Google Sheets: {code}")) from None
+
+    def _read_sheet(self, args: dict) -> dict:
+        def read():
+            sid, target, title, first = self._sheet_target(args)
+            values = self.sheets.read_values(sid, target).get("values", [])
+            return {"sheet": title, "range": target, "first_row": first,
+                    "note": f"rows[0] — это строка {first} листа; строка N = rows[N-{first}].",
+                    "rows": values[:300], "truncated": len(values) > 300}
+        return self._sheet_call(read)
 
     def _write_sheet(self, args: dict) -> dict:
-        if self.sheets is None:
-            raise ToolError("Google Sheets не подключён")
-        sid, target = spreadsheet_id(args.get("spreadsheet", "")), str(args.get("range", ""))
         values = args.get("values")
         if not isinstance(values, list) or not values or any(not isinstance(r, list) for r in values):
             raise ToolError("Нужна таблица значений")
-        current = self.sheets.read_values(sid, target, value_render_option="FORMULA").get("values", [])
-        if any(isinstance(v, str) and v.startswith("=") for row in current for v in row):
-            raise ToolError("В диапазоне есть формулы — запись отменена, чтобы их не сломать")
-        written = self.sheets.write_values(sid, target, values)
-        return {"updated_cells": written.get("updatedCells", 0), "range": target}
+
+        def write():
+            sid, target, title, _ = self._sheet_target(args)
+            current = self.sheets.read_values(sid, target, value_render_option="FORMULA").get("values", [])
+            if any(isinstance(v, str) and v.startswith("=") for row in current for v in row):
+                raise ToolError("В диапазоне есть формулы — запись отменена, чтобы их не сломать")
+            written = self.sheets.write_values(sid, target, values)
+            return {"updated_cells": written.get("updatedCells", 0), "range": target}
+        return self._sheet_call(write)
 
     # ---- execution ------------------------------------------------------
     def run(self, name: str, args: dict, conversation_id: str) -> dict:

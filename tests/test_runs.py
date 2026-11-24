@@ -217,3 +217,22 @@ class HonestyTests(RunBase):
         assistant = self.assistant([fake, "Эти данные не проверены — открою Asgard в следующем шаге."])
         reply = assistant.chat({"message": "Дай наименования"})
         self.assertIn("не проверены", reply["message"]["content"])
+
+
+class ContextSizeTests(unittest.TestCase):
+    def test_small_model_gets_16k_big_model_on_32gb_gets_8k(self):
+        import json as _json
+        from malenia.providers import OllamaProvider
+
+        class Opener:
+            def open(self, request, timeout=0):
+                body = _json.dumps({"models": [{"name": "gemma4:12b", "size": 7_600_000_000},
+                                               {"name": "gemma4:26b", "size": 18_000_000_000}]}).encode()
+                return FakeStream(body)
+        provider = OllamaProvider("http://127.0.0.1:11434", Opener())
+        OllamaProvider._sizes_at = 0
+        provider.ram_gb, provider.vram_gb = 31.9, 8
+        self.assertEqual(provider.context_for("gemma4:12b"), 16384)
+        self.assertEqual(provider.context_for("gemma4:26b"), 8192)
+        provider.ram_gb = 64
+        self.assertEqual(provider.context_for("gemma4:26b"), 16384)

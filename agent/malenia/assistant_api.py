@@ -78,7 +78,7 @@ class AssistantServices:
             return
         ollama = getattr(self.router, "ollama", None)
         if ollama is not None and hasattr(ollama, "num_ctx"):
-            ollama.num_ctx = 16384 if (vram >= 16 or ram >= 48) else 8192
+            ollama.ram_gb, ollama.vram_gb = ram, vram
 
 
 AI_ERRORS = {
