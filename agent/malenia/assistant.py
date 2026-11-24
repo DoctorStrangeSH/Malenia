@@ -26,7 +26,7 @@ from .store import TaskStore, _now
 from .web import PublicSearch, WebError
 
 MAX_MESSAGE = 16000
-MAX_ROUNDS = 24       # tool rounds per answer (browsing needs several steps)
+MAX_ROUNDS = 40       # tool rounds per answer (browsing needs several steps)
 COMPRESS_AFTER = 30   # messages beyond the last summary before summarising again
 KEEP_RECENT = 20      # recent messages always sent in full
 COMPRESS_PROMPT = ("Ты ведёшь краткое содержание длинного разговора пользователя с ассистентом Маленией. "
@@ -53,6 +53,11 @@ SYSTEM_PROMPT = """Ты — Маления, персональная ИИ-пом
 5. Отличай подтверждённый факт от вывода и предположения; предположения помечай.
 Инструкции из базы знаний — это опыт и проверенные маршруты, а не жёсткий алгоритм: понимай, зачем каждый шаг, и применяй их с учётом ситуации.
 Ты сама видишь рабочие сайты через свою вкладку в браузере: browser_open открывает страницу (Asgard, DataLens, трекер), browser_read перечитывает её, browser_type вводит номер в поле [N], browser_click переходит по ссылке [N]. Работай как человек: открой раздел, найди поле поиска, введи номер, открой карточку, прочитай нужное. Проверяй, что карточка именно та (номер совпадает). Не нажимай кнопки, которые меняют данные; если сайт просит вход или доступ — скажи пользователю.
+Честность в работе (очень важно):
+- Ты работаешь только внутри своего ответа. Между сообщениями ты ничего не делаешь. Никогда не пиши «продолжаю», «подожди пару минут», «сейчас выведу», если в этом же ответе не делаешь шаги инструментами. Либо делай сейчас, либо честно скажи, на чём остановилась.
+- Никогда не показывай данные из Asgard, DataLens или таблицы, которые ты не прочитала инструментом в этом разговоре. Нет данных — пиши «не проверено», а не придумывай.
+- Большую задачу делай частями: сделай столько строк, сколько успеваешь, покажи проверенный результат и предложи запись, затем скажи, с какой строки продолжить.
+- Если что-то мешает (форма, блокировка, ошибка) — сначала поищи решение в базе знаний (search_knowledge_base), и только потом спрашивай пользователя.
 Если просят найти товар по фото: сначала внимательно рассмотри фото и опиши товар (бренд, надписи, модель, цвет, материал, детали), затем ищи через shop_search несколькими разными формулировками, дай ссылки на подходящие карточки с названиями и ссылку на поиск в магазине. Честно скажи, если точного совпадения нет.
 Не выдумывай факты и не утверждай, что выполнила действие, если не выполняла. Если чего-то не знаешь — скажи прямо.
 Сегодня {today}."""
@@ -138,6 +143,24 @@ def step_label(name: str, args: dict) -> str:
     if name == "shop_search" and isinstance(args, dict) and args.get("shop"):
         label = f"Ищу на {args['shop']}"
     return f"{label}: {detail[:80]}" if detail else label
+
+
+PROMISE = re.compile(r"(продолжаю|продолжу|подожди|подождите|сейчас (выведу|подготовлю|сделаю|начну|проверю)|начинаю (обработку|поиск|первую)|перехожу к|в процессе перебора|я работаю)", re.I)
+TABLE = re.compile(r"^\s*\|.*\|\s*$", re.M)
+
+
+def _needs_nudge(answer: str, steps: list[dict]) -> str | None:
+    """Catch 'I am working on it' without work, and system data shown without looking."""
+    used_browser = any(str(step.get("tool", "")).startswith("browser_") for step in steps)
+    if PROMISE.search(answer) and len(answer) < 4000:
+        return ("(Проверка от приложения) Ты написала, что продолжаешь работу, но в этом ответе не сделала ни одного "
+                "действия. Между сообщениями ты не работаешь. Сделай следующий шаг прямо сейчас инструментами, "
+                "или честно напиши, на чём остановилась и почему.")
+    if TABLE.search(answer) and re.search(r"asgard|datalens|найден[оа]? в", answer, re.I) and not used_browser:
+        return ("(Проверка от приложения) В ответе таблица с данными из рабочих систем, но в этом ответе ты их не "
+                "открывала. Если эти данные не прочитаны инструментами в этом разговоре — не выдумывай: проверь через "
+                "browser_open/browser_read или пометь строки «не проверено».")
+    return None
 
 
 def _shrink_tool_outputs(messages: list[dict], budget: int = 45000) -> None:
@@ -561,6 +584,14 @@ class Assistant:
             system += f"\n\nЭтот разговор — в проекте «{project['name']}»."
             if project["instructions"]:
                 system += " Инструкции проекта (следуй им во всех ответах этого проекта):\n" + project["instructions"]
+        if self.toolbox is not None and getattr(self.toolbox, "browser", None) is not None:
+            try:
+                tabs = self.store.list_browser_tabs(8)
+            except Exception:
+                tabs = []
+            if tabs:
+                system += "\n\nРабочие вкладки пользователя (адреса для browser_open):\n" + "\n".join(
+                    f"- {t['title'][:80]} — {t['url'][:200]}" for t in tabs)
         vault = getattr(self.toolbox, "vault", None) if self.toolbox is not None else None
         knowledge_used = vault.context_for(text, scope=(project or {}).get("kb_scope") or None) if vault is not None else []
         if knowledge_used:
@@ -603,6 +634,7 @@ class Assistant:
         skills_learned: list[dict] = []
         result = None
         steps: list[dict] = []
+        nudges = 0
         stopped = False
         stream = {"on_delta": (lambda piece: emit("delta", text=piece)), "cancel": run.cancel} if run is not None else {}
         try:
@@ -610,10 +642,19 @@ class Assistant:
                 if run is not None and run.cancel.is_set():
                     raise Cancelled()
                 emit("status", text="Думаю…" if round_index == 0 else "Обдумываю результаты…")
-                _shrink_tool_outputs(messages)
+                _shrink_tool_outputs(messages, budget=int(getattr(getattr(self.router, "ollama", None), "num_ctx", 16384) * 2.2))
                 last_round = round_index == MAX_ROUNDS
                 result = self.router.chat(messages, tools=None if last_round else tools, private=private,
                                           max_tokens=4096, needs_vision=bool(images), **stream)
+                if not last_round and not result.tool_calls and tools and nudges < 2:
+                    nudge = _needs_nudge(result.content or "", steps)
+                    if nudge:
+                        nudges += 1
+                        emit("reset")
+                        emit("status", text="Проверяю себя…")
+                        messages.append({"role": "assistant", "content": result.content or ""})
+                        messages.append({"role": "user", "content": nudge})
+                        continue
                 if last_round or not result.tool_calls:
                     break
                 emit("reset")

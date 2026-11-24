@@ -19,6 +19,46 @@ const RELEASES: &str = "https://api.github.com/repos/DoctorStrangeSH/Malenia/rel
 const MAX_INSTALLER: u64 = 400 * 1024 * 1024;
 
 static TRAY_HINT_SHOWN: AtomicBool = AtomicBool::new(false);
+static LAST_UI_BEAT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// The page reports that it is alive every few seconds.
+#[tauri::command]
+pub fn ui_alive() { LAST_UI_BEAT.store(now_secs(), Ordering::SeqCst); }
+
+/// If the page in the main window died (for example WebView2 ran out of memory
+/// and shows a blank or error page), load the app again instead of leaving
+/// the user with a white screen.
+pub fn start_ui_watchdog(app: &AppHandle) {
+    let app = app.clone();
+    LAST_UI_BEAT.store(now_secs(), Ordering::SeqCst);
+    // The app's own address, remembered while the page is healthy.
+    let home = app.get_webview_window("main").and_then(|w| w.url().ok());
+    std::thread::spawn(move || {
+        let mut visible_since: Option<u64> = None;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            if quitting() { return; }
+            let Some(window) = app.get_webview_window("main") else { continue };
+            let shown = window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false);
+            let now = now_secs();
+            if !shown { visible_since = None; continue; }
+            let since = *visible_since.get_or_insert(now);
+            let silent = now.saturating_sub(LAST_UI_BEAT.load(Ordering::SeqCst));
+            if now.saturating_sub(since) >= 20 && silent >= 45 {
+                let fallback: Option<tauri::Url> = if cfg!(windows) { "http://tauri.localhost/".parse().ok() } else { "tauri://localhost/".parse().ok() };
+                if let Some(target) = home.clone().filter(|u| u.scheme() != "about").or(fallback) {
+                    let _ = window.navigate(target);
+                }
+                LAST_UI_BEAT.store(now, Ordering::SeqCst);
+                visible_since = Some(now);
+            }
+        }
+    });
+}
 static QUITTING: AtomicBool = AtomicBool::new(false);
 static HOTKEY: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 

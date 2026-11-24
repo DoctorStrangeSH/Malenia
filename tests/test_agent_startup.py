@@ -68,7 +68,7 @@ class AgentStartupTests(unittest.TestCase):
         with patch.dict(os.environ, {'LOCALAPPDATA': str(self.root), 'XDG_DATA_HOME': str(self.root)}):
             self.assertEqual(data_directory(), self.root / 'Malenia')
             self.assertEqual(database_path(), self.root / 'Malenia' / 'malenia.sqlite3')
-        self.assertEqual(__version__, '0.15.0')
+        self.assertEqual(__version__, '0.15.1')
 
     def test_desktop_and_bundled_runtime_release_versions_match(self):
         root = Path(__file__).resolve().parents[1]

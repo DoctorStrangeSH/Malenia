@@ -867,6 +867,7 @@ fn main() {
                 if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); }
             }
             let _ = extras::setup(app);
+            extras::start_ui_watchdog(app.handle());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let state = handle.state::<AgentState>();
@@ -883,7 +884,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![get_browser_bridge_setup, open_browser_extension_folder, register_browser_bridge, agent_api, start_agent, stop_agent, get_dashboard,
             request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, local_ai_engine, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch,
-            extras::comfort_status, extras::set_autostart, extras::notify, extras::show_main_window, extras::hide_quick_window, extras::check_update, extras::install_update])
+            extras::comfort_status, extras::set_autostart, extras::notify, extras::show_main_window, extras::hide_quick_window, extras::check_update, extras::install_update, extras::ui_alive])
         .build(tauri::generate_context!())
         .expect("error while running Malenia")
         .run(|app, event| {

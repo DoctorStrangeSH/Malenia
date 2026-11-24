@@ -201,3 +201,19 @@ class CompressionTests(RunBase):
         call = next(m for m in reversed(self.local.seen) if m[-1]["content"] == "А какой у меня склад?")
         system = call[0]["content"]
         self.assertIn("Краткое содержание начала", system)
+
+
+class HonestyTests(RunBase):
+    def test_promise_without_action_is_nudged_once_then_work_happens(self):
+        tool = ChatResult("", tool_calls=[{"id": "c1", "name": "calculate", "arguments": {"expression": "2+2"}}])
+        assistant = self.assistant(["Продолжаю работу, подожди пару минут", tool, "Готово: 4"])
+        reply = assistant.chat({"message": "Посчитай 2+2"})
+        self.assertEqual(reply["message"]["content"], "Готово: 4")
+        nudges = [m for m in self.local.seen[1] if m["role"] == "user" and "Проверка от приложения" in m["content"]]
+        self.assertEqual(len(nudges), 1)
+
+    def test_table_of_system_data_without_looking_is_questioned(self):
+        fake = "| Строка | Наименование |\n|---|---|\n| 3 | Футболка — Найдено в Asgard |"
+        assistant = self.assistant([fake, "Эти данные не проверены — открою Asgard в следующем шаге."])
+        reply = assistant.chat({"message": "Дай наименования"})
+        self.assertIn("не проверены", reply["message"]["content"])

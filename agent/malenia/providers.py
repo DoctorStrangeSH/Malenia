@@ -457,6 +457,9 @@ class OllamaProvider:
     id = "ollama"
     # Keep the model in (video) memory so answers start in seconds.
     keep_alive = "30m"
+    # Context window. 8K is safe on 32 GB machines with a big local model;
+    # larger only when memory allows (see AssistantServices.tune_local).
+    num_ctx = 8192
 
     def warm_up(self, model: str) -> None:
         """Load a model into memory in advance (empty request)."""
@@ -538,7 +541,7 @@ class OllamaProvider:
              timeout: float = 300, on_delta=None, cancel=None) -> ChatResult:
         body: dict[str, Any] = {"model": model, "messages": self._convert(messages), "stream": bool(on_delta),
                                 "keep_alive": self.keep_alive,
-                                "options": {"num_ctx": 16384, "num_predict": max_tokens, "temperature": temperature}}
+                                "options": {"num_ctx": self.num_ctx, "num_predict": max_tokens, "temperature": temperature}}
         if tools:
             body["tools"] = tools
         if json_mode:

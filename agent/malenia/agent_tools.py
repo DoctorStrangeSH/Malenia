@@ -308,7 +308,13 @@ class ToolBox:
             if item.get("href") and kind == "ссылка":
                 line += f" → {str(item['href'])[:120]}"
             lines.append(line)
-        page = {"url": result.get("url"), "title": result.get("title"), "text": result.get("text", "")}
+        text = str(result.get("text") or "")
+        page = {"url": result.get("url"), "title": result.get("title"), "text": text[:6000]}
+        if len(text) > 6000:
+            result["truncated"] = True
+        if re.search(r"доступ запрещ", text, re.I):
+            page["hint"] = ("На странице форма «Доступ запрещён». Как её пройти, описано в базе знаний: "
+                            "search_knowledge_base «Доступ запрещён тикет».")
         if result.get("truncated"):
             page["note"] = "Текст обрезан. Используй browser_read с focus, чтобы увидеть нужную часть."
         if lines:

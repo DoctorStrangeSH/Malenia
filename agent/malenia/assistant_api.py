@@ -59,6 +59,7 @@ class AssistantServices:
         self.vault = KnowledgeVault(store, self.settings, secrets or self.router.secrets,
                                     embedder=getattr(self.router, "ollama", None))
         self.voice = VoiceEngine()
+
         from .browser_commands import BrowserCommands
         self.browser = BrowserCommands(store)
         self.toolbox = ToolBox(store, self.settings, skills=skills, knowledge=knowledge, vault=self.vault,
@@ -67,6 +68,17 @@ class AssistantServices:
                                    toolbox=self.toolbox)
         self.lan = LanServer(self.settings, self.router)
         self.puller = ModelPuller()
+
+    def tune_local(self) -> None:
+        """Bigger context only where it fits: running out of memory crashes the app window."""
+        try:
+            info = self.hardware_profile()
+            ram, vram = float(info.get("ram_gb") or 0), float(info.get("vram_gb") or 0)
+        except Exception:
+            return
+        ollama = getattr(self.router, "ollama", None)
+        if ollama is not None and hasattr(ollama, "num_ctx"):
+            ollama.num_ctx = 16384 if (vram >= 16 or ram >= 48) else 8192
 
 
 AI_ERRORS = {
@@ -331,6 +343,7 @@ def handle(handler, method: str, parsed, services: AssistantServices) -> bool:
             # First look at the chat: load the local model into memory so the first answer is fast.
             if not getattr(services, "_warmed", False):
                 services._warmed = True
+                services.tune_local()
                 if description.get("mode") != "cloud" and hasattr(router.ollama, "warm_up"):
                     try:
                         model = router.model_for("ollama")
