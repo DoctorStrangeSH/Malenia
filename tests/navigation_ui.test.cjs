@@ -5,14 +5,18 @@ const path = require('node:path');
 
 const app = fs.readFileSync(path.resolve(__dirname, '../desktop/src/App.tsx'), 'utf8');
 
-test('assistant is the default workspace and inventory lives in the tool catalogue', () => {
-  assert.match(app, /label="Ассистент" active=\{page==="ai"\}/);
+test('chat is the default workspace with four calm destinations', () => {
+  assert.match(app, /label="Чат" active=\{page==="ai"\}/);
   assert.match(app, /useState<Page>\("ai"\)/);
-  assert.match(app, /label="Подключения" active=\{page==="connections"\}/);
+  assert.match(app, /label="Инструменты"/);
+  assert.match(app, /label="Память"/);
+  assert.match(app, /label="Настройки"/);
+  assert.match(app, />Подключения<\/button>/);
+  assert.match(app, />Модели ИИ<\/button>/);
+  assert.match(app, />Сервер<\/button>/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Проверка заказа"/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Список заказов"/);
-  assert.match(app, /Открыть ассистента/);
-  assert.doesNotMatch(app, /<Nav icon=\{<FileSearch\/>\} label="Поиск"/);
+  assert.match(app, /Новый чат/);
 });
 
 test('queued tasks are never presented as automatically executed', () => {
@@ -20,18 +24,18 @@ test('queued tasks are never presented as automatically executed', () => {
   assert.match(app, /не запускаются автоматически/);
 });
 
-test('daily navigation separates tools, knowledge and connections without a task queue', () => {
+test('daily navigation separates tools, memory and settings without a task queue', () => {
   assert.doesNotMatch(app, /<Nav[^\n]*label="Задания"/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Навыки"/);
   assert.match(app, /aria-label="Знания и навыки"/);
+  assert.match(app, /aria-label="Разделы настроек"/);
   assert.match(app, /Дополнительные инструменты/);
-  assert.match(app, /label="Инструменты"/);
-  assert.match(app, /label="Инструкции"/);
+  assert.match(app, />Инструкции<\/button>/);
   assert.doesNotMatch(app, /<Nav[^\n]*label="Проверка ИНВенты"/);
 });
 
 test('sources page is reachable and shows truthful connection state', () => {
-  assert.match(app, /<Nav[^\n]*label="Подключения"/);
+  assert.match(app, /onClick=\{\(\)=>setPage\("connections"\)\}>Подключения/);
   assert.match(app, /Google Sheets · Инвентаризация/);
   assert.match(app, /Отдельная авторизация Malenia/);
   assert.match(app, /Вкладка передана · требуется тест/);
@@ -157,42 +161,27 @@ test('whole-sheet review has one primary start and an explicit confirmed restart
 test('skills are a first-class reviewed workspace not an inventory-only workflow',()=>{
   assert.match(app,/onClick=\{\(\)=>setPage\("skills"\)\}>Инструкции/);
   assert.match(app,/<SkillsPage connected=\{connected\} onApply=/);
+  const chat=fs.readFileSync(path.resolve(__dirname,'../desktop/src/Chat.tsx'),'utf8');
+  assert.match(chat,/instruction: instruction \?/);
   const skills=fs.readFileSync(path.resolve(__dirname,'../desktop/src/SkillsPage.tsx'),'utf8');
   assert.match(skills,/get_skills/);
   assert.match(skills,/skill_action/);
   assert.match(skills,/Сохранить черновик/);
   assert.match(skills,/Утвердить/);
   assert.match(skills,/Применить в чате/);
-  const ai=fs.readFileSync(path.resolve(__dirname,'../desktop/src/AiPage.tsx'),'utf8');
-  assert.match(ai,/skill_ids:reply\.skill_ids/);
-  assert.match(ai,/Полезен/);
-  assert.match(ai,/Не помог/);
-});
-
-test('Sherlock can suggest an editable skill but cannot activate it without review',()=>{
-  const ai=fs.readFileSync(path.resolve(__dirname,'../desktop/src/AiPage.tsx'),'utf8');
-  assert.match(ai,/invoke<\{suggestion:/);
-  assert.match(ai,/"suggest_skill"/);
-  assert.match(ai,/Сделать навык из ответа/);
-  assert.match(ai,/Сохранить на проверку/);
-  assert.match(ai,/Шерлок предлагает новый навык/);
-  assert.match(ai,/action:"draft"/);
-  const native=fs.readFileSync(path.resolve(__dirname,'../desktop/src-tauri/src/main.rs'),'utf8');
-  assert.match(native,/fn suggest_skill\(/);
-  assert.match(native,/\/v1\/skills\/suggest/);
-});
-
-test('Sherlock offers automatic thinking depth for complex work',()=>{
-  const ai=fs.readFileSync(path.resolve(__dirname,'../desktop/src/AiPage.tsx'),'utf8');
-  assert.match(ai,/setReasoningMode/);
-  assert.match(ai,/reasoningMode\}\)/);
-  assert.match(ai,/Автоматически — глубже для сложных задач/);
-  assert.match(ai,/Глубоко — больше анализа, медленнее/);
-  const native=fs.readFileSync(path.resolve(__dirname,'../desktop/src-tauri/src/main.rs'),'utf8');
-  assert.match(native,/reasoning_mode: Option<String>/);
-  assert.match(native,/"reasoning_mode": reasoning_mode\.unwrap_or_else/);
 });
 
 test('assistant conversation stays mounted while tools and settings are open',()=>{
-  assert.match(app, /<div hidden=\{page!=="ai"\}><AiPage/);
+  assert.match(app, /<div hidden=\{page!=="ai"\} className="chat-host"><Chat /);
+});
+
+test('assistant routes only reach the agent through the restricted bridge',()=>{
+  const native=fs.readFileSync(path.resolve(__dirname,'../desktop/src-tauri/src/main.rs'),'utf8');
+  assert.match(native,/fn agent_api\(/);
+  assert.match(native,/\["\/v1\/assistant", "\/v1\/ai\/", "\/v1\/server"\]/);
+  assert.match(native,/ensure_registered/);
+  const chat=fs.readFileSync(path.resolve(__dirname,'../desktop/src/Chat.tsx'),'utf8');
+  assert.doesNotMatch(chat,/dangerouslySetInnerHTML/);
+  const markdown=fs.readFileSync(path.resolve(__dirname,'../desktop/src/Markdown.tsx'),'utf8');
+  assert.doesNotMatch(markdown,/dangerouslySetInnerHTML|innerHTML/);
 });

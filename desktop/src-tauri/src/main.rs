@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod runtime_setup;
+mod extras;
 mod browser_setup;
 
 use rand::{rngs::OsRng, RngCore};
@@ -116,6 +117,12 @@ fn api_post_json(token: &str, path: &str, payload: Value, timeout: Duration) -> 
             "invalid_google_oauth_client_id" => "Проверьте формат Google OAuth Desktop Client ID.".to_string(),
             "google_sheets_not_connected" => "Сначала подключите Google Sheets.".to_string(),
             "google_reauthorization_required" => "[google_reauthorization_required] Доступ Google истёк или был отозван. Подключите Google Sheets заново.".to_string(),
+            "google_api_disabled" => "[google_api_disabled] В проекте Google Cloud, из которого взят Client ID, не включён Google Sheets API. Откройте console.cloud.google.com → «API и сервисы» → «Библиотека» → Google Sheets API → «Включить», подождите пару минут и повторите.".to_string(),
+            "google_no_access" => "[google_no_access] У подключённого аккаунта Google нет доступа к этой таблице. Подключите Google тем аккаунтом, которым таблица открывается в браузере, или попросите владельца выдать доступ.".to_string(),
+            "google_sheet_not_found" => "[google_sheet_not_found] Таблица не найдена. Передайте вкладку инвентаризации заново через расширение.".to_string(),
+            "google_rate_limited" => "[google_rate_limited] Google временно ограничил число запросов. Подождите минуту и продолжите проверку.".to_string(),
+            "google_network_unavailable" => "[google_network_unavailable] Нет связи с Google. Проверьте интернет, прокси или VPN.".to_string(),
+            "google_request_failed" => "[google_request_failed] Google вернул ошибку. Повторите позже; если не проходит — переподключите Google Sheets.".to_string(),
             "invalid_spreadsheet_id" => "Некорректный ID таблицы Google Sheets.".to_string(),
             "invalid_spreadsheet_range" => "Проверьте диапазон ячеек (например, Orders!A1:Z100).".to_string(),
             "browser_audit_already_active" => "Проверка уже ожидает запуска или выполняется.".to_string(),
@@ -413,6 +420,22 @@ fn ollama_ready() -> bool {
 #[tauri::command]
 fn get_setup_status() -> String { runtime_setup::status() }
 
+/// Ollama executable that is already on disk: a system install or ours.
+fn installed_engine() -> Option<PathBuf> {
+    let base = PathBuf::from(std::env::var("LOCALAPPDATA").ok()?);
+    let standard = base.join("Programs/Ollama/ollama.exe");
+    if standard.is_file() { return Some(standard); }
+    let ours = base.join("Malenia").join("ollama-0.40.16").join("ollama.exe");
+    ours.is_file().then_some(ours)
+}
+
+/// State of the local engine for the settings screen (no side effects).
+#[tauri::command]
+fn local_ai_engine() -> Value {
+    serde_json::json!({"installed": installed_engine().is_some(), "running": ollama_ready(),
+        "installing": runtime_setup::installing(), "status": runtime_setup::status()})
+}
+
 #[tauri::command]
 async fn start_local_ai(app: tauri::AppHandle) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || start_local_ai_impl(&app.state::<AgentState>()))
@@ -426,20 +449,20 @@ fn start_local_ai_impl(state: &AgentState) -> Result<String, String> {
         return Err("Порт модели занят другим процессом".to_string());
     }
     let root = PathBuf::from(std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA недоступна".to_string())?).join("Malenia");
-    let standard = PathBuf::from(std::env::var("LOCALAPPDATA").unwrap_or_default()).join("Programs/Ollama/ollama.exe");
-    let executable = if standard.is_file() { standard } else { runtime_setup::ensure(&root)? };
+    let executable = match installed_engine() { Some(path) => path, None => runtime_setup::ensure(&root)? };
     if let Some(mut old) = slot.take() { terminate_owned_child(&mut old); }
     let mut command = Command::new(executable);
     command.arg("serve")
         .env("OLLAMA_HOST", "127.0.0.1:11434").env("OLLAMA_MODELS", root.join("models"))
         .env("OLLAMA_NO_CLOUD", "1").env("OLLAMA_NUM_PARALLEL", "1")
-        .env("OLLAMA_MAX_LOADED_MODELS", "1").env("OLLAMA_CONTEXT_LENGTH", "2048")
-        .env("OLLAMA_KEEP_ALIVE", "30s")
+        .env("OLLAMA_MAX_LOADED_MODELS", "1").env("OLLAMA_CONTEXT_LENGTH", "8192")
+        .env("OLLAMA_KEEP_ALIVE", "5m")
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     { use std::os::windows::process::CommandExt; command.creation_flags(0x08000000); }
     let mut child = command.spawn().map_err(|_| "Не удалось запустить Ollama".to_string())?;
-    for _ in 0..20 {
+    // The first start after installation can take a while (GPU libraries).
+    for _ in 0..240 {
         thread::sleep(Duration::from_millis(250));
         if child.try_wait().map_err(|_| "Не удалось проверить Ollama".to_string())?.is_some() { break; }
         if ollama_ready() { *slot = Some(child); return Ok("Локальная модель готова к подключению".to_string()); }
@@ -453,6 +476,46 @@ fn get_ai_status(state: State<'_, AgentState>) -> Result<Value, String> {
     let token = state.token.lock().map_err(|_| "Состояние агента недоступно".to_string())?
         .clone().ok_or_else(|| "Сначала запустите агента".to_string())?;
     api_get(&token, "/v1/ai/status")
+}
+
+fn valid_agent_path(path: &str) -> bool {
+    const PREFIXES: [&str; 3] = ["/v1/assistant", "/v1/ai/", "/v1/server"];
+    path.len() <= 200 && !path.contains("..")
+        && PREFIXES.iter().any(|prefix| path.starts_with(prefix))
+        && path.chars().all(|c| c.is_ascii_alphanumeric() || "/-_?=&.".contains(c))
+}
+
+/// Generic bridge for the assistant UI. Only assistant/AI/server routes of the
+/// local agent are reachable; the token never leaves the Rust process.
+#[tauri::command]
+async fn agent_api(state: State<'_, AgentState>, method: String, path: String, body: Option<Value>) -> Result<Value, String> {
+    if !valid_agent_path(&path) { return Err("Некорректный адрес запроса".to_string()); }
+    let token = state.token.lock().map_err(|_| "Состояние агента недоступно".to_string())?
+        .clone().ok_or_else(|| "Маления ещё запускается. Подождите пару секунд".to_string())?;
+    let timeout = if path.ends_with("/chat") { 300 } else { 30 };
+    tauri::async_runtime::spawn_blocking(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(timeout)).no_proxy()
+            .redirect(reqwest::redirect::Policy::none()).build()
+            .map_err(|_| "Не удалось создать HTTP-клиент".to_string())?;
+        let url = format!("http://{API_HOST}:{API_PORT}{path}");
+        let request = match method.as_str() {
+            "GET" => client.get(url),
+            "POST" => client.post(url).json(&body.unwrap_or_else(|| serde_json::json!({}))),
+            "DELETE" => client.delete(url),
+            _ => return Err("Некорректный метод".to_string()),
+        };
+        let response = request.header("Authorization", format!("Bearer {token}")).send()
+            .map_err(|_| "Маления не ответила. Проверьте, что приложение запущено".to_string())?;
+        let status = response.status();
+        let value = response.json::<Value>().map_err(|_| "Некорректный ответ агента".to_string())?;
+        if !status.is_success() {
+            let message = value.get("message").and_then(Value::as_str).filter(|text| !text.is_empty())
+                .or_else(|| value.get("error").and_then(Value::as_str)).unwrap_or("Ошибка запроса");
+            return Err(message.to_string());
+        }
+        Ok(value)
+    }).await.map_err(|_| "Ошибка обработки запроса".to_string())?
 }
 
 #[tauri::command]
@@ -770,32 +833,85 @@ async fn register_browser_bridge(app: tauri::AppHandle, extension_id: String) ->
 fn main() {
     tauri::Builder::default()
         // Activate the original window before a second shell can own another agent.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if argv.iter().any(|arg| arg == extras::QUIT_ARG) {
+                extras::quit(app);
+                return;
+            }
+            if !argv.iter().any(|arg| arg == extras::HIDDEN_ARG) {
+                extras::show_main(app);
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(extras::autostart_plugin())
+        .plugin(extras::shortcut_plugin())
         .manage(AgentState::default())
         .on_window_event(|window, event| {
-            if window.label() == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
-                window.state::<AgentState>().shutdown();
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    if !extras::quitting() {
+                        // Keep working in the tray (inventory checks continue).
+                        api.prevent_close();
+                        extras::hide_to_tray(window.app_handle());
+                    }
+                }
             }
         })
         .setup(|app| {
+            if std::env::args().any(|arg| arg == extras::QUIT_ARG) {
+                std::process::exit(0);
+            }
+            if std::env::args().any(|arg| arg == extras::HIDDEN_ARG) {
+                // Started with Windows: stay in the tray.
+                if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); }
+            }
+            let _ = extras::setup(app);
+            extras::start_ui_watchdog(app.handle());
             let handle = app.handle().clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let state = handle.state::<AgentState>();
                 let _ = start_agent(handle.clone(), state);
+                // Silent, idempotent: fixes "Malenia host not found" in the extension.
+                let _ = browser_setup::ensure_registered(&handle);
+                // Start the local engine automatically when it is already installed,
+                // so local models and server mode work right after launch.
+                if installed_engine().is_some() && !ollama_ready() {
+                    let _ = start_local_ai_impl(&handle.state::<AgentState>());
+                }
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_browser_bridge_setup, open_browser_extension_folder, register_browser_bridge, start_agent, stop_agent, get_dashboard,
-            request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch])
-        .run(tauri::generate_context!())
-        .expect("error while running Malenia");
+        .invoke_handler(tauri::generate_handler![get_browser_bridge_setup, open_browser_extension_folder, register_browser_bridge, agent_api, start_agent, stop_agent, get_dashboard,
+            request_browser_audit, cancel_browser_audit, remove_shared_browser_tab, create_task, cancel_task, decide_permission, get_ai_status, chat_ai, start_local_ai, get_setup_status, local_ai_engine, open_search_source, get_knowledge, knowledge_action, get_skills, skill_action, suggest_skill, install_sherlock, get_google_sheets_status, connect_google_sheets, read_google_sheet, analyze_active_inventa, check_first_inventa_order, check_inventa_order_batch, reset_inventa_order_batch, disconnect_google_sheets, preview_order, preview_order_batch,
+            extras::comfort_status, extras::set_autostart, extras::notify, extras::show_main_window, extras::hide_quick_window, extras::check_update, extras::install_update, extras::ui_alive])
+        .build(tauri::generate_context!())
+        .expect("error while running Malenia")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = &event {
+                // Closing the last window must not stop Malenia unless the user chose "Выход".
+                if code.is_none() && !extras::quitting() {
+                    api.prevent_exit();
+                }
+            }
+            if let tauri::RunEvent::Exit = event {
+                app.state::<AgentState>().shutdown();
+            }
+        });
+}
+
+#[cfg(test)]
+mod agent_api_tests {
+    use super::valid_agent_path;
+    #[test]
+    fn only_assistant_routes_are_bridged() {
+        assert!(valid_agent_path("/v1/assistant/chat"));
+        assert!(valid_agent_path("/v1/ai/hardware?refresh=1"));
+        assert!(valid_agent_path("/v1/server"));
+        assert!(!valid_agent_path("/v1/integrations/google-sheets/edit-approve"));
+        assert!(!valid_agent_path("/v1/assistant/../tasks"));
+        assert!(!valid_agent_path("/v1/assistant/x y"));
+    }
 }
 
 #[cfg(test)]

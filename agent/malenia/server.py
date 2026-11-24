@@ -23,6 +23,8 @@ from .permission_inbox import PermissionInbox
 from .permissions import PermissionGate
 from .resources import ResourceManager
 from .store import TaskStore, SubmissionConflict
+from . import assistant_api, extension_bridge
+from .assistant_api import AssistantServices
 
 
 MAX_BODY_BYTES = 8 * 1024
@@ -41,7 +43,9 @@ class MaleniaHTTPServer(ThreadingHTTPServer):
 
 def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                  permissions: PermissionInbox | None = None, ai: OllamaClient | None = None,
-                 google_sheets: GoogleSheetsConnector | None = None):
+                 google_sheets: GoogleSheetsConnector | None = None,
+                 services: AssistantServices | None = None):
+    services = services if services is not None else AssistantServices(store)
     inbox = permissions if permissions is not None else PermissionInbox(PermissionGate(store))
     knowledge = KnowledgeBase(store)
     skills = SkillRegistry(store)
@@ -49,6 +53,8 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
     ai_client.knowledge = knowledge
     ai_client.skills = skills
     sheets = google_sheets if google_sheets is not None else GoogleSheetsConnector()
+    services.toolbox.sheets = sheets
+    services.toolbox.web = ai_client.web
     pending_sheet_edits: dict[str, dict] = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -130,10 +136,13 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
                 return
             if not self._require_access():
                 return
+            if assistant_api.handle(self, "GET", parsed, services):
+                return
 
             if parsed.path == "/v1/runtime":
                 self._send(200, {"release": __version__, "protocol": 1,
-                    "capabilities": ["local_chat", "task_idempotency", "explicit_knowledge", "knowledge_only", "public_search", "google_sheets_editor_approval", "order_preview", "order_batch_preview", "reviewed_skills"]})
+                    "capabilities": ["local_chat", "task_idempotency", "explicit_knowledge", "knowledge_only", "public_search", "google_sheets_editor_approval", "order_preview", "order_batch_preview", "reviewed_skills",
+                    "assistant", "cloud_providers", "self_learning", "lan_server", "hardware_profile"]})
             elif parsed.path == "/v1/knowledge":
                 self._send(200, {"records": knowledge.list()})
             elif parsed.path == "/v1/skills":
@@ -180,6 +189,8 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
             if not self._require_access():
                 return
             parsed = urlsplit(self.path)
+            if assistant_api.handle(self, "DELETE", parsed, services):
+                return
             match = re.fullmatch(r"/v1/browser/tabs/([0-9a-fA-F-]{36})", parsed.path)
             if not match:
                 self._send(404, {"error": "not_found"})
@@ -191,10 +202,19 @@ def make_handler(store: TaskStore, token: str, resources: ResourceManager,
             # This removes only Malenia's shared-tab record; it never closes the browser tab.
             self._send(200, {"removed": True, "browser_tab_closed": False})
 
+        def do_OPTIONS(self) -> None:
+            if not extension_bridge.handle(self, "OPTIONS", urlsplit(self.path).path, store, sheets):
+                self._send(404, {"error": "not_found"})
+
         def do_POST(self) -> None:
+            # The browser extension authenticates by its Origin, not the desktop token.
+            if extension_bridge.handle(self, "POST", urlsplit(self.path).path, store, sheets):
+                return
             if not self._require_access():
                 return
             parsed = urlsplit(self.path)
+            if assistant_api.handle(self, "POST", parsed, services):
+                return
 
             if parsed.path == "/v1/browser/audit-cancel":
                 payload = self._read_json(1024)
@@ -618,7 +638,9 @@ def create_server(host: str, port: int, store: TaskStore, token: str) -> Malenia
         raise ValueError("Malenia API may only bind to loopback")
     gate = PermissionGate(store)
     inbox = PermissionInbox(gate)
-    server = MaleniaHTTPServer((host, port), make_handler(store, token, ResourceManager(), inbox))
+    services = AssistantServices(store)
+    server = MaleniaHTTPServer((host, port), make_handler(store, token, ResourceManager(), inbox, services=services))
+    server.services = services
     try:
         # Only the runtime that successfully owns the socket can invalidate grants.
         gate.invalidate_open()
@@ -626,6 +648,9 @@ def create_server(host: str, port: int, store: TaskStore, token: str) -> Malenia
     except Exception:
         server.server_close()
         raise
+    # Share the local model with other computers only if the user enabled it.
+    services.lan.start_if_enabled()
+    services.vault.start_background_sync()
     return server
 
 
@@ -635,6 +660,9 @@ def run_server(server: MaleniaHTTPServer) -> None:
     except KeyboardInterrupt:
         pass
     finally:
+        services = getattr(server, "services", None)
+        if services is not None:
+            services.lan.stop()
         server.server_close()
 
 

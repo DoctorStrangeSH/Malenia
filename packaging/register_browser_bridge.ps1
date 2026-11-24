@@ -171,9 +171,12 @@ $configJson = ConvertTo-Json -InputObject @{ extension_id = $ExtensionId }
 [System.IO.File]::WriteAllText($configPath, $configJson, $utf8NoBom)
 
 # Register current-user locations only; no administrator rights are needed.
+# Yandex Browser builds differ in which Chromium location they read, so the
+# same manifest is registered in all user-level locations.
 $registryPaths = @(
     "HKCU:\Software\Yandex\YandexBrowser\NativeMessagingHosts\$hostName",
-    "HKCU:\Software\Chromium\NativeMessagingHosts\$hostName"
+    "HKCU:\Software\Chromium\NativeMessagingHosts\$hostName",
+    "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName"
 )
 
 foreach ($registryPath in $registryPaths) {

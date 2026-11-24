@@ -28,3 +28,15 @@
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro MALENIA_CHECK_RESOURCES
 !macroend
+
+; Windows caches icons of shortcuts and executables. After an update with a new
+; icon, ask the shell to refresh so the desktop/Start shortcuts show it at once.
+!macro NSIS_HOOK_POSTINSTALL
+  Push $R9
+  ${If} ${FileExists} "$SYSDIR\ie4uinit.exe"
+    nsExec::Exec '"$SYSDIR\ie4uinit.exe" -show'
+    Pop $R9
+  ${EndIf}
+  Pop $R9
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+!macroend

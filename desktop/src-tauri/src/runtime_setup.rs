@@ -2,6 +2,12 @@
 use sha2::{Digest, Sha256};
 use std::{fs::{self, File}, io::{Read, Write}, path::{Path, PathBuf}, sync::Mutex, time::Duration};
 static STATUS: Mutex<String> = Mutex::new(String::new());
+static INSTALLING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// True while the engine archive is being downloaded or unpacked.
+pub fn installing() -> bool { INSTALLING.load(std::sync::atomic::Ordering::SeqCst) }
+struct InstallFlag;
+impl InstallFlag { fn set() -> Self { INSTALLING.store(true, std::sync::atomic::Ordering::SeqCst); InstallFlag } }
+impl Drop for InstallFlag { fn drop(&mut self) { INSTALLING.store(false, std::sync::atomic::Ordering::SeqCst); } }
 const URL: &str = "https://github.com/ollama/ollama/releases/download/v0.40.16/ollama-windows-amd64.zip";
 const SIZE: u64 = 1618244995;
 const HASH: &str = "50fcf5ad54277f2fa5d173ebfc93bcb017adbc0c9ef2314daabc96ca9e6aa64e";
@@ -52,6 +58,7 @@ pub fn ensure(root: &Path) -> Result<PathBuf, String> {
             return Err("Для установки движка освободите минимум 4 ГБ на диске приложения".into());
         }
     }
+    let _flag = InstallFlag::set();
     let stage = root.join(format!("runtime-setup-{:016x}", rand::random::<u64>()));
     fs::create_dir(&stage).map_err(|_| "Не удалось подготовить установку")?;
     let result: Result<PathBuf, String> = (|| {

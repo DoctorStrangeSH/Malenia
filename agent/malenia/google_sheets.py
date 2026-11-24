@@ -55,6 +55,22 @@ class GoogleSheetsError(RuntimeError):
         self.status = status
 
 
+def _classify_api_error(status: int, api_error: dict[str, Any]) -> str:
+    """Turn a Google API error into an actionable code (never exposes the message)."""
+    text = json.dumps(api_error, ensure_ascii=False).lower()
+    if status == 401 or "access_token_scope_insufficient" in text or "insufficientpermissions" in text:
+        return "google_reauthorization_required"
+    if "service_disabled" in text or "has not been used in project" in text or "it is disabled" in text:
+        return "google_api_disabled"
+    if status == 403:
+        return "google_no_access"
+    if status == 404:
+        return "google_sheet_not_found"
+    if status == 429:
+        return "google_rate_limited"
+    return "google_request_failed"
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -399,15 +415,18 @@ fetch("/", {method:"POST", headers:{"Content-Type":"application/x-www-form-urlen
             except Exception:
                 pass
             error_code = None
+            api_error: dict[str, Any] = {}
             try:
                 parsed_error = json.loads(raw_error.decode("utf-8"))
                 if isinstance(parsed_error, dict):
                     error_code = parsed_error.get("error")
+                    if isinstance(error_code, dict):
+                        api_error, error_code = error_code, None
             except (UnicodeDecodeError, json.JSONDecodeError):
                 pass
             if error_code == "invalid_grant":
                 raise GoogleSheetsError("google_reauthorization_required", status) from error
-            raise GoogleSheetsError("google_request_failed", status) from error
+            raise GoogleSheetsError(_classify_api_error(status, api_error), status) from error
         except URLError as error:
             raise GoogleSheetsError("google_network_unavailable") from error
         except TimeoutError as error:
@@ -457,6 +476,28 @@ fetch("/", {method:"POST", headers:{"Content-Type":"application/x-www-form-urlen
             if self._access_token and self._clock() < self._access_expires_at:
                 return self._access_token
         return self._refresh_access_token()
+
+    def sheet_titles(self, spreadsheet_id: str) -> list[dict[str, Any]]:
+        """[{id, title}] of all tabs — lets the assistant find a sheet by a loosely written name."""
+        if not isinstance(spreadsheet_id, str) or _SPREADSHEET_ID_RE.fullmatch(spreadsheet_id) is None:
+            raise GoogleSheetsError("invalid_spreadsheet_id")
+        url = (f"https://sheets.googleapis.com/v4/spreadsheets/{spreadsheet_id}"
+               "?fields=sheets.properties(sheetId,title,index)")
+        token = self._get_access_token()
+        try:
+            metadata = self._request_json(Request(url, headers={"Authorization": f"Bearer {token}",
+                                                                "Accept": "application/json"}, method="GET"),
+                                          _MAX_SHEETS_RESPONSE_BYTES)
+        except GoogleSheetsError as error:
+            if error.status != 401:
+                raise
+            token = self._refresh_access_token()
+            metadata = self._request_json(Request(url, headers={"Authorization": f"Bearer {token}",
+                                                                "Accept": "application/json"}, method="GET"),
+                                          _MAX_SHEETS_RESPONSE_BYTES)
+        return [{"id": item["properties"].get("sheetId"), "title": item["properties"].get("title")}
+                for item in metadata.get("sheets", []) if isinstance(item, dict) and isinstance(item.get("properties"), dict)
+                and isinstance(item["properties"].get("title"), str)]
 
     def read_active_sheet(self, spreadsheet_url: str, gid: str | None = None) -> dict[str, Any]:
         """Resolve an explicitly shared Google Sheets tab and read its used grid."""

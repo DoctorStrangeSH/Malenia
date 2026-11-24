@@ -121,8 +121,26 @@ def handle_message(payload: dict[str, Any], store: TaskStore, *, google_sheets=N
             "version": "0.1.0",
             "capabilities": ["share_active_tab", "inspect_active_page", "inspect_capabilities", "reconcile_site_tables",
                              "claim_browser_audit", "finish_browser_audit",
-                             "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found", "mark_inventa_asgard", "browser_audit_cancellation"],
+                             "update_browser_audit_progress", "audit_failure_reasons", "detailed_audit_failures", "mark_inventa_found", "mark_inventa_asgard", "browser_audit_cancellation",
+                             "browser_commands"],
         }
+
+    if message_type == "claim_browser_command":
+        from . import browser_commands
+        wait = payload.get("wait", 0)
+        try:
+            command = browser_commands.claim(store, float(wait) if isinstance(wait, (int, float)) else 0.0)
+        except sqlite3.Error:
+            return {**response, "ok": False, "error": "command_queue_unavailable"}
+        return {**response, "ok": True, "type": "browser_command", "command": command}
+
+    if message_type == "finish_browser_command":
+        from . import browser_commands
+        try:
+            done = browser_commands.finish(store, payload.get("id"), payload.get("result"))
+        except sqlite3.Error:
+            return {**response, "ok": False, "error": "command_queue_unavailable"}
+        return {**response, "ok": done, "type": "browser_command_finished"}
 
     if message_type == "browser_audit_active":
         if (set(payload) != {"type", "request_id", "job_id"} or

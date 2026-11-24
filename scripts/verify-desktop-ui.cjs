@@ -17,7 +17,7 @@ fs.mkdirSync(output,{recursive:true});
   const errors=[];page.on("pageerror",e=>errors.push(String(e)));
   await page.addInitScript(()=>{
    const base="https://docs.google.com/spreadsheets/d/demo/edit";
-   const state=window.__uiMock={running:false,authorized:false,extensionId:null,skills:Array.from({length:1000},(_,i)=>({id:"rule-"+i,title:"Правило "+i,terms:"",description:"",instructions:"Шаг "+i,status:"approved",builtin:false})),calls:[],job:null};
+   const state=window.__uiMock={running:false,authorized:false,extensionId:null,skills:Array.from({length:1000},(_,i)=>({id:"rule-"+i,title:"Правило "+i,terms:"",description:"",instructions:"Шаг "+i,status:"approved",builtin:false})),calls:[],job:null,kb:{folder:"",repo:"",branch:"",has_token:false,documents:0,sections:0,items:[],last_sync:null,status:{state:"idle",error:null}}};
    window.__TAURI_INTERNALS__={invoke:async(command,args)=>{
     state.calls.push({command,args});
     if(command==="start_agent"){state.running=true;return "Маления запущена";}
@@ -37,8 +37,33 @@ fs.mkdirSync(output,{recursive:true});
     if(command==="get_browser_bridge_setup")return {available:true,saved_extension_id:state.extensionId};
     if(command==="open_browser_extension_folder")return null;
     if(command==="register_browser_bridge"){state.extensionId=args.extensionId;return null;}
-    if(command==="get_ai_status")return {available:true,models:["qwen3:8b"]};
-    if(command==="chat_ai")return {message:{role:"assistant",content:args.messages.at(-1).content.includes("Следуй инструкции")?"Пришлите номер обращения.":"Вот план работы по вашей задаче."},model:"qwen3:8b"};
+    if(command==="local_ai_engine")return {installed:false,running:false,status:""};
+    if(command==="agent_api"){
+     const p=args.path;state.conversations=state.conversations||{};
+     if(p==="/v1/ai/providers")return {mode:"auto",learning:true,auto_web:true,local_model:null,order:["gemini","ollama"],providers:[{id:"gemini",name:"Google Gemini",kind:"cloud",hint:"",key_url:"",base_url:"",has_key:true,enabled:true,model:null}]};
+     if(p==="/v1/assistant/conversations")return {conversations:Object.values(state.conversations).map(c=>({id:c.id,title:c.title,created_at:"2026-11-23",updated_at:"2026-11-23"}))};
+     if(p.startsWith("/v1/assistant/conversations/")){const c=state.conversations[p.split("/").pop()];return {conversation:{...c,messages:[...c.messages]}};}
+     if(p==="/v1/assistant/runs"){
+      const body=args.body;const id=body.conversation_id||"00000000-0000-4000-8000-000000000001";
+      const c=state.conversations[id]||(state.conversations[id]={id,title:body.message.slice(0,60),messages:[]});
+      const n=c.messages.length;
+      const user={id:"u"+n,conversation_id:id,role:"user",content:body.message,created_at:"",provider:null,model:null,feedback:0,meta:{}};
+      const answer={id:"a"+n,conversation_id:id,role:"assistant",content:(body.instruction||"").includes("Сначала запроси номер обращения")?"Пришлите номер обращения.":"Вот план работы по вашей задаче.",created_at:"",provider:"gemini",model:"gemini-flash",feedback:0,meta:{}};
+      c.messages.push(user,answer);
+      state.run={conversation_id:id,user_message:user,message:answer,provider:"gemini",model:"gemini-flash"};return {run_id:"11111111-2222-4333-8444-555555555555"};
+     }
+     if(p.startsWith("/v1/assistant/runs/11111111-2222-4333-8444-555555555555")){const r=state.run;return {run_id:"x",next:3,done:true,error:null,result:r,events:[{type:"started",conversation_id:r.conversation_id,user_message:r.user_message},{type:"step",id:"s1",tool:"web_search",label:"Ищу в интернете",status:"done"},{type:"delta",text:r.message.content}]};}
+     if(p.startsWith("/v1/ai/hardware"))return {hardware:{ram_gb:16,gpu:null,vram_gb:0,cpu_threads:8,os:"Windows",recommendation:{tier:"cpu-16",label:"16 ГБ",models:["qwen3.5:4b"],note:""}},installed:[],ollama_running:false,pull:{status:"idle",model:null,completed:0,total:0,error:null}};
+     if(p==="/v1/assistant/memories")return {memories:[]};
+     if(p==="/v1/assistant/projects"){state.projects=state.projects||[];if(args.method==="POST"){const pr={id:"aaaaaaaa-0000-4000-8000-00000000000"+(state.projects.length+1),name:args.body.name,instructions:args.body.instructions,kb_scope:args.body.kb_scope,created_at:"",updated_at:""};state.projects.push(pr);return {project:pr};}return {projects:state.projects};}
+     if(p==="/v1/assistant/kb/sync")return {...state.kb,documents:34,sections:813,last_sync:"2026-11-24T10:00:00Z",items:[{path:"05-Операционные-инструкции/INVENTORY_PRODUCT_NAMING.md",title:"Наименования товаров",type:"operational-instruction",status:"active"}],status:{state:"done",error:null}};
+     if(p==="/v1/assistant/kb"){if(args.method==="POST"){state.kb={...state.kb,...args.body,has_token:state.kb.has_token||!!args.body.token};delete state.kb.token;}return state.kb;}
+     if(p==="/v1/ai/detect-key")return {provider:"gigachat"};
+     if(p==="/v1/assistant/workspace")return {path:"C:\\Users\\demo\\Documents\\Маления"};
+     if(p==="/v1/assistant/training")return {stats:{conversations:1,answers:2,liked:1,disliked:0,memories:0,lessons:0,skills:0,ready_for_finetune:false},personal_model:"sherlock-personal"};
+     if(p==="/v1/server")return {enabled:false,running:false,port:8766,token:"mln-test",error:null,requests_served:0,addresses:[]};
+     return {};
+    }
     if(command==="get_skills")return {skills:state.skills};
     if(command==="skill_action"){
       if(args.action==="draft")state.skills.push({...args.payload,id:args.payload.request_id,status:"draft"});
@@ -57,18 +82,19 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByRole("button",{name:"Запустить Малению",exact:true}).click();
   await page.locator(".connection-banner").waitFor({state:"detached"});
   const mainNav=page.getByRole("navigation",{name:"Основные разделы"});
-  assert.deepEqual(await mainNav.getByRole("button").allTextContents(),["Ассистент","Инструменты","Инструкции","Подключения"]);
+  assert.deepEqual(await mainNav.getByRole("button").allTextContents(),["Чат","Инструменты","Память","Настройки"]);
+  const openSkills=async()=>{await mainNav.getByRole("button",{name:"Память",exact:true}).click();await page.getByRole("navigation",{name:"Знания и навыки"}).getByRole("button",{name:"Инструкции",exact:true}).click();};
   await page.getByLabel("Сообщение",{exact:true}).fill("Помоги составить план рабочего дня");
   await page.getByRole("button",{name:"Отправить",exact:true}).click();
   await page.getByText("Вот план работы по вашей задаче.",{exact:true}).waitFor();
   await page.getByLabel("Сообщение",{exact:true}).fill("Несохранённый черновик");
   const openInventory=async()=>{
     await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
-    await page.getByRole("button",{name:/^Инвентаризация/}).click();
+    await page.getByRole("button",{name:/^Инвентаризация Сверить/}).click();
   };
   await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
   assert.equal(await page.locator(".tool-row").count(),1);
-  await mainNav.getByRole("button",{name:"Инструкции",exact:true}).click();
+  await openSkills();
   await page.getByText("1–20 из 1000").waitFor();
   await page.getByRole("button",{name:"Далее",exact:true}).click();
   await page.getByText("21–40 из 1000").waitFor();
@@ -88,16 +114,22 @@ fs.mkdirSync(output,{recursive:true});
   assert.equal(await page.getByLabel("Сообщение",{exact:true}).inputValue(),"Несохранённый черновик");
   await page.getByRole("button",{name:"Отправить",exact:true}).click();
   await page.getByText("Пришлите номер обращения.",{exact:true}).waitFor();
-  assert.match(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="chat_ai").at(-1).args.messages.at(-1).content),/Сначала запроси номер обращения/);
+  assert.match(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="agent_api"&&x.args.path==="/v1/assistant/runs").at(-1).args.body.instruction),/Сначала запроси номер обращения/);
   await page.getByRole("button",{name:"Убрать",exact:true}).click();
   await page.getByLabel("Сообщение",{exact:true}).fill("Несохранённый черновик");
   assert.equal(saved.terms,"Аномалии");
   assert.equal(saved.instructions,"Сначала запроси номер обращения.");
   await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
   await page.screenshot({path:path.join(output,"02-tools.png"),fullPage:true});
-  await mainNav.getByRole("button",{name:"Подключения",exact:true}).click();
+  await mainNav.getByRole("button",{name:"Настройки",exact:true}).click();
+  await page.getByRole("heading",{name:"Как Маления выбирает модель"}).waitFor();
+  await page.screenshot({path:path.join(output,"02-models.png"),fullPage:true});
+  await page.getByRole("navigation",{name:"Разделы настроек"}).getByRole("button",{name:"Сервер",exact:true}).click();
+  await page.getByText("Сервер выключен").waitFor();
+  await page.getByRole("navigation",{name:"Разделы настроек"}).getByRole("button",{name:"Подключения",exact:true}).click();
   await page.getByRole("button",{name:/Яндекс Браузер/}).click();
   await page.getByRole("button",{name:"Открыть папку расширения",exact:true}).click();
+  await page.getByText(/Дополнительно: если расширение пишет/).click();
   await page.getByLabel(/^ID расширения/).fill("wrong-id");
   assert.equal(await page.getByRole("button",{name:"Настроить связь с браузером",exact:true}).isDisabled(),true);
   assert.equal(await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="register_browser_bridge").length),0);
@@ -124,6 +156,9 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByText("2026-11-16",{exact:true}).waitFor();
   await page.screenshot({path:path.join(output,"03-workspace.png"),fullPage:true});
   assert.equal(await page.getByRole("button",{name:"Начать проверку",exact:true}).count(),1);
+  // Two modes: rules + Malenia (default) or rules only. This scenario checks the rules pass.
+  assert.equal(await page.getByRole("radio",{name:/Правила \+ Маления/}).getAttribute("aria-checked"),"true");
+  await page.getByRole("radio",{name:/Только правила/}).click();
   await page.getByRole("button",{name:"Начать проверку",exact:true}).click();
   await page.getByRole("button",{name:"Приостановить",exact:true}).waitFor();
   assert.equal(await select.isDisabled(),true);
@@ -131,7 +166,7 @@ fs.mkdirSync(output,{recursive:true});
   await page.getByText("Проверка на паузе",{exact:true}).first().waitFor();
   const cancel=await page.evaluate(()=>window.__uiMock.calls.find(x=>x.command==="cancel_browser_audit"));
   assert.deepEqual(cancel.args,{jobId:"ui-job"});
-  await mainNav.getByRole("button",{name:"Ассистент",exact:true}).click();
+  await mainNav.getByRole("button",{name:"Чат",exact:true}).click();
   await page.getByRole("heading",{name:"Ассистент",exact:true}).waitFor();
   await page.getByText("Вот план работы по вашей задаче.",{exact:true}).waitFor();
   assert.equal(await page.getByLabel("Сообщение",{exact:true}).inputValue(),"Несохранённый черновик");
@@ -150,9 +185,42 @@ fs.mkdirSync(output,{recursive:true});
   const queued=await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.command==="check_inventa_order_batch"));
   assert.equal(queued.length,2);
   assert.ok(queued.every(x=>x.args.spreadsheetUrl.endsWith("gid=2")));
+  await page.screenshot({path:path.join(output,"inventa-modes.png"),fullPage:true});
+  // Without a knowledge base Malenia would guess: the app sends the user to connect it first.
+  await page.getByRole("button",{name:/Статусы с Маленией/}).click();
+  await page.getByText(/База знаний пока пуста/).waitFor();
+  await page.evaluate(()=>{window.__uiMock.kb.documents=34;});
+  await mainNav.getByRole("button",{name:"Инструменты",exact:true}).click();
+  await openInventory();
+  // Hand the rest to Malenia: a new chat in the "Инвентаризация" project with the task.
+  await page.getByRole("button",{name:/Статусы с Маленией/}).click();
+  await page.getByLabel("Сообщение",{exact:true}).waitFor();
+  for(let i=0;i<50&&!(await page.evaluate(()=>window.__uiMock.calls.some(x=>x.args?.path==="/v1/assistant/runs"&&/Разбери статусы/.test(x.args.body?.message||""))));i++)await page.waitForTimeout(100);
+  const task=await page.evaluate(()=>window.__uiMock.calls.filter(x=>x.args?.path==="/v1/assistant/runs").at(-1).args.body);
+  assert.match(task.message,/Разбери статусы/);
+  assert.match(task.message,/gid=2/);
+  assert.ok(task.project_id,"task goes to the Инвентаризация project");
   for(const width of [1440,1080,850]){
    await page.setViewportSize({width,height:900});
-   for(const destination of ["Ассистент","Инструменты","Инструкции"]){
+   await mainNav.getByRole("button",{name:"Память",exact:true}).click();
+   await page.getByRole("navigation",{name:"Знания и навыки"}).getByRole("button",{name:"Своя модель",exact:true}).click();
+   await page.getByText("Чему Маления уже научилась").waitFor();
+   if(width===1440){
+    await page.getByRole("navigation",{name:"Знания и навыки"}).getByRole("button",{name:"База знаний",exact:true}).click();
+    await page.getByLabel("Репозиторий GitHub").fill("DoctorStrangeSH/Malenia_Knowledge_Base");
+    await page.getByLabel("Токен GitHub").fill("github_pat_"+"x".repeat(30));
+    await page.getByRole("button",{name:/Сохранить и синхронизировать/}).click();
+    await page.getByText(/Готово: 34 документов, 813 разделов/).waitFor();
+    await page.getByText("сохранён",{exact:true}).waitFor();
+    await page.screenshot({path:path.join(output,"kb-1440.png"),fullPage:true});
+    await page.getByRole("button",{name:"Новый проект"}).click();
+    await page.getByPlaceholder("Например: Инвентаризация").fill("Отпуск");
+    await page.getByRole("button",{name:"Сохранить",exact:true}).click();
+    await page.getByRole("heading",{name:"Отпуск"}).waitFor();
+    await page.screenshot({path:path.join(output,"project-1440.png"),fullPage:true});
+    await page.getByRole("button",{name:"Все чаты",exact:true}).click();
+   }
+   for(const destination of ["Чат","Инструменты","Память","Настройки"]){
     await mainNav.getByRole("button",{name:destination,exact:true}).click();
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth), destination+" horizontal overflow at "+width);
     await page.screenshot({path:path.join(output,destination+"-"+width+".png"),fullPage:true});

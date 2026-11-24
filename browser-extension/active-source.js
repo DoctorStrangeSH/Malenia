@@ -10,7 +10,7 @@
   const show=text=>{status.textContent=text;};
   const clean=url=>MaleniaAutomation.sourceUrl(url);
   function summary(targets){
-    return roles.map(role=>labels[role]+': '+(targets?.[role]?'сохранён ✓':'нужно выбрать')).join(' · ');
+    return roles.map(role=>labels[role]+': '+(targets?.[role]?'сохранён ✓':'нужно выбрать')).join('\n');
   }
   chrome.storage.local.get('maleniaTargets').then(data=>show(summary(data?.maleniaTargets)))
     .catch(()=>show('Не удалось прочитать сохранённые источники.'));
@@ -32,7 +32,7 @@
       if(!allowed){show('Доступ не предоставлен. Источник не сохранён.');return;}
       const response=await chrome.runtime.sendMessage({type:'configure_active_source',role,url});
       if(!response?.ok)throw Error('save_failed');
-      show(labels[role]+' сохранён. '+summary(response.targets));
+      show(labels[role]+' сохранён.\n'+summary(response.targets));
       try{
         const shared=await sendNativeMessage({type:'share_active_tab',request_id:crypto.randomUUID(),tab:sanitizedTab(active)});
         if(!shared?.ok)throw Error('share_failed');

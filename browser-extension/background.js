@@ -1,20 +1,69 @@
 /* Background task, bounded to three explicitly permitted resources. */
-importScripts("automation.js");
+importScripts("automation.js", "agent-browser.js");
 const HOST = "com.malenia.browser";
 let running = false;
 
+const APP_BRIDGE_URL = "http://127.0.0.1:8765/v1/extension/message";
+
+// Fallback transport: the running Malenia app on loopback. Used when the
+// browser cannot start the native host (often disabled by organisation policy).
+function httpSession() {
+  let closed = false;
+  return {
+    async send(message) {
+      if (closed) throw new Error("host_not_ready");
+      const id = crypto.randomUUID();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(),
+        ['mark_inventa_found','mark_inventa_asgard'].includes(message.type)?120000:10000);
+      try {
+        const response = await fetch(APP_BRIDGE_URL, {method:"POST", headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({...message, request_id:id}), signal:controller.signal, cache:"no-store"});
+        if (!response.ok) throw new Error(response.status === 403 ? "app_forbidden" : "app_unavailable");
+        const value = await response.json();
+        if (!value || value.request_id !== id) throw new Error("host_protocol");
+        return value;
+      } catch (error) {
+        throw new Error(error?.name === "AbortError" ? "host_timeout" : error?.message || "app_unavailable");
+      } finally { clearTimeout(timer); }
+    },
+    close() { closed = true; }
+  };
+}
+
+// Native Messaging first; if the browser cannot reach the native host at all,
+// transparently switch to the running app. Call sites see one session.
 function nativeSession() {
+  let active = portSession(), usingHttp = false;
+  return {
+    async send(message) {
+      if (!usingHttp) {
+        try { return await active.send(message); }
+        catch (error) {
+          if (active.everOk || !["host_disconnected","host_not_ready"].includes(error?.message)) throw error;
+          usingHttp = true;
+          active = httpSession();
+        }
+      }
+      return active.send(message);
+    },
+    close() { active.close(); }
+  };
+}
+
+function portSession() {
   // A native messaging port keeps the MV3 worker alive while the job is active.
   const port = chrome.runtime.connectNative(HOST);
   let pending = null;
   let closed = false;
+  let everOk = false;
   port.onMessage.addListener(response => {
     if (!pending) return;
     const active = pending;
     pending = null;
     clearTimeout(active.timer);
     if (!response || response.request_id !== active.id) active.reject(new Error("host_protocol"));
-    else active.resolve(response);
+    else { everOk = true; active.resolve(response); }
   });
   port.onDisconnect.addListener(() => {
     closed = true;
@@ -26,6 +75,7 @@ function nativeSession() {
     }
   });
   return {
+    get everOk() { return everOk; },
     send(message) {
       if (closed || pending) return Promise.reject(new Error("host_not_ready"));
       return new Promise((resolve, reject) => {
@@ -134,7 +184,7 @@ async function pollDesktopAudit() {
   // Reserve the worker before the first await: alarms and popup requests can
   // arrive while permissions or the native host handshake are still pending.
   running = true;
-  let session;
+  let session, claimedAny = false;
   try {
     const stored = await chrome.storage.local.get(["maleniaTargets", "maleniaExactGetSearch"]);
     session = nativeSession();
@@ -147,6 +197,7 @@ async function pollDesktopAudit() {
     const claimed = await session.send({type:"claim_browser_audit"});
     const jobId = claimed?.job?.job_id;
     if (!claimed?.ok || !claimed.job || typeof jobId !== "string") return;
+    claimedAny = true;
     let succeeded = false;
     let failureReason = "execution_failed";
     let watcher,watchTimer,controller,checkActive,jobStopped=false;
@@ -199,7 +250,11 @@ async function pollDesktopAudit() {
           }).catch(error=>{controller.abort('audit_progress_unavailable');throw error;}).finally(()=>{checking=null;});
           return checking;
         };
+        let keepAlive=Date.now();
         const watch=async()=>{try{await checkActive();}catch{/* Fail closed on loss of the stop channel. */}
+          // Calling an extension API keeps the MV3 service worker alive during
+          // long batches, also when the app is reached over HTTP (no native port).
+          if(Date.now()-keepAlive>20000){keepAlive=Date.now();try{await chrome.runtime.getPlatformInfo();}catch{/* best effort */}}
           if(!controller.signal.aborted)watchTimer=setTimeout(watch,500);};
         await checkActive();watchTimer=setTimeout(watch,500);
       }
@@ -225,7 +280,13 @@ async function pollDesktopAudit() {
   } catch { /* Host unavailable, no permissions, or extension restarting. */ }
   finally {
     try { session?.close(); }
-    finally { running = false; }
+    finally {
+      running = false;
+      // The app queues the next batch right after this one: pick it up in
+      // seconds instead of waiting for the next one-minute alarm.
+      // (Alarms survive a sleeping service worker; unpacked extensions are not clamped to 30 s.)
+      if (claimedAny) chrome.alarms.create(DESKTOP_AUDIT_ALARM + "-soon", {when: Date.now() + 3000});
+    }
   }
 }
 function enableDesktopAuditPolling() {
@@ -234,6 +295,9 @@ function enableDesktopAuditPolling() {
 chrome.runtime.onInstalled.addListener(enableDesktopAuditPolling);
 chrome.runtime.onStartup.addListener(enableDesktopAuditPolling);
 chrome.alarms.onAlarm.addListener(alarm => {
-  if (alarm.name === DESKTOP_AUDIT_ALARM) void pollDesktopAudit();
+  if (alarm.name === DESKTOP_AUDIT_ALARM || alarm.name === DESKTOP_AUDIT_ALARM + "-soon") void pollDesktopAudit();
+  // Malenia's own browsing: keep listening for her commands while the app runs.
+  if (alarm.name === DESKTOP_AUDIT_ALARM && typeof MaleniaBrowser !== "undefined") void MaleniaBrowser.loop();
 });
 enableDesktopAuditPolling();
+if (typeof MaleniaBrowser !== "undefined") void MaleniaBrowser.loop();

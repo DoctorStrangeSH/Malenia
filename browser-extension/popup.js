@@ -30,8 +30,9 @@ function bridgeError(code) {
 
 function diagnostic(error, sharing = false) {
   switch (error.bridgeCode) {
-    case "not_found": return "Хост Malenia не найден. Выполните проверенную регистрацию Browser Bridge и перезапустите браузер.";
-    case "forbidden": return "Браузер запретил подключение. Проверьте ID расширения и политики Native Messaging; не меняйте политики организации самостоятельно.";
+    case "not_found": return "Маления не найдена. Откройте приложение Маления на этом компьютере и нажмите «Проверить снова».";
+    case "forbidden": return "Браузер запретил подключение. Откройте приложение Маления — расширение подключится к нему напрямую.";
+    case "app_closed": return "Маления не запущена. Откройте приложение Маления на этом компьютере и нажмите «Проверить снова».";
     case "timeout": return sharing
       ? "Ответ не получен за 5 секунд. Вкладка могла сохраниться — проверьте раздел «Браузер» в Malenia перед повторной передачей."
       : "Хост не ответил за 5 секунд. Проверьте установку и повторите подключение.";
@@ -48,7 +49,43 @@ function classifyNativeError(message) {
   return bridgeError("disconnected");
 }
 
-function sendNativeMessage(message) {
+const APP_BRIDGE_URL = "http://127.0.0.1:8765/v1/extension/message";
+let transport = "native";
+
+// Fallback when the browser cannot reach the native host (often an
+// organisation policy): talk to the running Malenia app on loopback.
+async function sendAppMessage(message) {
+  if (typeof fetch !== "function") throw bridgeError("not_found");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RESPONSE_TIMEOUT_MS);
+  try {
+    const response = await fetch(APP_BRIDGE_URL, {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(message), signal: controller.signal, cache: "no-store"});
+    if (!response.ok) throw bridgeError(response.status === 403 ? "forbidden" : "app_closed");
+    const value = await response.json();
+    if (!value || typeof value !== "object") throw bridgeError("protocol");
+    return value;
+  } catch (error) {
+    throw error?.bridgeCode ? error : bridgeError("app_closed");
+  } finally { clearTimeout(timer); }
+}
+
+async function sendNativeMessage(message) {
+  if (transport === "app") return sendAppMessage(message);
+  try { return await sendViaNative(message); }
+  catch (error) {
+    if (!["not_found", "forbidden", "disconnected"].includes(error.bridgeCode) || typeof fetch !== "function") throw error;
+    try {
+      const value = await sendAppMessage(message);
+      transport = "app";
+      return value;
+    } catch (fallback) {
+      throw fallback.bridgeCode === "app_closed" ? error : fallback;
+    }
+  }
+}
+
+function sendViaNative(message) {
   return new Promise((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
@@ -87,9 +124,9 @@ async function connect() {
     const response = await sendNativeMessage({ type: "hello" });
     if (!response.ok || response.host !== HOST_NAME) throw bridgeError("protocol");
     connected = true;
-    setStatus("Malenia подключена. Можно поделиться текущей вкладкой.", "ok");
+    setStatus(transport === "app" ? "Маления подключена (через приложение). Можно передать вкладку." : "Маления подключена. Можно передать вкладку.", "ok");
   } catch (error) {
-    setStatus(`${diagnostic(error)} В Малении откройте «Подключения». ID этого расширения — ${chrome.runtime.id}.`, "error");
+    setStatus(diagnostic(error), "error");
   } finally {
     busy = false;
     updateButtons();
